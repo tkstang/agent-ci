@@ -9,6 +9,7 @@ import { reviewCommand } from '@agent-ci/commands/review.js';
 import { routeCommand } from '@agent-ci/commands/route.js';
 import { runCommand } from '@agent-ci/commands/run.js';
 import { skillsCommand } from '@agent-ci/commands/skills.js';
+import { targetsCommand } from '@agent-ci/commands/targets.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { validateCommand } from '@agent-ci/commands/validate.js';
 import { workspaceCommand } from '@agent-ci/commands/workspace.js';
@@ -25,6 +26,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   publishCommand,
   reviewCommand,
   presetCommand,
+  targetsCommand,
   notifyCommand,
   workspaceCommand,
   digestCommand,
