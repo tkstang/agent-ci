@@ -2,7 +2,7 @@
 id: DR-261025-organize-the-docs-as-one-flat
 title: Organize the docs as one flat grouped index of reader pages
 date: 2026-10-25
-status: accepted
+status: proposed
 legacy_id: null
 ---
 
@@ -19,3 +19,7 @@ Plain Markdown under docs/ (oat docs init --framework markdown, preset flat-smal
 ## Consequences
 
 Graduate to folders when the tree passes about 15 reader pages, when one ### group passes about 8 entries (that group becomes a folder with its own index.md), or when a second distinct reader population appears (for example consumers outside the operator's repositories): re-run the selection with the Toolkit and CLI preset as the likely destination. New pages go into an existing group and the index Contents in the same change; docs:check fails on an unlisted page.
+
+## Status note 2026-10-25
+
+This record is `proposed`, not `accepted`. The operator's documentation convention requires the operator to accept an IA proposal before scaffolding. In this autonomous run, the approved project brief's section list stood in for that approval. The tree was scaffolded and written to this structure, and the operator confirms or changes it at delivery.

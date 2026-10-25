@@ -19,3 +19,12 @@ Consumers trigger on pull_request_target (types: labeled, label agent-ci:review)
 ## Consequences
 
 The consumer file, allowed models, review policy and agent-ci pin come from the default branch, so a pull request cannot change what reviews it; changes to the consumer file take effect after they merge. pull_request_target and issue_comment get read-only Actions cache tokens; workflow_dispatch keeps read-write cache access, but no job runs pull-request code that could use it. Requester and author write access is the trust boundary: a prompt injection in the pull request could still try to steer the reviewer into publishing encoded data in a finding (exact credential values are refused by the output guard), the same accepted residual risk pntr documents. The comment-command and dispatch paths are exercised only by unit and structure tests until the workflows reach main.
+
+## Amendment 2026-10-25: verify-review runs pull-request code (p04; recorded in p06)
+
+Two statements above stopped being true when verify-review shipped (DR-261025-run-verify-review-checks-where). The original text is kept as history; this amendment supersedes those two statements.
+
+- "The workflow never runs pull-request code" now holds only for review requests. For a verify-review request, which a caller enables with `verify: true`, the `verify` job of `pr-review.yml` runs the PR head's code: the `setup` command from `checks.yaml`, with network access, and each configured check. That job holds no model credential and no `AGENT_CI_SOURCE_TOKEN`. It still holds the job's read-only `GITHUB_TOKEN` and can obtain the job's `ACTIONS_RUNTIME_TOKEN`.
+- "No job runs pull-request code that could use" the read-write cache access of `workflow_dispatch` is no longer true. A dispatched verify-review runs PR code in the default branch's Actions scope. That code can write caches that other default-branch workflows may restore, and it can upload artifacts.
+
+Reviewer passes, the gate, the adjudicator, the findings gate and publishing still never execute pull-request code. Codex and Cursor reviewers keep the residual shell access their read-only modes allow, which `docs/security-model.md` describes.
