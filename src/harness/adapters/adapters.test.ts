@@ -458,11 +458,13 @@ describe('opencode argv and job config', () => {
     expect(config.permission).toEqual({
       edit: 'deny',
       bash: 'deny',
+      shell: 'deny',
       webfetch: 'deny',
+      websearch: 'deny',
     });
   });
 
-  it('adds --auto for edit runs and keeps the network tool denied', async () => {
+  it('adds --auto for edit runs and keeps the network tools denied', async () => {
     const request = await makeRequest(route, { mode: 'edit' });
     const { observed } = await replay(opencodeAdapter, request, {
       stdout: await fixture('opencode-success.jsonl'),
@@ -478,7 +480,10 @@ describe('opencode argv and job config', () => {
         'utf8',
       ),
     );
-    expect(config.permission).toEqual({ webfetch: 'deny' });
+    expect(config.permission).toEqual({
+      webfetch: 'deny',
+      websearch: 'deny',
+    });
   });
 
   it('sums step_finish token usage when present', async () => {

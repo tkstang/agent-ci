@@ -21,14 +21,29 @@ import type {
  * (`OPENCODE_DISABLE_PROJECT_CONFIG`), so a repository cannot widen them.
  * Tool denials are not a network boundary.
  */
+/**
+ * Read-only deny rules, verified live on opencode v2.0.27 (2026-10-25,
+ * research `opencode-readonly-probe-2026-10-25.md`): without them a
+ * non-interactive run wrote a file and ran `touch` through its `shell` tool
+ * even without `--auto`; with them neither tool was offered. v2 names the tool
+ * `shell` but `bash: deny` also removed it, so both keys are denied.
+ */
+export const READ_ONLY_PERMISSION = {
+  edit: 'deny',
+  bash: 'deny',
+  shell: 'deny',
+  webfetch: 'deny',
+  websearch: 'deny',
+} as const;
+
 export function opencodeConfig(mode: RunMode): Record<string, unknown> {
   return {
     $schema: 'https://opencode.ai/config.json',
     autoupdate: false,
     permission:
       mode === 'read-only'
-        ? { edit: 'deny', bash: 'deny', webfetch: 'deny' }
-        : { webfetch: 'deny' },
+        ? READ_ONLY_PERMISSION
+        : { webfetch: 'deny', websearch: 'deny' },
   };
 }
 
