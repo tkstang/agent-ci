@@ -5,7 +5,8 @@
 # harness with only the credential variables the route names.
 #
 # Policy (enforced in src/routing/policy.ts):
-# - Claude models run only on the `claude` harness.
+# - Every route declares its model `family`; `family: claude` runs only on the
+#   `claude` harness (Claude-looking names are also rejected elsewhere).
 # - Resolution never falls back from a subscription route to a paid-api route,
 #   and never falls back into a `work` account; pick those with --route.
 # - `account: pool` routes spend the local CLIProxyAPI pool: they need
@@ -21,6 +22,7 @@ routes:
   - id: claude-haiku-4-5-pool
     model: claude-haiku-4-5
     harness: claude
+    family: claude
     providerModel: claude-haiku-4-5-20251001
     credentials: [ANTHROPIC_AUTH_TOKEN]
     baseUrl: http://127.0.0.1:8317
@@ -32,6 +34,7 @@ routes:
   - id: claude-haiku-4-5-personal
     model: claude-haiku-4-5
     harness: claude
+    family: claude
     providerModel: claude-haiku-4-5-20251001
     credentials: [CLAUDE_CODE_OAUTH_TOKEN]
     billing: subscription
@@ -42,6 +45,7 @@ routes:
   - id: claude-haiku-4-5-api
     model: claude-haiku-4-5
     harness: claude
+    family: claude
     providerModel: claude-haiku-4-5-20251001
     credentials: [ANTHROPIC_API_KEY]
     billing: paid-api
@@ -52,6 +56,7 @@ routes:
   - id: claude-haiku-5-5-pool
     model: claude-haiku-5-5
     harness: claude
+    family: claude
     providerModel: claude-haiku-5-5
     credentials: [ANTHROPIC_AUTH_TOKEN]
     baseUrl: http://127.0.0.1:8317
@@ -65,6 +70,7 @@ routes:
   - id: gpt-5.6-luna-pool
     model: gpt-5.6-luna
     harness: codex
+    family: openai
     providerModel: gpt-5.6-luna
     credentials: [AGENT_CI_PROXY_API_KEY]
     baseUrl: http://127.0.0.1:8317/v1
@@ -81,6 +87,7 @@ routes:
   - id: grok-4.7-opencode-login
     model: grok-4.7
     harness: opencode
+    family: xai
     providerModel: opencode-go/grok-4.7
     login: true
     billing: subscription
@@ -91,6 +98,7 @@ routes:
   - id: grok-4.7-opencode
     model: grok-4.7
     harness: opencode
+    family: xai
     providerModel: opencode-go/grok-4.7
     credentials: [OPENCODE_API_KEY]
     billing: subscription
@@ -101,6 +109,7 @@ routes:
   - id: glm-5.3-flash-opencode-login
     model: glm-5.3-flash
     harness: opencode
+    family: zhipu
     providerModel: opencode-go/glm-5.3-flash
     login: true
     billing: subscription
@@ -113,6 +122,7 @@ routes:
   - id: grok-4.7-cursor
     model: grok-4.7
     harness: cursor
+    family: xai
     providerModel: grok-4.7-low
     credentials: [CURSOR_API_KEY]
     billing: subscription
@@ -125,6 +135,7 @@ routes:
   - id: fake-echo
     model: fake-echo
     harness: fake
+    family: fake
     providerModel: echo
     billing: none
     account: personal

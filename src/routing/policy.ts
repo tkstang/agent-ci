@@ -20,9 +20,20 @@ export const PAID_API_CREDENTIALS: readonly string[] = [
   'CODEX_OPENAI_API_KEY',
 ];
 
-/** True for a Claude-family model, judged by both the key and provider ID. */
-export function isClaudeModel(route: Pick<Route, 'model' | 'providerModel'>) {
-  return /claude|anthropic/iu.test(`${route.model} ${route.providerModel}`);
+/** Claude-looking model names, including Cursor's `sonnet`/`opus`/`haiku` IDs. */
+const CLAUDE_NAME = /claude|anthropic|\bsonnet\b|\bopus\b|\bhaiku\b/iu;
+
+/**
+ * True for a Claude route: declared `family: claude`, or (defense in depth) a
+ * model key or provider ID that looks like a Claude model.
+ */
+export function isClaudeModel(
+  route: Pick<Route, 'model' | 'providerModel'> & { family?: Route['family'] },
+): boolean {
+  return (
+    route.family === 'claude' ||
+    CLAUDE_NAME.test(`${route.model} ${route.providerModel}`)
+  );
 }
 
 /** True when the environment says this is a CI run. */
@@ -41,6 +52,18 @@ export function checkRoutePolicy(route: Route): Result<Route> {
     return failure(
       'E_POLICY_HARNESS',
       `route ${route.id}: Claude models run only in the claude harness`,
+    );
+  }
+  if (route.harness === 'claude' && route.family !== 'claude') {
+    return failure(
+      'E_ROUTE_CONFIG',
+      `route ${route.id}: the claude harness serves only family "claude"`,
+    );
+  }
+  if ((route.harness === 'fake') !== (route.family === 'fake')) {
+    return failure(
+      'E_ROUTE_CONFIG',
+      `route ${route.id}: family "fake" is reserved for the fake harness`,
     );
   }
   if (route.billing === 'subscription') {

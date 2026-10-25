@@ -29,6 +29,26 @@ export const STRUCTURED_OUTPUT_MODES = [
 ] as const;
 export type StructuredOutputMode = (typeof STRUCTURED_OUTPUT_MODES)[number];
 
+/**
+ * Model family, declared explicitly on every route so the Claude-only rule
+ * does not depend on how a harness happens to name a model (Cursor names
+ * Claude models `sonnet-4.5`, `opus-4.1`, `sonnet-4-thinking`).
+ */
+export const MODEL_FAMILIES = [
+  'claude',
+  'openai',
+  'xai',
+  'zhipu',
+  'moonshot',
+  'deepseek',
+  'qwen',
+  'google',
+  'cursor',
+  'fake',
+  'other',
+] as const;
+export type ModelFamily = (typeof MODEL_FAMILIES)[number];
+
 const ENV_NAME = /^[A-Z][A-Z0-9_]*$/u;
 const ROUTE_ID = /^[a-z0-9][a-z0-9.-]*$/u;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/u;
@@ -39,6 +59,8 @@ export const RouteSchema = z.strictObject({
   /** The qualified model key a caller picks. */
   model: z.string().min(1),
   harness: z.enum(HARNESS_IDS),
+  /** Model family (required; `claude` routes must use the claude harness). */
+  family: z.enum(MODEL_FAMILIES),
   /** Model ID as the harness expects it. */
   providerModel: z.string().min(1),
   /** Credential environment variable NAMES this route may receive. */

@@ -14,6 +14,7 @@ const route = (scenario: string): Route => ({
   id: `fake-${scenario}`,
   model: `fake-${scenario}`,
   harness: 'fake',
+  family: 'fake',
   providerModel: scenario,
   credentials: [],
   login: false,

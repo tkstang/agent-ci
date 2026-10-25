@@ -13,6 +13,7 @@ const PRESENT = 'synthetic-credential-placeholder';
 
 const route = (overrides: Record<string, unknown>) => ({
   harness: 'claude',
+  family: 'claude',
   providerModel: 'claude-haiku-4-5-20251001',
   billing: 'subscription',
   account: 'personal',
@@ -77,6 +78,7 @@ describe('load-time policy', () => {
             id: 'bad',
             model: 'claude-haiku-4-5',
             harness: 'opencode',
+            family: 'other',
             credentials: ['OPENCODE_API_KEY'],
           }),
         ],
@@ -94,6 +96,7 @@ describe('load-time policy', () => {
             id: 'sneaky',
             model: 'fast-model',
             harness: 'cursor',
+            family: 'other',
             providerModel: 'anthropic/haiku',
             credentials: ['CURSOR_API_KEY'],
           }),
@@ -101,6 +104,61 @@ describe('load-time policy', () => {
       }),
     );
     expect(parsed).toMatchObject({ code: 'E_POLICY_HARNESS' });
+  });
+
+  it('rejects Cursor-style Claude IDs off the claude harness even when mislabeled', () => {
+    for (const id of ['sonnet-4-thinking', 'opus-4.1', 'sonnet-4.5']) {
+      const parsed = one(
+        route({
+          id: `cursor-${id}`,
+          model: id,
+          harness: 'cursor',
+          family: 'other',
+          providerModel: id,
+          credentials: ['CURSOR_API_KEY'],
+        }),
+      );
+      expect(parsed, id).toMatchObject({ ok: false, code: 'E_POLICY_HARNESS' });
+    }
+  });
+
+  it('rejects family claude under a neutral name on a non-Claude harness', () => {
+    const parsed = one(
+      route({
+        id: 'neutral',
+        model: 'fast-cheap',
+        harness: 'cursor',
+        family: 'claude',
+        providerModel: 'fast-cheap-1',
+        credentials: ['CURSOR_API_KEY'],
+      }),
+    );
+    expect(parsed).toMatchObject({ ok: false, code: 'E_POLICY_HARNESS' });
+  });
+
+  it('fails closed when a route omits its family', () => {
+    const { family: _omitted, ...rest } = route({
+      id: 'no-family',
+      model: 'grok-4.7',
+      harness: 'cursor',
+      providerModel: 'grok-4.7-low',
+      credentials: ['CURSOR_API_KEY'],
+    });
+    expect(one(rest)).toMatchObject({ ok: false, code: 'E_ROUTE_CONFIG' });
+  });
+
+  it('rejects a non-Claude family on the claude harness', () => {
+    expect(
+      one(
+        route({
+          id: 'gpt-on-claude',
+          model: 'gpt-5.6-luna',
+          family: 'openai',
+          providerModel: 'gpt-5.6-luna',
+          credentials: ['CLAUDE_CODE_OAUTH_TOKEN'],
+        }),
+      ),
+    ).toMatchObject({ ok: false, code: 'E_ROUTE_CONFIG' });
   });
 
   it('rejects a subscription route that names a paid API credential', () => {
@@ -173,6 +231,7 @@ describe('resolveRoute policy rejections', () => {
       id: 'grok-login',
       model: 'grok-4.7',
       harness: 'opencode',
+      family: 'xai',
       providerModel: 'opencode-go/grok-4.7',
       structuredOutput: 'prompt',
       login: true,

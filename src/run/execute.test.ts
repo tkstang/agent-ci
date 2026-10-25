@@ -16,6 +16,7 @@ routes:
   - id: fake-hang
     model: fake-hang
     harness: fake
+    family: fake
     providerModel: hang
     billing: none
     account: personal
@@ -24,6 +25,7 @@ routes:
   - id: grok-login
     model: grok-4.7
     harness: opencode
+    family: xai
     providerModel: opencode-go/grok-4.7
     login: true
     billing: subscription

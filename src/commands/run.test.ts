@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 const fakeRoute = (scenario: string) => `  - id: fake-${scenario}
     model: fake-${scenario}
     harness: fake
+    family: fake
     providerModel: ${scenario}
     billing: none
     account: personal
@@ -21,6 +22,7 @@ routes:
 ${['echo', 'invalid', 'auth', 'fail'].map(fakeRoute).join('')}  - id: pool-only
     model: pool-model
     harness: claude
+    family: claude
     providerModel: claude-haiku-4-5-20251001
     credentials: [ANTHROPIC_AUTH_TOKEN]
     billing: subscription
