@@ -65,7 +65,7 @@ export async function isolationSupport(
     if (link !== undefined) {
       return {
         mode: 'unavailable',
-        reason: `${path.relative(boundaryRoot, link)} is an absolute symlink into the repository`,
+        reason: `${path.relative(boundaryRoot, link)} is a symlink a copy cannot isolate (absolute into the repository, or climbing out of it)`,
       };
     }
   } catch {
@@ -88,7 +88,35 @@ async function pointsInto(root: string, target: string): Promise<boolean> {
   }
 }
 
-/** The first symlink under `root` whose absolute target lies inside it. */
+/**
+ * True when a relative target, walked segment by segment from the link's
+ * directory, climbs above the repository root. From a copy at another depth
+ * such a link resolves differently, and with enough `..` segments it can
+ * reach the original repository (review p02 L1).
+ */
+function climbsOut(root: string, link: string, target: string): boolean {
+  if (path.isAbsolute(target)) return false;
+  let depth = path
+    .relative(root, path.dirname(link))
+    .split(path.sep)
+    .filter(Boolean).length;
+  for (const part of target.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      depth -= 1;
+      if (depth < 0) return true;
+    } else {
+      depth += 1;
+    }
+  }
+  return false;
+}
+
+/**
+ * The first symlink under `root` that a copy cannot isolate: an absolute
+ * target inside the repository, a relative target that climbs out of it, or
+ * any link whose real path lands inside the repository from outside.
+ */
 async function findAbsoluteInRepoLink(
   root: string,
   skipDir: string | undefined,
@@ -101,11 +129,11 @@ async function findAbsoluteInRepoLink(
       if (full === skipDir || (dir === root && entry.name === '.git')) continue;
       if (entry.isDirectory()) {
         pending.push(full);
-      } else if (
-        entry.isSymbolicLink() &&
-        (await pointsInto(root, await readlink(full)))
-      ) {
-        return full;
+      } else if (entry.isSymbolicLink()) {
+        const target = await readlink(full);
+        if ((await pointsInto(root, target)) || climbsOut(root, full, target)) {
+          return full;
+        }
       }
     }
   }

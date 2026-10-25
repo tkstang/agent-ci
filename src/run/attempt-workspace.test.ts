@@ -203,7 +203,8 @@ describe('absolute links into the repository', () => {
     const events = await logEvents(summary.value.logPath);
     expect(events.find((e) => e.event === 'attempt.isolation')).toMatchObject({
       mode: 'single-attempt',
-      reason: 'abs-link is an absolute symlink into the repository',
+      reason:
+        'abs-link is a symlink a copy cannot isolate (absolute into the repository, or climbing out of it)',
     });
     expect(await readlink(path.join(repo, 'abs-link'))).toBe(
       path.join(repo, 'a.txt'),
@@ -212,6 +213,31 @@ describe('absolute links into the repository', () => {
     expect(summary.value.result.changedFiles).toEqual([
       'agent-ci-fake-edit.md',
     ]);
+  });
+
+  it('a relative link that climbs to / and back into the repository disables copy isolation (review L1)', async () => {
+    const repo = await scratchRepo();
+    await writeFile(path.join(repo, 'b.txt'), 'b\n');
+    const depth = repo.split('/').filter(Boolean).length;
+    const climbing = `${'../'.repeat(depth + 2)}${repo.slice(1)}/b.txt`;
+    await mkdir(path.join(repo, 'deep'));
+    await symlink(climbing, path.join(repo, 'deep', 'climb'));
+    // From the original it lands on the repository's own file.
+    expect(await readFile(path.join(repo, 'deep', 'climb'), 'utf8')).toBe(
+      'b\n',
+    );
+    expect(await isolationSupport(repo, true)).toMatchObject({
+      mode: 'unavailable',
+      reason: expect.stringContaining('deep/climb'),
+    });
+  });
+
+  it('any relative link leaving the repository disables copy isolation (fail-safe)', async () => {
+    const repo = await scratchRepo();
+    await symlink('../sibling/file', path.join(repo, 'up'));
+    expect(await isolationSupport(repo, true)).toMatchObject({
+      mode: 'unavailable',
+    });
   });
 
   it('isolation stays available for relative and outside links', async () => {
