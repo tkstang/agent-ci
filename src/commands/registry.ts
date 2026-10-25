@@ -8,6 +8,7 @@ import { runCommand } from '@agent-ci/commands/run.js';
 import { skillsCommand } from '@agent-ci/commands/skills.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { validateCommand } from '@agent-ci/commands/validate.js';
+import { workspaceCommand } from '@agent-ci/commands/workspace.js';
 
 /** Registered subcommands, in help order. */
 export const COMMANDS: readonly CommandSpec[] = [
@@ -20,4 +21,5 @@ export const COMMANDS: readonly CommandSpec[] = [
   skillsCommand,
   publishCommand,
   notifyCommand,
+  workspaceCommand,
 ];

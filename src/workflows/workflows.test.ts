@@ -206,20 +206,36 @@ describe('run-agent.yml', () => {
     );
     expect(
       step(setup, 'Pack the prepared working tree (without .git)').run,
-    ).toContain('--exclude=./.git');
+    ).toContain('--exclude=.git');
     // The agent job waits for setup but never runs the command itself.
-    expect(agent.needs).toBe('setup');
+    expect(agent.needs).toContain('setup');
+    expect(agent.if).toContain(
+      "needs.setup.outputs.prepared_artifact_id != ''",
+    );
     expect(JSON.stringify(agent)).not.toContain('setup_command }}');
     expect(JSON.stringify(agent)).not.toContain('SETUP_COMMAND');
+    // No tar in the credential job: agent-ci parses the archive itself.
+    for (const entry of agent.steps ?? []) {
+      expect(entry.run ?? '').not.toMatch(/\btar\b/u);
+    }
+    const download = step(agent, 'Download the prepared working tree');
+    expect(download.with?.['artifact-ids']).toBe(
+      '${{ needs.setup.outputs.prepared_artifact_id }}',
+    );
+    expect(download.with?.name).toBeUndefined();
     const restore = step(agent, 'Restore the prepared working tree');
-    expect(restore.run).toContain('--exclude=./.git');
-    expect(restore.run).toContain('-C target');
+    expect(restore.run).toBe(
+      'agent-ci workspace restore --archive "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" --target target --sha256 "$PREPARED_SHA256"',
+    );
+    expect(restore.env?.PREPARED_SHA256).toBe(
+      '${{ needs.setup.outputs.prepared_sha256 }}',
+    );
     const names = (agent.steps ?? []).map((entry) => entry.name);
-    expect(names.indexOf('Check out the target repository')).toBeLessThan(
+    expect(names.indexOf('Set up agent-ci')).toBeLessThan(
       names.indexOf('Restore the prepared working tree'),
     );
     expect(names.indexOf('Restore the prepared working tree')).toBeLessThan(
-      names.indexOf('Run the agent'),
+      names.indexOf('Resolve the route'),
     );
   });
 

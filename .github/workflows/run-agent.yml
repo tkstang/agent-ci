@@ -68,7 +68,8 @@ on:
         description: >-
           Optional command (for example dependency installation) run in the target
           checkout in a separate setup job without secrets. Only its resulting working
-          tree (without .git) reaches the agent job. It runs repository code: an edit-mode
+          tree reaches the agent job, as an archive agent-ci parses itself (files,
+          directories and in-tree links only; never .git). It runs repository code: an edit-mode
           agent can later run that code with the model credential in its environment.
         type: string
         default: ''
@@ -168,6 +169,11 @@ jobs:
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
+    # Claims from untrusted code: the agent job re-checks the digest and
+    # parses the archive itself (agent-ci workspace restore).
+    outputs:
+      prepared_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      prepared_sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
       - name: Check out the target repository
         uses: actions/checkout@v5
@@ -189,10 +195,16 @@ jobs:
           corepack enable
           bash -c "$SETUP_COMMAND"
 
+      # Best effort only: the setup command ran in this job and may have
+      # changed anything here. The agent job is the trust boundary.
       - name: Pack the prepared working tree (without .git)
-        run: tar --exclude=./.git -czf "$RUNNER_TEMP/agent-ci-prepared.tgz" -C target .
+        id: pack
+        run: |
+          env -i PATH=/usr/bin:/bin tar --exclude=.git -czf "$RUNNER_TEMP/agent-ci-prepared.tgz" -C target .
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/agent-ci-prepared.tgz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload the prepared working tree
+        id: upload
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}-prepared
@@ -203,7 +215,7 @@ jobs:
   agent:
     name: Run agent
     needs: setup
-    if: ${{ !cancelled() && (needs.setup.result == 'success' || needs.setup.result == 'skipped') }}
+    if: ${{ !cancelled() && (needs.setup.result == 'skipped' || (needs.setup.result == 'success' && needs.setup.outputs.prepared_artifact_id != '')) }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
@@ -227,19 +239,6 @@ jobs:
           ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}
           persist-credentials: false
 
-      - name: Download the prepared working tree
-        if: inputs.setup_command != ''
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ inputs.artifact_name }}-prepared
-          path: ${{ runner.temp }}/agent-ci-prepared
-
-      # Over this job's own checkout: .git (config, hooks) never comes from
-      # the setup job. GNU tar refuses members with '..' and delays links.
-      - name: Restore the prepared working tree
-        if: inputs.setup_command != ''
-        run: tar --no-same-owner -xzf "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" -C target --exclude=./.git
-
       - name: Check out the agent-ci helpers
         uses: actions/checkout@v5
         with:
@@ -253,6 +252,24 @@ jobs:
         uses: ./.agent-ci-src/.github/actions/setup-agent-ci
         with:
           path: .agent-ci-src
+
+      # The setup job's archive is hostile input: downloaded by the exact
+      # artifact ID that job uploaded, then parsed by agent-ci itself (no tar
+      # process) with an entry allowlist, into a staging directory that gets
+      # this job's own .git. .git from the archive is refused at any depth.
+      - name: Download the prepared working tree
+        if: inputs.setup_command != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.setup.outputs.prepared_artifact_id }}
+          path: ${{ runner.temp }}/agent-ci-prepared
+          merge-multiple: true
+
+      - name: Restore the prepared working tree
+        if: inputs.setup_command != ''
+        env:
+          PREPARED_SHA256: ${{ needs.setup.outputs.prepared_sha256 }}
+        run: agent-ci workspace restore --archive "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" --target target --sha256 "$PREPARED_SHA256"
 
       - name: Resolve the route
         id: route
