@@ -9,6 +9,14 @@ embodies the house "bleeding-edge" profile from the `foundations` conventions.
 > them.** Tooling here uses stable TypeScript 7 with fast-moving Oxc and pnpm 11.
 > Re-check each pin before adopting, especially the pre-1.0 `oxfmt`.
 
+## Contents
+
+- [Stack](#stack)
+- [What's inside](#whats-inside)
+- [Getting started](#getting-started)
+- [Scripts](#scripts)
+- [NOTES / Deviations](#notes--deviations)
+
 ## Stack
 
 | Concern           | Choice                                                                                                             |
@@ -17,11 +25,11 @@ embodies the house "bleeding-edge" profile from the `foundations` conventions.
 | Module/resolution | `NodeNext` / `NodeNext`, target `ES2024`                                                                           |
 | Runtime           | Node 24 (`.nvmrc`, `engines.node >=24`)                                                                            |
 | Package manager   | pnpm 11.x (double-pinned: `packageManager` + `engines.pnpm`)                                                       |
-| Lint / format     | Oxc — `oxlint` + `oxfmt` (`arrowParens: always`)                                                                   |
+| Lint / format     | Oxc — `oxlint` + `oxfmt`                                                                                           |
 | Tests             | Vitest 4, globals OFF, **co-located `*.test.ts` siblings**                                                         |
 | Validation        | Zod 4 at boundaries                                                                                                |
 | Errors            | Result-envelope (`Success \| Failure`, closed `E_*` codes) in domain code; typed `CliError` thrown at the boundary |
-| Build             | `tsc` + `tsc-alias` → `dist/`                                                                                      |
+| Build             | `tsrs` + `tsc-alias` → `dist/`                                                                                     |
 | Dev runner        | `tsx`                                                                                                              |
 | Commits           | Conventional Commits via commitlint                                                                                |
 | Git hooks         | custom `tools/git-hooks/` (no husky/lefthook), wired by `prepare`                                                  |
@@ -89,12 +97,39 @@ src/
    project lifecycle). The scaffold deliberately does **not** pre-bake `.agents/`,
    provider mirrors, or `.oat/`.
 
+## CLI Commands
+
+The CLI is agent-first: every command returns a JSON envelope (`{"ok":boolean, "command":string, "data":object|null}`) on stdout, structured exit codes (`E_*`) on failure, and no interactive prompts.
+
+Available commands:
+
+- `parse-config` — Validate and parse configuration via Zod schema
+- `route` — Resolve a model to its route under the current policy
+- `run` — Execute a workflow with specified target and options
+- `validate` — Check configuration, schemas, or models for validity
+- `models` — List, inspect, or manage available models
+- `review` — Run code review or documentation review operations
+- `doctor` — Diagnose environment, dependencies, and project setup
+- `publish` — Publish or deploy outputs to configured targets
+- `notify` — Send notifications through configured channels
+- `skills` — List, install, or manage agent skills
+- `registry` — Query or manage package/artifact registry
+- `workspace` — Manage monorepo or multi-package workspace
+- `tools-update` — Update tooling, dependencies, or scripts
+- `preset` — Load, list, or apply configuration presets
+- `harness` — Configure or inspect execution harness (routing/model selection)
+- `digest` — Summarize or extract data from various sources
+- `github` — GitHub API interactions and workflow automation
+- `targets` — Configure or resolve build/deploy targets
+
+Exit with `node dist/cli.js <command> --help` for detailed usage and flags per command.
+
 ## Scripts
 
 | Script                       | Does                                                         |
 | ---------------------------- | ------------------------------------------------------------ |
 | `pnpm run dev`               | `tsx watch src/cli.ts`                                       |
-| `pnpm run build`             | emit to `dist/` via `tsc` + `tsc-alias`                      |
+| `pnpm run build`             | emit to `dist/` via `tsrs` + `tsc-alias` (Oxc's Rust TypeScript compiler) |
 | `pnpm run typecheck`         | `tsc --noEmit`                                               |
 | `pnpm run lint`              | `oxlint`                                                     |
 | `pnpm run format`            | `oxfmt --write .` (rewrite)                                  |
@@ -108,6 +143,31 @@ After `git worktree add`, run `pnpm run worktree:init` inside the new worktree.
 Run `pnpm run worktree:validate` before handoff or push. If the repo has run
 `oat init`, init also syncs OAT local paths, provider views, and archived project
 docs from S3 where configured.
+
+## Library Integration
+
+This project exports a TypeScript barrel from `dist/index.js` for use as a library dependency. The library provides:
+
+- **`parseConfig(input): Result<Config>`** — Parse and validate configuration via Zod schema. Returns `Success<Config>` or `Failure<error>`.
+- **`Result` type** — `Success<T>` | `Failure<E>` envelope. Use `result.ok` to check status; access `result.data` on success or `result.error` on failure.
+- **`CliError` class** — Typed boundary errors with machine-readable error codes (`E_*`). Import and use for error handling.
+- **Error codes** — Closed set of `E_*` codes; never string-match error messages.
+
+### Usage Example
+
+```typescript
+import { parseConfig, CliError } from '@tkstang/agent-ci';
+
+// Parse config
+const result = parseConfig({ name: 'my-app' });
+if (result.ok) {
+  console.log(result.data.name);
+} else {
+  throw new CliError(result.error);
+}
+```
+
+See `src/index.ts` for the complete barrel export and `src/config.ts` for the Zod schema.
 
 ## NOTES / Deviations
 
@@ -124,3 +184,7 @@ docs from S3 where configured.
 - **`@types/node` is pinned to `^24`** to match the Node 24 runtime target even
   though `@types/node@26` exists.
 - No `.editorconfig` (dropped by house decision; oxfmt is the single formatter).
+
+---
+
+For contributor and agent guidance, see [AGENTS.md](AGENTS.md).

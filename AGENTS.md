@@ -16,6 +16,14 @@ Vitest 4 with co-located `*.test.ts` siblings (globals off) - Zod 4 at
 boundaries - Conventional Commits - custom git hooks in `tools/git-hooks/` (no
 husky/lefthook) - `private: true` + MIT LICENSE.
 
+## Document Scope
+
+**For Everyone:** The Headline defaults and Non-Negotiables sections apply to all contributors and users of this project.
+
+**For Agents/Contributors:** Sections on Definition of Done, Agent setup, Worktrees, and the OAT tool guidance (Tool Packs, Project Management, Decision Records) document development workflow and governance.
+
+**For Users:** Refer to [README.md](README.md) for project overview, quick-start steps, and CLI usage examples.
+
 ## Non-Negotiables
 
 - **Machine-readable error codes, never string matching** on messages.
@@ -42,6 +50,18 @@ Run the narrowest sufficient checks - do not over-gate:
   tests live in `src/workflows/`
 
 There is never a CI coverage gate.
+
+### Testing Strategy
+
+Tests are **co-located** with source code as `*.test.ts` siblings. Vitest runs with **globals OFF** — import `describe`, `it`, `expect` from vitest instead of relying on global scope.
+
+**Running tests:**
+- `pnpm run test` — run all tests once
+- `pnpm run test:watch` — run tests in watch mode during development
+
+**Focused testing:** Use `it.only` in a single test file to run only that test; uncheck `only` before committing.
+
+No specific test framework preference for domain logic beyond Vitest + globals OFF; structure tests to clearly state inputs, actions, and expected outputs. Mocks are acceptable for external dependencies but prefer real objects when feasible.
 
 ## Agent setup
 
@@ -111,3 +131,7 @@ hand-assemble the OAT layer.
 - Run `oat pjm doctor --json` and inspect `adoption.state` before any decision write.
 - If the decision surface is missing, repository adoption is absent or partial; stop and initialize it with `oat pjm init`.
 <!-- END OAT decisions -->
+
+---
+
+For user-focused project overview and quick start, see [README.md](README.md).
