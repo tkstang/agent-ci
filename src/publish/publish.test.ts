@@ -165,6 +165,49 @@ describe('publishStaticBranch', () => {
     ).not.toThrow();
   });
 
+  it('never overwrites a commit pushed to the branch while it was publishing', async () => {
+    const { remote, clone, seed } = await remoteAndClone();
+    const baseSha = git(clone, 'rev-parse', 'HEAD');
+    const real = createGit(clone, { PATH: process.env.PATH });
+    const options = {
+      git: real,
+      changeSet: {
+        version: 1 as const,
+        baseSha,
+        files: [write('agent.txt', 'a')],
+      },
+      branch: 'agent-ci/race',
+      baseBranch: 'main',
+      title: 't',
+      author: ACTIONS_BOT,
+    };
+    const created = await publishStaticBranch(options);
+    expect(created.ok && created.value.action).toBe('created');
+    // Someone else pushes to the branch after the publisher checked its head
+    // and before its own push lands.
+    let foreign: string | undefined;
+    const racing: typeof real = async (args, runOptions) => {
+      if (args[0] === 'push' && foreign === undefined) {
+        git(seed, 'fetch', '-q', 'origin', 'agent-ci/race');
+        git(seed, 'checkout', '-q', '-b', 'race', 'FETCH_HEAD');
+        await writeFile(path.join(seed, 'concurrent.txt'), 'other\n');
+        git(seed, 'add', '.');
+        git(seed, 'commit', '-qm', 'concurrent');
+        git(seed, 'push', '-q', 'origin', 'race:agent-ci/race');
+        foreign = git(seed, 'rev-parse', 'HEAD');
+      }
+      return real(args, runOptions);
+    };
+    const raced = await publishStaticBranch({
+      ...options,
+      git: racing,
+      changeSet: { ...options.changeSet, files: [write('agent.txt', 'b')] },
+    });
+    expect(foreign).toBeDefined();
+    expect(raced.ok ? 'ok' : raced.code).toBe('E_PUBLISH');
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/race')).toBe(foreign);
+  });
+
   it('records a moved base, then refuses an older base that would undo it (gate M1 A/B/C, final H1)', async () => {
     const { remote, clone, seed } = await remoteAndClone();
     // Base A: README.md = old (seed has "# r\n"; set it explicitly).
@@ -256,6 +299,19 @@ describe('publishStaticBranch', () => {
         moved.value.commit,
       );
     }
+    // Adopting the branch does not lift the refusal: a base proven older
+    // is refused even when an unrelatable one would be accepted.
+    const adoptedOlder = await publishStaticBranch({
+      ...freshOptions,
+      changeSet: changes(a),
+      adoptBranch: true,
+    });
+    expect(adoptedOlder.ok ? 'ok' : adoptedOlder.code).toBe(
+      'E_PUBLISH_STALE_BASE',
+    );
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/abc')).toBe(
+      moved.value.commit,
+    );
     expect(
       git(remote, 'diff', '--name-status', `${c}...refs/heads/agent-ci/abc`),
     ).toBe('M\tREADME.md');
