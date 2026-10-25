@@ -1,9 +1,12 @@
 import { existsSync } from 'node:fs';
 import {
   appendFile,
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
+  rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import os from 'node:os';
@@ -119,6 +122,64 @@ describe('installed-skill integrity', () => {
     const changed = await fingerprintSkills(layout);
     expect(changed.ok && first.ok && changed.value !== first.value).toBe(true);
     await purgeSkills(layout);
+    expect(await readdir(layout.skillsDir)).toEqual([]);
+  });
+});
+
+describe('purge never follows a redirected parent (gate C1)', () => {
+  for (const parent of ['.agents', '.claude']) {
+    it(`keeps an external directory when the run redirects home/${parent}`, async () => {
+      const { options, homeRoot } = await setup();
+      const external = path.join(path.dirname(homeRoot), `external-${parent}`);
+      await mkdir(path.join(external, 'skills'), { recursive: true });
+      const sentinel = path.join(external, 'skills', 'keep.md');
+      await writeFile(sentinel, 'unrelated\n');
+      const summary = await runAgent(options, {
+        harness: {
+          spawn: async (spec: SpawnSpec) => {
+            const target = path.join(spec.env.HOME ?? '', parent);
+            await rm(target, { recursive: true, force: true });
+            await symlink(external, target);
+            return await spawnHarness(spec);
+          },
+        },
+      });
+      if (!summary.ok) throw new Error(summary.message);
+      expect(summary.value.error?.code).toBe('E_HOME_ROOT');
+      // The external directory and its contents survive...
+      expect(existsSync(sentinel)).toBe(true);
+      // ...and the redirecting link itself was removed from the home.
+      const layout = homeLayout(homeRoot);
+      const info = await lstat(path.join(layout.home, parent)).catch(
+        () => null,
+      );
+      expect(info === null || !info.isSymbolicLink()).toBe(true);
+    });
+  }
+
+  it('purges through real directories and unlinks a redirected ancestor directly', async () => {
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), 'agent-ci-skills-purge-'),
+    );
+    const layout = homeLayout(path.join(root, 'home-root'));
+    const external = path.join(root, 'external');
+    await mkdir(path.join(external, 'skills', 'x'), { recursive: true });
+    await writeFile(path.join(external, 'skills', 'x', 'SKILL.md'), 'keep');
+    await mkdir(layout.home, { recursive: true });
+    await symlink(external, path.join(layout.home, '.agents'));
+    await mkdir(path.join(layout.home, '.claude'), { recursive: true });
+    await symlink(external, path.join(layout.home, '.claude', 'skills'));
+    // The fingerprint does not follow the links either.
+    const print = await fingerprintSkills(layout);
+    expect(print.ok).toBe(true);
+    await purgeSkills(layout);
+    expect(existsSync(path.join(external, 'skills', 'x', 'SKILL.md'))).toBe(
+      true,
+    );
+    expect(
+      (await lstat(path.join(layout.home, '.agents'))).isSymbolicLink(),
+    ).toBe(false);
+    expect(existsSync(path.join(layout.home, '.claude', 'skills'))).toBe(false);
     expect(await readdir(layout.skillsDir)).toEqual([]);
   });
 });
