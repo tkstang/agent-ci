@@ -90,6 +90,15 @@ Publishing details (`agent-ci publish`):
   commit or opened it, unless `adopt_branch` is set.
 - A new commit's parent is the branch head (plus the new base as a second
   parent when the base moved). An identical tree is reported as `unchanged`.
+- A run built on an older base than the one the branch already publishes
+  (a delayed or re-run job after a newer run published) is refused with
+  `E_PUBLISH_STALE_BASE` and nothing is pushed: its tree would undo the newer
+  base's changes. A base that cannot be related to the branch's recorded base
+  (for example a rewritten base branch) is refused too, unless `adopt_branch`
+  is set. Rerun the agent on the current base branch.
+- The path policy and the workflow-file rule apply to the whole pull request
+  diff (the new commit against its merge base with the base branch), not only
+  to the run's change set, before anything is pushed.
 - Changes under `.github/workflows/` are refused; `GITHUB_TOKEN` cannot push
   them.
 

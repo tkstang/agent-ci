@@ -24,12 +24,14 @@ import {
 import {
   type CommitIdentity,
   publishStaticBranch,
+  type PullDiffEntry,
 } from '@agent-ci/publish/static-branch.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isWithin, resolvePhysical } from '@agent-ci/run/workspace.js';
 import {
   findPolicyViolations,
   type PathPolicy,
+  type PolicyEntry,
 } from '@agent-ci/use-cases/policy.js';
 
 /**
@@ -202,7 +204,8 @@ export interface PublishOptions {
   readonly publisherLogin?: string;
   /**
    * A use-case wrapper's changed-path policy, chosen by the workflow (never
-   * read from the run result): every change-set path must pass it.
+   * read from the run result): every change-set path, and every path of the
+   * resulting pull request diff, must pass it.
    */
   readonly pathPolicy?: { readonly name: string; readonly policy: PathPolicy };
 }
@@ -251,6 +254,56 @@ export function checkChangeSet(
       'E_PUBLISH',
       `the run changed ${workflow.path}; GITHUB_TOKEN cannot push workflow files`,
       'Publish with a token that has the workflow scope and pass --allow-workflow-changes.',
+    );
+  }
+  return success(undefined);
+}
+
+/** A pull request diff path as the path policy sees it. */
+function policyEntry(entry: PullDiffEntry): PolicyEntry {
+  if (entry.status === 'D') return { path: entry.path, action: 'delete' };
+  if (entry.mode === '120000') return { path: entry.path, action: 'symlink' };
+  if (entry.mode === '160000') {
+    return { path: entry.path, action: 'submodule' };
+  }
+  return { path: entry.path, action: 'write', mode: entry.mode };
+}
+
+/**
+ * Check the complete pull request diff, not only the change set's own
+ * paths: whatever the new commit changes against the base branch (for
+ * example a deletion a stale base would cause) must pass the workflow-file
+ * rule and the path policy, or nothing is pushed.
+ */
+export function checkPullDiff(
+  entries: readonly PullDiffEntry[],
+  options: {
+    readonly allowWorkflowChanges: boolean;
+    readonly pathPolicy?: {
+      readonly name: string;
+      readonly policy: PathPolicy;
+    };
+  },
+): Result<void> {
+  if (options.pathPolicy !== undefined) {
+    const refused = findPolicyViolations(
+      entries.map(policyEntry),
+      options.pathPolicy.policy,
+    );
+    if (refused.length > 0) {
+      return failure(
+        'E_PATH_POLICY',
+        `the ${options.pathPolicy.name} path policy refuses ${refused.length} path(s) of the pull request diff: ${refused.slice(0, 10).join(', ')}${refused.length > 10 ? ', …' : ''}`,
+        'Nothing was pushed. The pull request diff against the base branch must stay inside the policy; rerun the agent on the current base branch.',
+      );
+    }
+  }
+  const workflow = entries.find((entry) => WORKFLOW_PATH.test(entry.path));
+  if (workflow !== undefined && !options.allowWorkflowChanges) {
+    return failure(
+      'E_PUBLISH',
+      `the pull request would change ${workflow.path}; GITHUB_TOKEN cannot push workflow files`,
+      'Nothing was pushed. Publish with a token that has the workflow scope and pass --allow-workflow-changes.',
     );
   }
   return success(undefined);
@@ -332,6 +385,18 @@ export async function publishRun(
           ? {}
           : { branchPrefix: options.branchPrefix }),
         adoptBranch: options.adoptBranch === true,
+        ...(options.allowWorkflowChanges === true &&
+        options.pathPolicy === undefined
+          ? {}
+          : {
+              checkPullDiff: (entries: readonly PullDiffEntry[]) =>
+                checkPullDiff(entries, {
+                  allowWorkflowChanges: options.allowWorkflowChanges === true,
+                  ...(options.pathPolicy === undefined
+                    ? {}
+                    : { pathPolicy: options.pathPolicy }),
+                }),
+            }),
       });
       if (!branch.ok) return branch;
       const body = renderPullBody(result, {

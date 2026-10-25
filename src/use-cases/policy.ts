@@ -1,5 +1,3 @@
-import type { ChangeEntry } from '@agent-ci/publish/changes.js';
-
 /**
  * Changed-path policies for the use-case wrappers, after pntr's
  * `quality_change_policy` (voxmedia/pntr@e438668). The publish job, which
@@ -50,20 +48,36 @@ export function findDisallowedPaths(
     .toSorted();
 }
 
-/** Change-set entries the policy refuses (by path or by kind), as `path (reason)`. */
+/**
+ * What a policy needs to know about one changed path: a change-set entry, or
+ * one path of a pull request diff (where a submodule pointer can appear).
+ */
+export type PolicyEntry =
+  | {
+      readonly path: string;
+      readonly action: 'write';
+      readonly mode: string;
+    }
+  | { readonly path: string; readonly action: 'symlink' | 'delete' }
+  | { readonly path: string; readonly action: 'submodule' };
+
+/** Entries the policy refuses (by path or by kind), as `path (reason)`. */
 export function findPolicyViolations(
-  entries: readonly ChangeEntry[],
+  entries: readonly PolicyEntry[],
   policy: PathPolicy,
 ): string[] {
   const refused: string[] = [];
   for (const entry of entries) {
     if (!isAllowedPath(entry.path, policy)) {
       refused.push(entry.path);
+    } else if (entry.action === 'submodule') {
+      // No policy allows a submodule pointer.
+      refused.push(`${entry.path} (submodule)`);
     } else if (entry.action === 'symlink' && !policy.symlinks) {
       refused.push(`${entry.path} (symlink)`);
     } else if (
       entry.action === 'write' &&
-      entry.mode === '100755' &&
+      entry.mode !== '100644' &&
       !policy.executables
     ) {
       refused.push(`${entry.path} (executable)`);

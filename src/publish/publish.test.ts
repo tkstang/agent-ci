@@ -165,7 +165,7 @@ describe('publishStaticBranch', () => {
     ).not.toThrow();
   });
 
-  it('records a moved base even when the published tree is identical (gate M1 A/B/C)', async () => {
+  it('records a moved base, then refuses an older base that would undo it (gate M1 A/B/C, final H1)', async () => {
     const { remote, clone, seed } = await remoteAndClone();
     // Base A: README.md = old (seed has "# r\n"; set it explicitly).
     await writeFile(path.join(seed, 'README.md'), 'old\n');
@@ -197,11 +197,17 @@ describe('publishStaticBranch', () => {
       action: 'unchanged',
       commit: b.value.commit,
     });
-    // Base C moves README.md; the same final tree (README.md = agent).
+    // Base C moves README.md, adds an unrelated file and modifies another.
     await writeFile(path.join(seed, 'README.md'), 'new-base\n');
-    git(seed, 'commit', '-qam', 'C');
+    await mkdir(path.join(seed, 'src'));
+    await writeFile(path.join(seed, 'src', 'new.ts'), 'export const x = 1;\n');
+    await writeFile(path.join(seed, 'old.txt'), 'changed on main\n');
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-qm', 'C');
     git(seed, 'push', '-q', 'origin', 'main');
     const c = git(seed, 'rev-parse', 'HEAD');
+    // Accepted control: the newer base publishes with parents [B, C], and
+    // the pull request diff against C is only this run's path.
     const moved = await publishStaticBranch({
       ...options,
       changeSet: changes(c),
@@ -211,10 +217,9 @@ describe('publishStaticBranch', () => {
     expect(git(remote, 'log', '-1', '--format=%P', moved.value.commit)).toBe(
       `${b.value.commit} ${c}`,
     );
-    expect(git(remote, 'rev-parse', `${moved.value.commit}^{tree}`)).toBe(
-      git(remote, 'rev-parse', `${b.value.commit}^{tree}`),
-    );
-    // The three-dot diff against the new base now shows new-base -> agent.
+    expect(
+      git(remote, 'diff', '--name-status', `${c}...${moved.value.commit}`),
+    ).toBe('M\tREADME.md');
     expect(
       git(remote, 'diff', `${c}...${moved.value.commit}`, '--', 'README.md'),
     ).toContain('-new-base');
@@ -224,8 +229,10 @@ describe('publishStaticBranch', () => {
       changeSet: changes(c),
     });
     expect(again.ok && again.value.action).toBe('unchanged');
-    // A rerun from the older base A, which the branch already contains,
-    // from a fresh shallow clone: no new commit (gate round 2 L).
+    // A delayed or rerun artifact from the older base A, from a fresh
+    // shallow clone: its tree would drop src/new.ts and revert old.txt, so
+    // it is refused and the branch is untouched, for the same change set
+    // and for a new one.
     const fresh = path.join(path.dirname(clone), 'fresh');
     git(
       path.dirname(clone),
@@ -239,31 +246,74 @@ describe('publishStaticBranch', () => {
       ...options,
       git: createGit(fresh, { PATH: process.env.PATH }),
     };
-    const older = await publishStaticBranch({
+    for (const files of [changes(a).files, [write('README.md', 'agent 2\n')]]) {
+      const older = await publishStaticBranch({
+        ...freshOptions,
+        changeSet: { version: 1, baseSha: a, files },
+      });
+      expect(older.ok ? 'ok' : older.code).toBe('E_PUBLISH_STALE_BASE');
+      expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/abc')).toBe(
+        moved.value.commit,
+      );
+    }
+    expect(
+      git(remote, 'diff', '--name-status', `${c}...refs/heads/agent-ci/abc`),
+    ).toBe('M\tREADME.md');
+    // A newer base after the refusals still publishes normally.
+    await writeFile(path.join(seed, 'later.txt'), 'later\n');
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-qm', 'D');
+    git(seed, 'push', '-q', 'origin', 'main');
+    const d = git(seed, 'rev-parse', 'HEAD');
+    const newer = await publishStaticBranch({
       ...freshOptions,
-      changeSet: changes(a),
+      changeSet: changes(d),
     });
-    expect(older.ok && older.value).toMatchObject({
-      action: 'unchanged',
-      commit: moved.value.commit,
+    expect(newer.ok && newer.value.action).toBe('updated');
+    expect(
+      git(remote, 'diff', '--name-status', `${d}...refs/heads/agent-ci/abc`),
+    ).toBe('M\tREADME.md');
+  });
+
+  it('refuses a base it cannot relate to the recorded one unless the branch is adopted', async () => {
+    const { remote, clone, seed } = await remoteAndClone();
+    const a = git(seed, 'rev-parse', 'HEAD');
+    const options = {
+      git: createGit(clone, { PATH: process.env.PATH }),
+      branch: 'agent-ci/rewritten',
+      baseBranch: 'main',
+      title: 't',
+      author: ACTIONS_BOT,
+    };
+    const first = await publishStaticBranch({
+      ...options,
+      changeSet: { version: 1, baseSha: a, files: [write('a.md', 'a\n')] },
     });
-    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/abc')).toBe(
-      moved.value.commit,
+    expect(first.ok && first.value.action).toBe('created');
+    if (!first.ok) return;
+    // The base branch is rewritten to an unrelated history.
+    git(seed, 'checkout', '-q', '--orphan', 'rewrite');
+    await writeFile(path.join(seed, 'README.md'), 'rewritten\n');
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-qm', 'rewritten');
+    git(seed, 'push', '-q', '--force', 'origin', 'rewrite:main');
+    const x = git(seed, 'rev-parse', 'HEAD');
+    const changeSet: ChangeSet = {
+      version: 1,
+      baseSha: x,
+      files: [write('a.md', 'a\n')],
+    };
+    const refused = await publishStaticBranch({ ...options, changeSet });
+    expect(refused.ok ? 'ok' : refused.code).toBe('E_PUBLISH_STALE_BASE');
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/rewritten')).toBe(
+      first.value.commit,
     );
-    // A new tree from that older base: one ordinary commit, base not re-added.
-    const edited = await publishStaticBranch({
-      ...freshOptions,
-      changeSet: {
-        version: 1,
-        baseSha: a,
-        files: [write('README.md', 'agent 2\n')],
-      },
+    const adopted = await publishStaticBranch({
+      ...options,
+      changeSet,
+      adoptBranch: true,
     });
-    expect(edited.ok && edited.value.action).toBe('updated');
-    if (!edited.ok) return;
-    expect(git(remote, 'log', '-1', '--format=%P', edited.value.commit)).toBe(
-      moved.value.commit,
-    );
+    expect(adopted.ok && adopted.value.action).toBe('updated');
   });
 
   it('refuses protected or base branch names and a change set without a base', async () => {
@@ -623,6 +673,118 @@ describe('use-case path policy', () => {
       },
     });
     expect(report.ok && report.value.pull.action).toBe('created');
+  });
+
+  it('refuses a delayed older-base docs run that would delete a newer-base file (final H1 probe)', async () => {
+    const { remote, clone, seed } = await remoteAndClone();
+    const gh = fakeGitHub();
+    const publish = (baseSha: string, text: string) =>
+      publishRun({
+        outputs: outputs(
+          {},
+          { version: 1, baseSha, files: [write('docs/new.md', text)] },
+        ),
+        github: gh.client,
+        git: createGit(clone, { PATH: process.env.PATH }),
+        pullRequest: true,
+        branch: 'agent-ci/docs',
+        baseBranch: 'main',
+        author: ACTIONS_BOT,
+        pathPolicy: {
+          name: 'docs-update',
+          policy: PATH_POLICIES['docs-update'],
+        },
+      });
+    const a = git(seed, 'rev-parse', 'HEAD');
+    const initial = await publish(a, 'agent initial\n');
+    expect(initial.ok && initial.value.pull.action).toBe('created');
+    // main advances with source.
+    await mkdir(path.join(seed, 'src'));
+    await writeFile(path.join(seed, 'src', 'new.ts'), 'export const x = 1;\n');
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-qm', 'main advances with source');
+    git(seed, 'push', '-q', 'origin', 'main');
+    const c = git(seed, 'rev-parse', 'HEAD');
+    // Accepted control: a docs run on C changes only the docs file.
+    const latest = await publish(c, 'agent new base\n');
+    expect(latest.ok && latest.value.pull.action).toBe('updated');
+    const head = git(remote, 'rev-parse', 'refs/heads/agent-ci/docs');
+    expect(
+      git(remote, 'diff', '--name-status', `${c}...refs/heads/agent-ci/docs`),
+    ).toBe('A\tdocs/new.md');
+    // The delayed run from A is refused; the branch and pull request stay.
+    const body = gh.pulls[0]?.body;
+    const stale = await publish(a, 'agent delayed old base\n');
+    expect(stale.ok ? 'ok' : stale.code).toBe('E_PUBLISH_STALE_BASE');
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/docs')).toBe(head);
+    expect(
+      git(remote, 'diff', '--name-status', `${c}...refs/heads/agent-ci/docs`),
+    ).toBe('A\tdocs/new.md');
+    expect(gh.pulls[0]?.body).toBe(body);
+  });
+
+  it('checks the whole pull request diff, not only the change set (adopted branch carrying a newer base)', async () => {
+    const { remote, clone, seed } = await remoteAndClone();
+    const a = git(seed, 'rev-parse', 'HEAD');
+    const gh = fakeGitHub();
+    const base = {
+      github: gh.client,
+      git: createGit(clone, { PATH: process.env.PATH }),
+      pullRequest: true,
+      branch: 'agent-ci/docs',
+      baseBranch: 'main',
+      author: ACTIONS_BOT,
+    };
+    const docs = (baseSha: string) =>
+      outputs(
+        {},
+        { version: 1, baseSha, files: [write('docs/new.md', 'n\n')] },
+      );
+    const created = await publishRun({ ...base, outputs: docs(a) });
+    expect(created.ok && created.value.pull.action).toBe('created');
+    // main advances (a source file and a workflow), and a person merges it
+    // into the static branch: the head has no agent-ci trailer, so only the
+    // pull request diff shows what an older-base tree would undo.
+    await mkdir(path.join(seed, 'src'));
+    await writeFile(path.join(seed, 'src', 'new.ts'), 'export const x = 1;\n');
+    await mkdir(path.join(seed, '.github', 'workflows'), { recursive: true });
+    await writeFile(
+      path.join(seed, '.github', 'workflows', 'ci.yml'),
+      'on: push\n',
+    );
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-qm', 'main advances');
+    git(seed, 'push', '-q', 'origin', 'main');
+    git(seed, 'fetch', '-q', 'origin', 'agent-ci/docs');
+    git(seed, 'checkout', '-q', '-b', 'docs', 'FETCH_HEAD');
+    git(seed, 'merge', '-q', '--no-edit', 'main');
+    git(seed, 'push', '-q', 'origin', 'docs:agent-ci/docs');
+    const human = git(remote, 'rev-parse', 'refs/heads/agent-ci/docs');
+
+    // With the docs policy: the deletions are outside it.
+    const policed = await publishRun({
+      ...base,
+      outputs: docs(a),
+      adoptBranch: true,
+      pathPolicy: {
+        name: 'docs-update',
+        policy: PATH_POLICIES['docs-update'],
+      },
+    });
+    expect(policed.ok ? 'ok' : policed.code).toBe('E_PATH_POLICY');
+    expect(policed.ok ? '' : policed.message).toContain('src/new.ts');
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/docs')).toBe(human);
+    // Without a policy, the workflow-file rule still sees the deletion.
+    const unpoliced = await publishRun({
+      ...base,
+      outputs: docs(a),
+      adoptBranch: true,
+    });
+    expect(unpoliced.ok ? 'ok' : unpoliced.code).toBe('E_PUBLISH');
+    expect(unpoliced.ok ? '' : unpoliced.message).toContain(
+      '.github/workflows/ci.yml',
+    );
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/docs')).toBe(human);
   });
 
   it('validates --path-policy and --adopt values at the command boundary', async () => {

@@ -149,7 +149,13 @@ credential over the network.
   `adopt_branch` (or `reset` in fan-out) is set.
 - The use-case presets publish only paths their policy allows (for example,
   docs-update refuses `.github/`, provider directories, MCP configuration
-  and package manifests). `agent-ci preset list` prints every rule.
+  and package manifests). The policy is checked against the change set and
+  against the whole resulting pull request diff, so a deletion or revert the
+  new tree would cause is refused too. `agent-ci preset list` prints every
+  rule.
+- A change set built on an older base than the static branch already
+  publishes is refused (`E_PUBLISH_STALE_BASE`), so a delayed or re-run job
+  cannot undo a newer base's changes.
 - Changes to `.github/workflows/` are refused unless a caller passes
   `--allow-workflow-changes`, which no workflow does.
 

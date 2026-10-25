@@ -47,6 +47,7 @@ export const ERROR_CODES = [
   'E_CHANGE_SET',
   'E_PATH_POLICY',
   'E_PUBLISH',
+  'E_PUBLISH_STALE_BASE',
   // Fan-out targets and use-case wrappers
   'E_TARGETS_CONFIG',
   'E_TARGET_NOT_FOUND',

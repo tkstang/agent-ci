@@ -40,10 +40,15 @@ Flags:
   --adopt-branch             Update a branch whose head agent-ci did not
                              publish (its history is kept, its content is
                              replaced). Without it such a branch is refused.
+                             It also accepts a base that cannot be related to
+                             the branch's recorded base (a rewritten base
+                             branch); an older base is always refused
+                             (E_PUBLISH_STALE_BASE).
   --adopt <true|false>       The same as a value (workflows pass the fan-out
                              reset flag here); empty means false.
   --path-policy <name>       Refuse the pull request unless every changed path
-                             passes this use-case policy (docs-update,
+                             and every path of the resulting pull request
+                             diff passes this use-case policy (docs-update,
                              instructions-update, tools-update,
                              tools-update-lockfile); empty means none.
   --base <branch>            Pull request base branch (required with --pr).

@@ -13,6 +13,14 @@ import { failure, success, type Result } from '@agent-ci/result.js';
  * the branch (no force push): the new commit's first parent is the branch's
  * current head, and when the base moved it also gets the new base as a second
  * parent, so the pull request diff stays "base + this run's changes".
+ *
+ * Because the tree is rebuilt from the change set's base, a change set built
+ * on an older base than the one the branch already publishes would undo every
+ * change the newer base made. Such a change set is refused
+ * (`E_PUBLISH_STALE_BASE`), and so is one whose base cannot be shown to be the
+ * branch's base or newer, unless the branch is adopted. Independently, a
+ * caller may check the complete pull request diff (the new commit against its
+ * merge base with the base branch) before anything is pushed.
  */
 
 export const BASE_TRAILER = 'Agent-CI-Base';
@@ -42,8 +50,25 @@ export interface StaticBranchOptions {
   /**
    * Update an existing branch whose head agent-ci did not publish. History
    * is kept (no force push), but the new tree replaces the branch content.
+   * It also accepts a base that cannot be related to the branch's recorded
+   * base (a rewritten base branch); a base proven older is always refused.
    */
   readonly adoptBranch?: boolean;
+  /**
+   * Called with the complete pull request diff (the new commit against its
+   * merge base with `baseBranch` on the remote) before anything is pushed;
+   * a failure stops the publish. Not called when the result is `unchanged`.
+   */
+  readonly checkPullDiff?: (entries: readonly PullDiffEntry[]) => Result<void>;
+}
+
+/** One path of the pull request diff (`git diff-tree -r --no-renames`). */
+export interface PullDiffEntry {
+  readonly path: string;
+  /** `A` added, `D` deleted, `M` modified, `T` type changed. */
+  readonly status: 'A' | 'D' | 'M' | 'T';
+  /** The new mode (`000000` for a deletion). */
+  readonly mode: string;
 }
 
 export const DEFAULT_BRANCH_PREFIX = 'agent-ci/';
@@ -132,14 +157,27 @@ async function ensureCommit(
   return success(undefined);
 }
 
-/** How far back to look for a base in a shallow clone of the branch. */
-const ANCESTRY_DEPTH = 200;
+/**
+ * How far back to look, in order, when a shallow clone hides an ancestry:
+ * each miss fetches the commits involved to the next depth and asks again.
+ */
+const ANCESTRY_DEPTHS = [200, 2000] as const;
+
+const SHA = /^[0-9a-f]{40}$/u;
+
+async function isAncestor(
+  git: GitRunner,
+  older: string,
+  newer: string,
+): Promise<boolean> {
+  return (await git(['merge-base', '--is-ancestor', older, newer])).code === 0;
+}
 
 /**
  * True when `base` is an ancestor of `head`. The clone is usually shallow,
- * so a miss is retried once after fetching up to {@link ANCESTRY_DEPTH}
- * commits of the head's history. Anything unknown counts as not contained,
- * which only costs an extra ancestry commit.
+ * so a miss is retried after fetching the head's history to each of
+ * {@link ANCESTRY_DEPTHS}. Anything unknown counts as not contained, which
+ * only costs an extra ancestry commit.
  */
 async function containsBase(
   git: GitRunner,
@@ -147,17 +185,155 @@ async function containsBase(
   head: string,
   base: string,
 ): Promise<boolean> {
-  const check = async () =>
-    (await git(['merge-base', '--is-ancestor', base, head])).code === 0;
-  if (await check()) return true;
-  const deepened = await git([
-    'fetch',
-    '--no-tags',
-    `--depth=${ANCESTRY_DEPTH}`,
-    remote,
-    head,
+  if (await isAncestor(git, base, head)) return true;
+  for (const depth of ANCESTRY_DEPTHS) {
+    const deepened = await git([
+      'fetch',
+      '--no-tags',
+      `--depth=${depth}`,
+      remote,
+      head,
+    ]);
+    if (deepened.code === 0 && (await isAncestor(git, base, head))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** How a change set's base relates to the base the branch last published. */
+type BaseRelation = 'same' | 'newer' | 'older' | 'unknown';
+
+/**
+ * Relate `base` to the branch's recorded base `accepted`, fetching both
+ * histories deeper on a miss. `unknown` covers unrelated commits (a
+ * rewritten base branch) and ancestry deeper than the last fetch depth.
+ */
+async function relateBase(
+  git: GitRunner,
+  remote: string,
+  accepted: string,
+  base: string,
+): Promise<BaseRelation> {
+  if (accepted === base) return 'same';
+  for (const depth of [0, ...ANCESTRY_DEPTHS]) {
+    if (depth > 0) {
+      const fetched = await git([
+        'fetch',
+        '--no-tags',
+        `--depth=${depth}`,
+        remote,
+        base,
+        accepted,
+      ]);
+      if (fetched.code !== 0) return 'unknown';
+    }
+    if (await isAncestor(git, accepted, base)) return 'newer';
+    if (await isAncestor(git, base, accepted)) return 'older';
+  }
+  return 'unknown';
+}
+
+/**
+ * The base recorded in an agent-ci commit: the LAST `Agent-CI-Base:` line of
+ * its message (the trailer agent-ci writes), so a title that happens to look
+ * like a trailer can never stand in for it. `undefined` when there is none.
+ */
+async function recordedBase(
+  git: GitRunner,
+  commit: string,
+): Promise<Result<string | undefined>> {
+  const shown = await git(['cat-file', 'commit', commit]);
+  if (shown.code !== 0) {
+    return failure(
+      'E_PUBLISH',
+      `cannot read commit ${commit}: ${gitError(shown)}`,
+    );
+  }
+  const message = shown.stdout.split('\n\n').slice(1).join('\n\n');
+  const pattern = new RegExp(`^${BASE_TRAILER}: ([0-9a-f]{40})\\s*$`, 'gmu');
+  return success([...message.matchAll(pattern)].at(-1)?.[1]);
+}
+
+/**
+ * The complete pull request diff of `commit`: against its merge base with
+ * the base branch's current head on the remote, which is what the pull
+ * request shows. Fails closed when the merge base cannot be found.
+ */
+async function pullRequestDiff(
+  git: GitRunner,
+  remote: string,
+  baseBranch: string,
+  commit: string,
+  parents: readonly string[],
+): Promise<Result<PullDiffEntry[]>> {
+  const tip = await remoteHead(git, remote, baseBranch);
+  if (!tip.ok) return tip;
+  if (tip.value === null) {
+    return failure(
+      'E_PUBLISH',
+      `the base branch ${baseBranch} does not exist on ${remote}`,
+    );
+  }
+  const tipReady = await ensureCommit(git, remote, tip.value);
+  if (!tipReady.ok) return tipReady;
+  let mergeBase: string | undefined;
+  for (const depth of [0, ...ANCESTRY_DEPTHS]) {
+    if (depth > 0) {
+      await git([
+        'fetch',
+        '--no-tags',
+        `--depth=${depth}`,
+        remote,
+        tip.value,
+        ...parents,
+      ]);
+    }
+    const found = await git(['merge-base', tip.value, commit]);
+    const sha = found.stdout.trim().split('\n')[0] ?? '';
+    if (found.code === 0 && SHA.test(sha)) {
+      mergeBase = sha;
+      break;
+    }
+  }
+  if (mergeBase === undefined) {
+    return failure(
+      'E_PUBLISH',
+      `cannot find where the pull request into ${baseBranch} would start: the new commit and ${baseBranch} share no commit within ${ANCESTRY_DEPTHS.at(-1)} commits`,
+      'Nothing was pushed. Rerun the agent on the current base branch.',
+    );
+  }
+  const listed = await git([
+    'diff-tree',
+    '-r',
+    '-z',
+    '--no-renames',
+    mergeBase,
+    commit,
   ]);
-  return deepened.code === 0 && check();
+  if (listed.code !== 0) {
+    return failure('E_PUBLISH', `git diff-tree failed: ${gitError(listed)}`);
+  }
+  const fields = listed.stdout.split('\0');
+  const entries: PullDiffEntry[] = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    const meta = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([ADMT])$/u.exec(
+      fields[index] ?? '',
+    );
+    const file = fields[index + 1];
+    if (meta === null || file === undefined || file === '') {
+      return failure(
+        'E_PUBLISH',
+        'unexpected git diff-tree output for the pull request diff',
+      );
+    }
+    entries.push({
+      path: file,
+      status: meta[3] as PullDiffEntry['status'],
+      mode: meta[2] ?? '',
+    });
+  }
+  return success(entries);
 }
 
 /**
@@ -212,6 +388,7 @@ export async function publishStaticBranch(
   if (!baseReady.ok) return baseReady;
   const existing = await remoteHead(git, remote, branch);
   if (!existing.ok) return existing;
+  let recorded: string | undefined;
   if (existing.value !== null) {
     const ready = await ensureCommit(git, remote, existing.value);
     if (!ready.ok) return ready;
@@ -225,6 +402,33 @@ export async function publishStaticBranch(
         `branch ${branch} has a head commit (${existing.value.slice(0, 12)}) that agent-ci did not publish; refusing to replace its content`,
         'Merge or move that work elsewhere, delete the branch, or pass --adopt-branch to replace the content (history is kept).',
       );
+    }
+    // The tree is rebuilt from the change set's base, so a base older than
+    // the one the branch already publishes would undo the newer base's
+    // changes in the pull request. Refuse it, and refuse a base that cannot
+    // be related to the recorded one unless the branch is adopted.
+    const accepted = await recordedBase(git, existing.value);
+    if (!accepted.ok) return accepted;
+    recorded = accepted.value;
+    if (recorded !== undefined && recorded !== base) {
+      const acceptedReady = await ensureCommit(git, remote, recorded);
+      const relation = acceptedReady.ok
+        ? await relateBase(git, remote, recorded, base)
+        : 'unknown';
+      if (relation === 'older') {
+        return failure(
+          'E_PUBLISH_STALE_BASE',
+          `the change set was built on ${base.slice(0, 12)}, an older commit than ${recorded.slice(0, 12)}, the base ${branch} already publishes; publishing it would undo the newer base's changes`,
+          'Nothing was pushed. Rerun the agent on the current base branch.',
+        );
+      }
+      if (relation === 'unknown' && options.adoptBranch !== true) {
+        return failure(
+          'E_PUBLISH_STALE_BASE',
+          `cannot show that the change set's base ${base.slice(0, 12)} is the base ${branch} already publishes (${recorded.slice(0, 12)}) or a newer commit`,
+          'Nothing was pushed. Rerun the agent on the current base branch; if the base branch was rewritten, delete the static branch or pass --adopt-branch.',
+        );
+      }
     }
   }
 
@@ -298,16 +502,11 @@ export async function publishStaticBranch(
       const headTree = (
         await git(['rev-parse', `${head}^{tree}`])
       ).stdout.trim();
-      const body = (await git(['log', '-1', '--format=%B', head])).stdout;
-      const recorded = new RegExp(
-        `^${BASE_TRAILER}: ([0-9a-f]{40})$`,
-        'mu',
-      ).exec(body)?.[1];
       // Unchanged when the tree is the same and the base is already in the
-      // branch's history (the recorded base, or an older base a rerun
-      // starts from). A base the branch does not contain gets an ancestry
-      // commit (parents: head, new base) even with an identical tree, so
-      // the pull request diff is against the new base.
+      // branch's history (the recorded base; an older one was refused
+      // above). A base the branch does not contain gets an ancestry commit
+      // (parents: head, new base) even with an identical tree, so the pull
+      // request diff is against the new base.
       const included =
         recorded === base || (await containsBase(git, remote, head, base));
       if (headTree === tree && included) {
@@ -343,6 +542,18 @@ export async function publishStaticBranch(
         'E_PUBLISH',
         `git commit-tree failed: ${gitError(committed)}`,
       );
+    }
+    if (options.checkPullDiff !== undefined) {
+      const diff = await pullRequestDiff(
+        git,
+        remote,
+        options.baseBranch,
+        commit,
+        parents,
+      );
+      if (!diff.ok) return diff;
+      const checked = options.checkPullDiff(diff.value);
+      if (!checked.ok) return checked;
     }
     // A fast-forward push: never --force. A concurrent update is refused by
     // the remote and reported instead of overwritten.
