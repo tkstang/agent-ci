@@ -493,4 +493,37 @@ describe('agent-ci review stages (one process, fake GitHub, real git)', () => {
       },
     });
   });
+
+  it('runs and publishes a local review as an Enterprise Managed User', async () => {
+    const t = await setup();
+    const origin = path.join(t.root, 'origin.git');
+    git(t.root, 'clone', '-q', '--bare', t.repo, origin);
+    git(t.root, 'clone', '-q', origin, path.join(t.root, 'clone'));
+    t.fake
+      .on('GET', '/user', { body: { login: 'octocat_acme', type: 'User' } })
+      .on('GET', `${API}/collaborators/octocat_acme/permission`, {
+        body: { permission: 'write' },
+      });
+    const result = await t.cli(
+      [
+        'run',
+        '--pr',
+        '7',
+        '--cwd',
+        'clone',
+        '--model',
+        'fake-review',
+        '--models',
+        t.modelsPath,
+        '--out',
+        'local',
+        '--publish',
+      ],
+      { CI: '', GITHUB_ACTIONS: '' },
+    );
+    expect(result).toMatchObject({
+      exitCode: 0,
+      envelope: { ok: true, data: { publication: { status: 'published' } } },
+    });
+  });
 });

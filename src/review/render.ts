@@ -1,5 +1,7 @@
 import {
   contractError,
+  isBotLogin,
+  isUserLogin,
   type GatedFinding,
   type GatedReview,
   type PostedMarker,
@@ -132,13 +134,11 @@ type UntrustedComment = {
   body?: unknown;
   user?: { login?: unknown; type?: unknown } | null;
 };
-const BOT_LOGIN = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\[bot\]$/u;
-const USER_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u;
 export function assertPublisher(publisher: PublisherIdentity): void {
   const valid =
     publisher.type === 'Bot'
-      ? BOT_LOGIN.test(publisher.login)
-      : publisher.type === 'User' && USER_LOGIN.test(publisher.login);
+      ? isBotLogin(publisher.login)
+      : publisher.type === 'User' && isUserLogin(publisher.login);
   if (!valid) contractError('E_REVIEW_INPUT', 'invalid publisher identity');
 }
 function fromPublisher(

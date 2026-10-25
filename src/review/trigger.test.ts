@@ -9,6 +9,7 @@ import {
   configureRequest,
   isBranchName,
   parseAllowedModels,
+  parseAllowedPrAuthors,
   parsePolicy,
   resolvePrReviewTrigger,
 } from '@agent-ci/review/trigger.js';
@@ -697,5 +698,64 @@ describe('repository names', () => {
       expect(() => validateIdentity(identity(bad))).toThrow(
         expect.objectContaining({ code: 'E_REVIEW_INPUT' }),
       );
+  });
+});
+
+describe('GitHub login forms', () => {
+  const facts = (author: string) => ({
+    actorPermission: 'write',
+    pullRequest: pull({ user: { login: author, type: 'User' } }),
+    authorPermission: 'write',
+  });
+
+  it.each(['octocat', 'octocat_acme'])(
+    'authorizes a label request by %s on a PR that %s authored',
+    (login) => {
+      expect(
+        resolvePrReviewTrigger({
+          eventName: 'pull_request_target',
+          event: labelEvent({ sender: { login, type: 'User' } }),
+          repository: REPO,
+          facts: facts(login),
+        }),
+      ).toMatchObject({
+        status: 'authorized',
+        request: { sender: login },
+        pullRequest: { author: login },
+      });
+    },
+  );
+
+  it('accepts EMU and app logins in allowed_pr_authors and refuses non-logins', () => {
+    expect(
+      parseAllowedPrAuthors('octocat_acme, app[bot]\nbad login, x<y, _lead'),
+    ).toEqual(['octocat_acme', 'app[bot]']);
+  });
+
+  it('trusts an allowlisted app author and renders logins inertly in notices', () => {
+    expect(
+      resolvePrReviewTrigger({
+        eventName: 'pull_request_target',
+        event: labelEvent(),
+        repository: REPO,
+        allowedPrAuthors: ['app[bot]'],
+        facts: {
+          actorPermission: 'write',
+          pullRequest: pull({ user: bot('app') }),
+        },
+      }).status,
+    ).toBe('authorized');
+    expect(
+      resolvePrReviewTrigger({
+        eventName: 'pull_request_target',
+        event: labelEvent({ sender: { login: 'octocat_acme', type: 'User' } }),
+        repository: REPO,
+        facts: { actorPermission: 'read' },
+      }),
+    ).toMatchObject({
+      status: 'skip',
+      notice:
+        '`octocat_acme` does not have write access, so the review request was not run.',
+    });
   });
 });

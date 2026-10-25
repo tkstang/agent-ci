@@ -200,6 +200,24 @@ describe('markers', () => {
     ).toThrow(expect.objectContaining({ code: 'E_REVIEW_INPUT' }));
   });
 
+  it('accepts user, EMU and app publisher identities and refuses malformed ones', () => {
+    for (const ok of [
+      { login: 'octocat', type: 'User' },
+      { login: 'octocat_acme', type: 'User' },
+      { login: 'app[bot]', type: 'Bot' },
+    ] as const)
+      expect(parsePostedMarkers([], IDENTITY, ok)).toEqual([]);
+    for (const bad of [
+      { login: 'app[bot]', type: 'User' },
+      { login: 'octocat_acme', type: 'Bot' },
+      { login: '_lead', type: 'User' },
+      { login: 'a b', type: 'User' },
+    ] as const)
+      expect(() => parsePostedMarkers([], IDENTITY, bad)).toThrow(
+        expect.objectContaining({ code: 'E_REVIEW_INPUT' }),
+      );
+  });
+
   it('trusts a local publisher only as that user, never a bot with its name', () => {
     const operator = { login: 'tkstang', type: 'User' } as const;
     const marker = findingMarker(IDENTITY, {

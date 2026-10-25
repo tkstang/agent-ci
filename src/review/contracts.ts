@@ -364,6 +364,29 @@ export function isRepoPath(value: unknown): value is string {
       )
   );
 }
+/**
+ * GitHub logins, in one place for every check: a regular login (letters,
+ * digits, hyphens), an Enterprise Managed User login (`handle_shortcode`,
+ * so `_` is allowed after the first character), and a GitHub App's
+ * `name[bot]`. Bounded at 100 characters before the suffix; no control,
+ * space or markup characters. Text that shows a login renders it inertly.
+ */
+const LOGIN_NAME = '[A-Za-z0-9][A-Za-z0-9_-]{0,99}';
+const ANY_LOGIN = new RegExp(`^${LOGIN_NAME}(?:\\[bot\\])?$`, 'u');
+const BOT_LOGIN = new RegExp(`^${LOGIN_NAME}\\[bot\\]$`, 'u');
+const USER_LOGIN = new RegExp(`^${LOGIN_NAME}$`, 'u');
+/** A user, EMU or `[bot]` login. */
+export function isLogin(value: unknown): value is string {
+  return typeof value === 'string' && ANY_LOGIN.test(value);
+}
+/** A GitHub App login (`name[bot]`). */
+export function isBotLogin(value: unknown): value is string {
+  return typeof value === 'string' && BOT_LOGIN.test(value);
+}
+/** A user or EMU login (no `[bot]` suffix). */
+export function isUserLogin(value: unknown): value is string {
+  return typeof value === 'string' && USER_LOGIN.test(value);
+}
 export function isRepository(value: unknown): value is string {
   return typeof value === 'string' && REPOSITORY.test(value);
 }

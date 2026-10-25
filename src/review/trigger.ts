@@ -11,6 +11,7 @@ import {
 } from '@agent-ci/review/command.js';
 import {
   contractError,
+  isLogin,
   isReviewError,
   type ReviewMode,
   SEVERITIES,
@@ -151,7 +152,6 @@ export type PrReviewDecision =
       pullRequest: PrReviewPullRequest;
     };
 
-const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/u;
 const SHA = /^[0-9a-f]{40}$/u;
 
 function field(value: unknown, key: string): unknown {
@@ -168,7 +168,7 @@ function isBot(user: unknown): boolean {
 }
 function login(user: unknown): string | null {
   const value = field(user, 'login');
-  return typeof value === 'string' && LOGIN.test(value) ? value : null;
+  return isLogin(value) ? value : null;
 }
 function positiveInteger(value: unknown): number | null {
   const text = String(value ?? '').trim();
@@ -421,7 +421,7 @@ export function resolvePrReviewTrigger(
     return skip(
       'unauthorized-actor',
       request,
-      `${request.sender} does not have write access, so the review request was not run.`,
+      `${inlineCode(request.sender)} does not have write access, so the review request was not run.`,
     );
 
   if (facts.pullRequest === undefined)
@@ -462,7 +462,7 @@ export function resolvePrReviewTrigger(
       : skip(
           'bot-author',
           request,
-          `PR #${pr.number} was opened by ${pr.author}, which is not listed in allowed_pr_authors.`,
+          `PR #${pr.number} was opened by ${inlineCode(pr.author)}, which is not listed in allowed_pr_authors.`,
         );
   }
   if (facts.authorPermission === undefined)
@@ -476,7 +476,7 @@ export function resolvePrReviewTrigger(
     return skip(
       'unauthorized-author',
       request,
-      `PR #${pr.number} was opened by ${pr.author}, who does not have write access.`,
+      `PR #${pr.number} was opened by ${inlineCode(pr.author)}, who does not have write access.`,
     );
   return { status: 'authorized', request, pullRequest };
 }
@@ -486,7 +486,7 @@ export function parseAllowedPrAuthors(value: unknown): string[] {
   return String(value ?? '')
     .split(/[\n,]/u)
     .map((entry) => entry.trim())
-    .filter((entry) => entry !== '' && LOGIN.test(entry));
+    .filter((entry) => entry !== '' && isLogin(entry));
 }
 
 /** Parse `allowed_models`: newline- or comma-separated model names. */
