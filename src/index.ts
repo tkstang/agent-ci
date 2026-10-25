@@ -28,3 +28,14 @@ export {
   maskSecrets,
   KNOWN_CREDENTIAL_ENV,
 } from '@agent-ci/contracts/secret-guard.js';
+export {
+  loadModelsFile,
+  parseModelsFile,
+  resolveRoute,
+} from '@agent-ci/routing/resolve.js';
+export type { Route, HarnessId } from '@agent-ci/routing/schema.js';
+export {
+  runAgent,
+  type RunOptions,
+  type RunSummary,
+} from '@agent-ci/run/execute.js';
