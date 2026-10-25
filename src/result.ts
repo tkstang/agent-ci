@@ -46,6 +46,14 @@ export const ERROR_CODES = [
   // Change sets and publishing
   'E_CHANGE_SET',
   'E_PUBLISH',
+  // PR review
+  'E_REVIEW_REQUEST',
+  'E_REVIEW_INPUT',
+  'E_REVIEW_GUIDANCE',
+  'E_REVIEW_STALE_HEAD',
+  'E_DIFF_TOO_LARGE',
+  'E_INVALID_DIFF',
+  'E_GITHUB_API',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
