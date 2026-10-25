@@ -18,7 +18,7 @@ jobs:
   tools-update:
     uses: tkstang/agent-ci/.github/workflows/tools-update.yml@main # pin a tag or SHA
     with:
-      oat_cli_version: latest # pin an exact version for reproducible runs
+      oat_cli_version: 0.3.33 # an exact version keeps runs reproducible; latest also works
       dependency_policy: skills-only # include-lockfile also allows lockfile changes
     secrets:
       AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}

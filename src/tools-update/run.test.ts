@@ -258,6 +258,22 @@ const context = (cwd: string) => ({
   log: () => undefined,
 });
 
+describe('version pinning', () => {
+  it('runs the exact version it resolved and reports, even from latest', async () => {
+    const { root, out } = await repo();
+    const fake = fakePnpm({}, { version: '0.3.40' });
+    const summary = await runToolsUpdate(
+      options(root, out, { oatCliVersion: 'latest' }),
+      { run: fake.run },
+    );
+    expect(summary.ok && summary.value.result.summary).toContain('@0.3.40');
+    expect(fake.calls.map((call) => call.args[0])).toEqual([
+      '--package=@open-agent-toolkit/cli@latest',
+      '--package=@open-agent-toolkit/cli@0.3.40',
+    ]);
+  });
+});
+
 describe('agent-ci tools-update', () => {
   it('returns the result, or the run error code after writing the failed result', async () => {
     const ok = await repo();

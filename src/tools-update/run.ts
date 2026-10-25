@@ -220,9 +220,11 @@ export async function runToolsUpdate(
         code: 'E_TOOLS_UPDATE',
       });
     }
+    // Run exactly the version just resolved and reported: `latest` could
+    // move between two `pnpm dlx` calls (each starts from an empty cache).
     const update = await run(
       pnpm,
-      oatCliArgs(options.oatCliVersion, [
+      oatCliArgs(resolved, [
         '--cwd',
         root,
         'tools',
