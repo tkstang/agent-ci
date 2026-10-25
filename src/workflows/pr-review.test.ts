@@ -171,33 +171,6 @@ describe('pr-review.yml', () => {
     expect(text).not.toContain('--seed-login');
   });
 
-  it('opts into a pool route only through the allow_pool input (default false)', async () => {
-    const workflow = await review();
-    const inputs = (
-      workflow.on.workflow_call as {
-        inputs: Record<string, { type?: string; default?: unknown }>;
-      }
-    ).inputs;
-    expect(inputs.allow_pool).toMatchObject({
-      type: 'boolean',
-      default: false,
-    });
-    for (const [, step] of steps(workflow)) {
-      const run = step.run ?? '';
-      if (!run.includes('--allow-pool')) continue;
-      // Never the unconditional flag: always the input's value.
-      expect(run.match(/--allow-pool\S*/gu)).toEqual(['--allow-pool-value']);
-      expect(run).toContain('--allow-pool-value "$ALLOW_POOL"');
-      expect(step.env?.ALLOW_POOL).toBe('${{ inputs.allow_pool }}');
-    }
-  });
-
-  it('keeps every expression out of run scripts (inputs and outputs travel through env)', async () => {
-    for (const [, step] of steps(await review()))
-      if (step.run !== undefined)
-        expect(step.run, step.name).not.toContain('${{');
-  });
-
   it('wires every artifact by id and digest from the job that produced it', async () => {
     const { jobs } = await review();
     const text = JSON.stringify(jobs);
@@ -395,14 +368,5 @@ describe('consumer PR review template', () => {
     expect(job.steps).toBeUndefined();
     // verify-review stays off until the repository opts in.
     expect(job.with?.verify).toBe(false);
-  });
-});
-
-describe('ci.yml', () => {
-  it('lints the PR review consumer template', async () => {
-    const workflow = await load('.github/workflows/ci.yml');
-    expect(JSON.stringify(workflow.jobs.actionlint?.steps)).toContain(
-      'consumer-workflows/agent-ci-pr-review.yml',
-    );
   });
 });

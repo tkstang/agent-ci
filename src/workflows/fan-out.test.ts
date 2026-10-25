@@ -352,6 +352,7 @@ describe('fleet and consumer templates', () => {
   it('are all linted by CI', async () => {
     const ci = await load('.github/workflows/ci.yml');
     const steps = JSON.stringify(ci.jobs.actionlint?.steps);
+    expect(steps).toContain('docker://rhysd/actionlint:');
     for (const file of (await allWorkflowFiles()).filter((name) =>
       name.startsWith('consumer-workflows/'),
     )) {

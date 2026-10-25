@@ -538,12 +538,3 @@ describe('consumer template', () => {
     expect(job.secrets).not.toBe('inherit');
   });
 });
-
-describe('ci.yml', () => {
-  it('runs actionlint over the workflows and the consumer template', async () => {
-    const workflow = await load('.github/workflows/ci.yml');
-    const steps = JSON.stringify(workflow.jobs.actionlint?.steps);
-    expect(steps).toContain('docker://rhysd/actionlint:');
-    expect(steps).toContain('consumer-workflows/agent-ci-run.yml');
-  });
-});
