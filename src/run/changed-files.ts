@@ -76,6 +76,12 @@ async function listChanges(
         '--porcelain',
         '-z',
         '--untracked-files=all',
+        // No child `git status` per submodule: it would run the module's own
+        // filter drivers and follow a redirected `sub/.git` (phase review r5
+        // L1/L2). A moved submodule commit is still reported; edits inside a
+        // submodule's work tree are not (they belong to another repository
+        // and could never be promoted or published).
+        '--ignore-submodules=dirty',
       ]),
       {
         cwd: root,

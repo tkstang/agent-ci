@@ -540,6 +540,106 @@ describe('git-authoritative copy qualification (phase gate round 2 H1)', () => {
   });
 });
 
+describe('git directories outside .git and submodule children (phase review r5)', () => {
+  it('refuses a nested git directory whose core.worktree names the original', async () => {
+    const repo = await scratchRepo();
+    const tool = path.join(repo, 'fixtures', 'tool.git');
+    await mkdir(path.dirname(tool));
+    git(repo, 'init', '-q', '--bare', tool);
+    git(tool, 'config', 'core.bare', 'false');
+    git(tool, 'config', 'core.worktree', repo);
+    const copy = await copyOf(repo);
+    const copyTool = path.join(copy.root, 'fixtures', 'tool.git');
+    // The vector is live: git run from inside that directory in the copy
+    // works on the original.
+    expect(git(copyTool, 'rev-parse', '--show-toplevel').trim()).toBe(repo);
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      'fixtures/tool.git/config points git outside the copy',
+    );
+    await copy.dispose();
+  });
+
+  it('qualifies a nested bare git directory without core.worktree', async () => {
+    const repo = await scratchRepo();
+    const tool = path.join(repo, 'fixtures', 'tool.git');
+    await mkdir(path.dirname(tool));
+    git(repo, 'init', '-q', '--bare', tool);
+    const copy = await copyOf(repo);
+    expect(await copyIsolationProblem(copy.root)).toBeUndefined();
+    expect(() =>
+      git(
+        path.join(copy.root, 'fixtures', 'tool.git'),
+        'rm',
+        '-q',
+        'README.md',
+      ),
+    ).toThrow();
+    expect(await readFile(path.join(repo, 'README.md'), 'utf8')).toBe(
+      '# Scratch\n',
+    );
+    await copy.dispose();
+  });
+
+  it("a submodule's own filter driver never runs in agent-ci's status", async () => {
+    const repo = await scratchRepo();
+    await withSubmodule(repo, '../../../sub');
+    git(repo, 'add', 'sub');
+    git(repo, 'commit', '-qm', 'gitlink');
+    const modules = path.join(repo, '.git', 'modules', 'sub');
+    const marker = path.join(path.dirname(repo), 'filter-ran');
+    git(
+      repo,
+      'config',
+      '--file',
+      path.join(modules, 'config'),
+      'filter.evil.clean',
+      `touch ${marker}; cat`,
+    );
+    await mkdir(path.join(modules, 'info'), { recursive: true });
+    await writeFile(
+      path.join(modules, 'info', 'attributes'),
+      '* filter=evil\n',
+    );
+    // Same size, so a content comparison (and the clean filter) is needed.
+    await writeFile(path.join(repo, 'sub', 's.txt'), 'sub CHANGED!!\n');
+    const changes = await detectChangedFiles(repo);
+    expect(changes).toEqual({ ok: true, value: [] });
+    await expect(lstat(marker)).rejects.toThrow();
+    // Plain git does run it (the control).
+    git(path.join(repo, 'sub'), 'status', '--porcelain');
+    expect((await lstat(marker)).isFile()).toBe(true);
+  });
+
+  it('a redirected sub/.git in a copy does not refresh the original module; a moved submodule commit is still reported', async () => {
+    const repo = await scratchRepo();
+    await withSubmodule(repo, '../../../sub');
+    git(repo, 'add', 'sub');
+    git(repo, 'commit', '-qm', 'gitlink');
+    const copy = await copyOf(repo);
+    expect(await copyIsolationProblem(copy.root)).toBeUndefined();
+    const index = path.join(repo, '.git', 'modules', 'sub', 'index');
+    const before = (await lstat(index)).mtimeMs;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Agent-made, mid-run: point the copy's submodule at the original's.
+    await writeFile(
+      path.join(copy.root, 'sub', '.git'),
+      `gitdir: ${path.join(repo, '.git', 'modules', 'sub')}\n`,
+    );
+    const pin = { gitDir: path.join(copy.root, '.git'), workTree: copy.root };
+    const changes = await detectChangedFiles(copy.root, [], 'git', pin);
+    expect(changes).toEqual({ ok: true, value: [] });
+    expect((await lstat(index)).mtimeMs).toBe(before);
+    await copy.dispose();
+
+    // A new commit in the submodule moves its gitlink: still reported.
+    await writeFile(path.join(repo, 'sub', 'n.txt'), 'n\n');
+    git(path.join(repo, 'sub'), 'add', 'n.txt');
+    git(path.join(repo, 'sub'), 'commit', '-qm', 'n');
+    const moved = await detectChangedFiles(repo);
+    expect(moved).toEqual({ ok: true, value: ['sub'] });
+  });
+});
+
 describe('createAttemptWorkspace', () => {
   it('copies the repository with links byte-for-byte and skips the output directory', async () => {
     const repo = await scratchRepo();

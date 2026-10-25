@@ -14,7 +14,9 @@ import { execFile } from 'node:child_process';
  * - filter drivers: before `status`, every configured `filter.<name>` is
  *   overridden with empty `clean`/`smudge`/`process` and `required=false`
  *   (`filterDriverOverrides`), because `.git/info/attributes` still applies
- *   and a configured driver would run on a clean-filter comparison;
+ *   and a configured driver would run on a clean-filter comparison.
+ *   Submodules' own drivers never run: `status` is called with
+ *   `--ignore-submodules=dirty`, so no per-submodule child `status` starts;
  * - `protocol.allow=never` for local-only calls: no transport (and no
  *   `core.sshCommand`, proxy or credential helper) can start.
  *

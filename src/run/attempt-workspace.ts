@@ -276,13 +276,14 @@ async function copyTree(
  *    (the root itself included);
  * 2. every git metadata pointer in the copy resolves inside the copy root,
  *    first as a cheap file-level screen (`core.worktree` in any `config` or
- *    `config.worktree` under a `.git` directory, the `gitdir`/`commondir`
+ *    `config.worktree` under a `.git` directory or any other git directory, the `gitdir`/`commondir`
  *    pointer files there, and `gitdir:` in any `.git` file in the worktree),
  *    then authoritatively by asking git itself (phase gate p02 round 2 H1):
  *    for the copy root and every directory holding a `.git` entry,
  *    `git rev-parse --show-toplevel --absolute-git-dir --git-common-dir` and
- *    `--show-superproject-working-tree`; for every git directory in the copy
- *    (`.git`, `.git/modules/*`, ...), its effective `core.worktree` (config,
+ *    `--show-superproject-working-tree`; for every git directory anywhere in
+ *    the copy (`.git`, `.git/modules/*`, a nested `tool.git`, ...; a `HEAD`
+ *    file plus `objects/` or `commondir`), its effective `core.worktree` (config,
  *    `config.worktree` under `extensions.worktreeConfig`, and includes, as
  *    git reads them) and `--git-common-dir`. Every answer must resolve inside
  *    the copy root; any git error fails closed.
@@ -322,9 +323,15 @@ export async function copyIsolationProblem(
   const worktrees: string[] = [root];
   const gitDirs: string[] = [];
   while (pending.length > 0) {
-    const { dir, inGitDir } = pending.pop() ?? { dir: root, inGitDir: false };
+    const popped = pending.pop() ?? { dir: root, inGitDir: false };
+    const { dir } = popped;
     const entries = await readdir(dir, { withFileTypes: true });
-    if (inGitDir && isGitDirectory(entries)) gitDirs.push(dir);
+    // A git directory anywhere, not only under `.git` (for example a
+    // `fixtures/tool.git` with `core.worktree`): git run from inside it
+    // uses it as the repository (phase review r5 M1).
+    const isGitDir = isGitDirectory(entries);
+    if (isGitDir) gitDirs.push(dir);
+    const inGitDir = popped.inGitDir || isGitDir;
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       const rel = path.relative(root, full);
