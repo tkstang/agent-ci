@@ -21,5 +21,6 @@ Name check misses separator-less IDs (sonnet4.5) and a Cursor auto route can sel
 
 ## Acceptance Criteria
 
-- {Outcome 1}
-- {Outcome 2}
+- A route whose model key or provider ID is a separator-less Claude-like name (for example `sonnet4.5`, `opus41`, `haiku4`) on a non-claude harness is rejected at load time with `E_POLICY_HARNESS` even when it declares a non-Claude `family`, covered by a `src/routing/resolve.test.ts` case per name
+- A Cursor route whose provider model lets Cursor choose the model (`auto`, `auto-smart`, `default`, or any parameterized auto router) is either rejected at load time (`E_POLICY_HARNESS` or `E_ROUTE_CONFIG`) or requires an explicit, documented policy decision recorded under `reference/decisions/`, with a test asserting the chosen behaviour
+- The existing non-Claude control (`grok-4.7-cursor`, `family: xai`, provider model `grok-4.7-low`) still loads and resolves
