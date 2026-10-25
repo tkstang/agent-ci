@@ -72,7 +72,10 @@ export function spawnHarness(
         if (groupKill && child.pid !== undefined) kill(-child.pid, signal);
         else child.kill(signal);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+        // ESRCH: already gone. EPERM: macOS reports it for a group whose
+        // members have all exited (zombies). Neither leaves a live process.
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ESRCH' && code !== 'EPERM') throw error;
       }
     };
     const stop = (): void => {
