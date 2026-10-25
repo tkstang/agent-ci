@@ -30,6 +30,8 @@ import {
   detectIsolation,
   execCommand,
   isolatedArgv,
+  brokerDirectories,
+  chooseWorkParent,
   LINUX_INIT,
   resolveLinuxTools,
   runVerify,
@@ -551,6 +553,49 @@ describe('isolation tools come only from verified root-owned paths', () => {
       expect(ran.value.evidence.entries[0]?.isolation).toBe('none');
     }
     expect(existsSync(path.join(planted, 'RAN'))).toBe(false);
+  });
+});
+
+describe('broker-directory hiding never covers the run directory', () => {
+  it('lists existing broker directories on Linux only', () => {
+    const existing = new Set(['/run/user/1000', '/run/dbus']);
+    expect(
+      brokerDirectories({
+        platform: 'linux',
+        uid: 1000,
+        xdgRuntimeDir: '/run/user/1000',
+        isDirectory: (dir) => existing.has(dir),
+      }),
+    ).toEqual(['/run/user/1000', '/run/dbus']);
+    expect(
+      brokerDirectories({
+        platform: 'darwin',
+        uid: 501,
+        xdgRuntimeDir: '/run/user/501',
+        isDirectory: () => true,
+      }),
+    ).toEqual([]);
+  });
+
+  it('picks a temp parent outside every hidden directory (TMPDIR inside XDG_RUNTIME_DIR)', () => {
+    // TMPDIR lives under the runtime dir: the next candidate is chosen.
+    expect(
+      chooseWorkParent(
+        ['/run/user/1000/tmp', '/tmp', '/var/tmp'],
+        ['/run/user/1000', '/run/dbus'],
+      ),
+    ).toBe('/tmp');
+    // Disjoint control: TMPDIR is kept.
+    expect(chooseWorkParent(['/home/me/tmp', '/tmp'], ['/run/user/1000'])).toBe(
+      '/home/me/tmp',
+    );
+    // A hidden directory inside the parent does not cover a new child.
+    expect(chooseWorkParent(['/tmp'], ['/tmp/xdg-runtime'])).toBe('/tmp');
+    // No candidate outside: the first is used (the hidden list then drops
+    // the overlapping broker directory instead).
+    expect(chooseWorkParent(['/run/user/1000/tmp'], ['/run/user/1000'])).toBe(
+      '/run/user/1000/tmp',
+    );
   });
 });
 

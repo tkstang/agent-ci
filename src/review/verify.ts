@@ -732,6 +732,49 @@ export type VerifyOptions = {
   readonly log?: (message: string) => void;
 };
 
+/** The host broker socket directories that exist (Linux only). */
+export function brokerDirectories(input: {
+  platform: NodeJS.Platform;
+  uid: number | undefined;
+  xdgRuntimeDir: string | undefined;
+  isDirectory?: (dir: string) => boolean;
+}): string[] {
+  if (input.platform !== 'linux') return [];
+  const isDirectory =
+    input.isDirectory ??
+    ((dir: string) => existsSync(dir) && statSync(dir).isDirectory());
+  return [
+    ...new Set([
+      ...(input.uid === undefined ? [] : [`/run/user/${input.uid}`]),
+      ...(input.xdgRuntimeDir === undefined || input.xdgRuntimeDir === ''
+        ? []
+        : [input.xdgRuntimeDir]),
+      '/run/dbus',
+      '/run/podman',
+      '/run/containerd',
+      '/run/docker',
+    ]),
+  ].filter((dir) => path.isAbsolute(dir) && isDirectory(dir));
+}
+
+/**
+ * The first temp parent (real path) outside every hidden directory, so
+ * hiding a broker directory never covers the run directory; the first
+ * candidate when none is outside (the hidden list then drops the overlap).
+ */
+export function chooseWorkParent(
+  candidates: readonly string[],
+  hidden: readonly string[],
+): string {
+  return (
+    // Only an ancestor matters: the run directory is a new child of the
+    // parent, so a hidden sibling or descendant of the parent cannot cover it.
+    candidates.find((dir) => !hidden.some((h) => isWithin(h, dir))) ??
+    candidates[0] ??
+    os.tmpdir()
+  );
+}
+
 /** `agent-ci-home-*` directories under `parents` (other runs' home roots). */
 async function homeRoots(parents: readonly string[]): Promise<string[]> {
   const found: string[] = [];
@@ -824,7 +867,26 @@ export async function runVerify(
       'E_OUTPUT_PATH',
       'the verify output path is not a directory',
     );
-  const work = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-verify-'));
+  // Broker socket directories are hidden (hygiene). The run directory must
+  // live outside every one of them: a tmpfs over its ancestor would hide
+  // the copies and HOME, and the init's `cd` would fail (TMPDIR under
+  // XDG_RUNTIME_DIR, gate 2 M1). Pick a temp parent outside them.
+  const brokers = await Promise.all(
+    brokerDirectories({
+      platform: process.platform,
+      uid: process.getuid?.(),
+      xdgRuntimeDir: options.env.XDG_RUNTIME_DIR,
+    }).map(real),
+  );
+  const workParent = chooseWorkParent(
+    await Promise.all(
+      [os.tmpdir(), '/tmp', '/var/tmp']
+        .filter((dir) => existsSync(dir))
+        .map(real),
+    ),
+    brokers,
+  );
+  const work = await mkdtemp(path.join(workParent, 'agent-ci-verify-'));
   try {
     // Real paths throughout: sandbox rules match resolved locations.
     const realWork = await resolveRealPath(work);
@@ -871,28 +933,16 @@ export async function runVerify(
       ),
     ].filter((dir) => !isWithin(dir, realWork) && !isWithin(realWork, dir));
     // Hygiene, not a boundary (pathname sockets elsewhere stay reachable):
-    // hide the usual host broker socket directories on Linux.
-    const brokerDirs =
-      process.platform === 'linux'
-        ? [
-            ...(process.getuid === undefined
-              ? []
-              : [`/run/user/${process.getuid()}`]),
-            ...(options.env.XDG_RUNTIME_DIR === undefined ||
-            options.env.XDG_RUNTIME_DIR === ''
-              ? []
-              : [options.env.XDG_RUNTIME_DIR]),
-            '/run/dbus',
-            '/run/podman',
-            '/run/containerd',
-            '/run/docker',
-          ].filter((dir) => existsSync(dir) && statSync(dir).isDirectory())
-        : [];
+    // the usual host broker socket directories, never one that overlaps the
+    // run directory (the same canonical exclusion as `denied`; only possible
+    // when no temp parent outside them existed).
     const hidden = [
       ...new Set([
         ...denied,
         ...(await homeRoots(homeParents)),
-        ...(await Promise.all(brokerDirs.map(real))),
+        ...brokers.filter(
+          (dir) => !isWithin(dir, realWork) && !isWithin(realWork, dir),
+        ),
       ]),
     ];
     const secrets = secretValues(options.env);
