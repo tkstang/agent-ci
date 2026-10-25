@@ -111,7 +111,7 @@ export function contractError(code: ReviewErrorCode, message: string): never {
 /** A verify-review check name (`checks.yaml`). */
 export const CHECK_NAME = /^[a-z][a-z0-9-]{0,39}$/u;
 /** A check evidence id: `check-` and 24 lowercase hex characters. */
-export const CHECK_EVIDENCE_ID = /^check-[0-9a-f]{32}$/u;
+export const CHECK_EVIDENCE_ID = /^check-[0-9a-f]{24}$/u;
 
 export type CodeEvidence = {
   kind: 'code';
