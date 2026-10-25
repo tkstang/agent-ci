@@ -63,7 +63,7 @@ jobs:
         with:
           args: -color
 
-      - name: Lint the consumer workflow template
+      - name: Lint the consumer workflow templates
         uses: docker://rhysd/actionlint:1.7.12
         with:
-          args: -color consumer-workflows/agent-ci-run.yml
+          args: -color consumer-workflows/agent-ci-run.yml consumer-workflows/agent-ci-pr-review.yml

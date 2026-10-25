@@ -133,7 +133,7 @@ describe('review.json contract', () => {
     ['path', { path: '/abs.ts' }],
     ['path', { path: 'a/.git/config' }],
     ['path', { path: 'src\\a.ts' }],
-    ['path', { path: 'src/a‮.ts' }],
+    ['path', { path: 'src/a\u202e.ts' }],
     ['side', { side: 'BOTH' }],
     ['line', { line: 0 }],
     ['end_line', { end_line: 2 }],

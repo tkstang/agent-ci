@@ -1,0 +1,80 @@
+# Copy into .github/workflows/ of a repository that should get AI pull
+# request reviews from agent-ci.
+#
+# Requesting a review (only people with write, maintain or admin access):
+# - add the `agent-ci:review` label to a pull request (the label is removed
+#   again, so adding it once more starts a new review);
+# - comment `/agent-ci-review [key=value ...] [--] [instruction]` on it
+#   (options: reviewer_model, second_reviewer, second_reviewer_model,
+#   adjudicator, adjudicator_model; each model must be in allowed_models);
+# - or dispatch this workflow with pr_number (and an optional command).
+# Only same-repository, open, non-draft pull requests by an author with write
+# access (or a bot listed in allowed_pr_authors) are reviewed. Fork pull
+# requests are never reviewed and never reach the model credential.
+#
+# Why `pull_request_target` and `issue_comment`: GitHub runs both from the
+# DEFAULT branch, so a pull request cannot change this file, the allowed
+# models, the review policy or the agent-ci pin it runs under. The workflow
+# never runs pull-request code: the reviewer reads the PR head read-only with
+# no setup command and no repository skills, and the gate, findings and
+# publish jobs never check it out. Changes to this file take effect once they
+# are merged.
+#
+# Setup (once per repository):
+# 1. Pin the agent-ci ref (tag or SHA) in `uses:`; the helpers are checked
+#    out at that same commit. agent-ci is private, so its Actions access
+#    setting must allow workflows from repositories owned by the same user.
+# 2. Add the AGENT_CI_SOURCE_TOKEN secret (contents: read on tkstang/agent-ci).
+# 3. Add the model credential the chosen routes name (see `agent-ci models`),
+#    for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 or
+#    OPENCODE_API_KEY for grok-4.7. Only the reviewer and adjudicator steps
+#    receive it.
+# 4. Create the `agent-ci:review` label.
+#
+# Accepted residual risk: the reviewer reads untrusted pull-request text
+# while holding the model credential. Its tools are read-only, but a prompt
+# injection could still try to put encoded data into a finding, which is
+# published to the pull request. Exact credential values are refused by the
+# output guard; requester and author write access is the trust boundary.
+name: agent-ci PR review
+
+on:
+  pull_request_target:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to review.
+        required: true
+      command:
+        description: Optional command text, for example `/agent-ci-review second_reviewer=on`.
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    # Cheap filters only; the reusable workflow's gate is the authority.
+    if: >-
+      (github.event_name == 'pull_request_target' && github.event.label.name == 'agent-ci:review') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/agent-ci-review')) ||
+      github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: tkstang/agent-ci/.github/workflows/pr-review.yml@v0.1.0 # pin a tag or SHA
+    with:
+      pr_number: ${{ inputs.pr_number || '' }}
+      command: ${{ inputs.command || '' }}
+      reviewer_model: claude-haiku-4-5
+      allowed_models: |
+        claude-haiku-4-5
+        grok-4.7
+    secrets:
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}

@@ -154,3 +154,25 @@ routes:
     notes: >-
       Built-in plumbing harness for edit runs; writes agent-ci-fake-edit.md
       (content depends only on the prompt) without a model.
+  - id: fake-review
+    model: fake-review
+    harness: fake
+    family: fake
+    providerModel: review
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: >-
+      Built-in plumbing harness for PR review: one medium finding on the first
+      added line of the review diff, without a model.
+  - id: fake-adjudicate
+    model: fake-adjudicate
+    harness: fake
+    family: fake
+    providerModel: adjudicate
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: Built-in plumbing harness for the PR-review adjudicator; keeps every finding.
