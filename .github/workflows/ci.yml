@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -48,3 +50,20 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Lint workflows (actionlint with shellcheck)
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+      - name: Lint the consumer workflow template
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color consumer-workflows/agent-ci-run.yml

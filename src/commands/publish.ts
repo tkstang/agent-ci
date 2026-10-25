@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { parseFlags, required } from '@agent-ci/commands/flags.js';
+import { optional, parseFlags, required } from '@agent-ci/commands/flags.js';
 import { appendGithubOutput } from '@agent-ci/commands/github.js';
 import type { CommandContext, CommandSpec } from '@agent-ci/commands/types.js';
 import { CliError } from '@agent-ci/errors.js';
@@ -14,7 +14,8 @@ const USAGE = `agent-ci publish — publish a finished run (separate job, write 
 
 Reads run-result.json and changes.json ONLY from --result-dir (the downloaded
 run artifact), then:
-  --pr                       For an edit run that changed files: commit the
+  --pr | --publish-pr <true|false>
+                             For an edit run that changed files: commit the
                              change set to a static branch (plumbing only, no
                              checkout, never a force push) and create or
                              update its pull request.
@@ -66,13 +67,14 @@ export function createPublishCommand(
     summary: 'Publish a run: static-branch pull request and PR comment',
     usage: USAGE,
     async run(argv, context) {
-      const flags = parseFlags(
+      const parsed = parseFlags(
         argv,
         {
           'result-dir': { type: 'string' },
           cwd: { type: 'string' },
           repo: { type: 'string' },
           pr: { type: 'boolean' },
+          'publish-pr': { type: 'string' },
           branch: { type: 'string' },
           base: { type: 'string' },
           title: { type: 'string' },
@@ -86,6 +88,23 @@ export function createPublishCommand(
         },
         USAGE,
       );
+      // Empty values (unset workflow inputs) behave like absent flags.
+      const flags = {
+        ...parsed,
+        repo: optional(parsed.repo),
+        branch: optional(parsed.branch),
+        base: optional(parsed.base),
+        title: optional(parsed.title),
+        'comment-key': optional(parsed['comment-key']),
+        'run-url': optional(parsed['run-url']),
+      };
+      const publishPr = optional(parsed['publish-pr']);
+      if (publishPr !== undefined && !['true', 'false'].includes(publishPr)) {
+        throw new CliError(
+          'E_INVALID_INPUT',
+          '--publish-pr must be true or false',
+        );
+      }
       const cwd = path.resolve(context.cwd, flags.cwd ?? '.');
       const repo = required(
         flags.repo ?? context.env.GITHUB_REPOSITORY,
@@ -109,7 +128,7 @@ export function createPublishCommand(
         ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
       });
       if (!github.ok) throw CliError.fromFailure(github);
-      const pullRequest = flags.pr === true;
+      const pullRequest = flags.pr === true || publishPr === 'true';
       const branch = flags.branch ?? `agent-ci/${outputs.value.result.useCase}`;
       const report = await publishRun({
         outputs: outputs.value,

@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { parseFlags, required } from '@agent-ci/commands/flags.js';
+import { optional, parseFlags, required } from '@agent-ci/commands/flags.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { CliError } from '@agent-ci/errors.js';
 import type { ProcessRunner } from '@agent-ci/harness/install.js';
@@ -9,7 +9,7 @@ import { installSkills } from '@agent-ci/skills/install.js';
 const USAGE = `agent-ci skills install — install skills into a home root before a run.
 
   agent-ci skills install --home-root <dir> --workspace <dir>
-                          [--oat-pack <name>]... [--source <dir>]
+                          [--oat-pack <name[,name]>]... [--source <dir>]
                           [--oat-command <path>]
 
 Creates (or reuses) the home root, which must not overlap the workspace, then
@@ -48,13 +48,17 @@ export function createSkillsCommand(
       const installed = await installSkills({
         homeRoot: resolve(required(flags['home-root'], '--home-root')),
         workspace: resolve(required(flags.workspace, '--workspace')),
-        oatPacks: flags['oat-pack'] ?? [],
-        ...(flags.source === undefined
+        // Comma-separated values; empty values are unset workflow inputs.
+        oatPacks: (flags['oat-pack'] ?? [])
+          .flatMap((value) => value.split(','))
+          .map((pack) => pack.trim())
+          .filter(Boolean),
+        ...(optional(flags.source) === undefined
           ? {}
-          : { sourceDir: resolve(flags.source) }),
-        ...(flags['oat-command'] === undefined
+          : { sourceDir: resolve(flags.source ?? '') }),
+        ...(optional(flags['oat-command']) === undefined
           ? {}
-          : { oatCommand: [flags['oat-command']] }),
+          : { oatCommand: [flags['oat-command'] ?? ''] }),
         env: context.env,
         ...(deps.run === undefined ? {} : { run: deps.run }),
         ...(deps.git === undefined ? {} : { git: deps.git }),

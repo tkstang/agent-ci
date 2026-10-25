@@ -123,6 +123,32 @@ describe('installSkills', () => {
     expect(evil.ok ? 'ok' : evil.code).toBe('E_HOME_ROOT');
   });
 
+  it('takes comma-separated packs and an empty --source from the CLI', async () => {
+    const { base, ws, root } = await workspaceAndRoot();
+    const oat = await fakeOat(base);
+    const cli = await run(
+      [
+        'skills',
+        'install',
+        '--home-root',
+        root,
+        '--workspace',
+        ws,
+        '--oat-pack',
+        'core,docs',
+        '--source',
+        '',
+        '--oat-command',
+        oat,
+      ],
+      { cwd: base, env: { PATH: process.env.PATH }, log: () => undefined },
+    );
+    expect(cli.envelope).toMatchObject({
+      ok: true,
+      data: { oatPacks: ['core', 'docs'] },
+    });
+  });
+
   it('rejects bad pack names and an empty request; the CLI needs both paths', async () => {
     const { ws, root } = await workspaceAndRoot();
     for (const oatPacks of [['Core; rm'], []]) {

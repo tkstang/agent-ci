@@ -37,6 +37,9 @@ Run the narrowest sufficient checks - do not over-gate:
 - focused test (the suite touching the change)
 - format (`pnpm run format:check`) before a commit/PR is ready
 - build only when wiring changes (entrypoints, exports, path aliases)
+- `actionlint` when workflows, the setup action or `consumer-workflows/` change
+  (CI runs it from the pinned `rhysd/actionlint` image); workflow structure
+  tests live in `src/workflows/`
 
 There is never a CI coverage gate.
 

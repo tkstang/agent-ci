@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   nonNegativeInt,
   oneOf,
+  optional,
   parseFlags,
   positiveInt,
 } from '@agent-ci/commands/flags.js';
@@ -108,7 +109,14 @@ export function createRunCommand(deps: RunDeps = {}): CommandSpec {
       'Run a prompt through the routed harness and write run-result.json',
     usage: USAGE,
     async run(argv, context) {
-      const flags = parseFlags(argv, FLAGS, USAGE);
+      const parsed = parseFlags(argv, FLAGS, USAGE);
+      // Empty values (unset workflow inputs) behave like absent flags.
+      const flags = {
+        ...parsed,
+        model: optional(parsed.model),
+        harness: optional(parsed.harness),
+        route: optional(parsed.route),
+      };
       if (flags.model === undefined && flags.route === undefined) {
         throw new CliError('E_INVALID_INPUT', 'pass --model or --route', {
           hint: 'Run agent-ci models to list qualified models.',

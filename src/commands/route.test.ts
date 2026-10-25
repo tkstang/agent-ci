@@ -252,3 +252,63 @@ describe('--credential-from-env', () => {
     expect(unmapped.ok ? 'ok' : unmapped.code).toBe('E_CREDENTIAL_MISSING');
   });
 });
+
+describe('empty workflow inputs behave like absent flags', () => {
+  it('accepts empty --harness and --route for route and run', async () => {
+    const { dir, models } = await setup();
+    const routed = await run(
+      [
+        'route',
+        '--model',
+        'fake-echo',
+        '--harness',
+        '',
+        '--route',
+        '',
+        '--models',
+        models,
+      ],
+      ctx(dir, {}),
+    );
+    expect(routed.envelope).toMatchObject({
+      ok: true,
+      data: { route: { id: 'fake-echo' } },
+    });
+    const ran = await run(
+      [
+        'run',
+        '--model',
+        'fake-echo',
+        '--harness',
+        '',
+        '--route',
+        '',
+        '--models',
+        models,
+        '--prompt',
+        'x',
+        '--out',
+        path.join(dir, 'o'),
+      ],
+      ctx(dir, {}),
+    );
+    expect(ran.envelope).toMatchObject({ ok: true });
+  });
+
+  it('validates --publish-pr', async () => {
+    const { dir } = await setup();
+    const bad = await run(
+      [
+        'publish',
+        '--result-dir',
+        dir,
+        '--repo',
+        'o/r',
+        '--publish-pr',
+        'maybe',
+      ],
+      ctx(dir, { GITHUB_TOKEN: 'x' }),
+    );
+    expect(bad.envelope).toMatchObject({ ok: false, code: 'E_INVALID_INPUT' });
+  });
+});

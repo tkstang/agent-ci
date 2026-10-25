@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { oneOf, parseFlags } from '@agent-ci/commands/flags.js';
+import { oneOf, optional, parseFlags } from '@agent-ci/commands/flags.js';
 import { appendGithubOutput } from '@agent-ci/commands/github.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { CliError } from '@agent-ci/errors.js';
@@ -31,7 +31,7 @@ export const routeCommand: CommandSpec = {
   summary: 'Resolve a model to its route under the current policy',
   usage: USAGE,
   async run(argv, context) {
-    const flags = parseFlags(
+    const parsed = parseFlags(
       argv,
       {
         model: { type: 'string' },
@@ -43,6 +43,13 @@ export const routeCommand: CommandSpec = {
       },
       USAGE,
     );
+    // Empty values (unset workflow inputs) behave like absent flags.
+    const flags = {
+      ...parsed,
+      model: optional(parsed.model),
+      route: optional(parsed.route),
+      harness: optional(parsed.harness),
+    };
     if (flags.model === undefined && flags.route === undefined) {
       throw new CliError('E_INVALID_INPUT', 'pass --model or --route');
     }

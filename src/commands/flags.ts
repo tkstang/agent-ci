@@ -26,6 +26,15 @@ export function parseFlags<T extends Options>(
   }
 }
 
+/**
+ * An optional string flag where an empty value means "not set". Workflow
+ * steps pass optional inputs unconditionally (`--harness "$HARNESS"`), so an
+ * empty string must behave like an absent flag.
+ */
+export function optional(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === '' ? undefined : value;
+}
+
 /** A required string flag. */
 export function required(value: string | undefined, flag: string): string {
   if (value === undefined || value.trim() === '') {
