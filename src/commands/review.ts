@@ -217,6 +217,8 @@ const GATE_USAGE = `agent-ci review gate — authorize a review request (GitHub 
   --fail-on-severity, --min-inline-severity, --max-inline-comments
                                  Publication policy (checked here).
   --publisher-login <login>      Account whose replies are recognized.
+  --verify <true|false>          Allow verify-review requests (the workflow's
+                                 verify input; default false).
   --allow-pool | --allow-pool-value <true|false>
                                  Let pool models resolve (in CI only on a
                                  self-hosted runner, never a Claude model);
@@ -247,6 +249,7 @@ async function gate(
       'adjudicator-model': { type: 'string' },
       'allowed-models': { type: 'string' },
       'publisher-login': { type: 'string' },
+      verify: { type: 'string' },
       models: { type: 'string' },
       'allow-pool': { type: 'boolean' },
       'allow-pool-value': { type: 'string' },
@@ -258,6 +261,7 @@ async function gate(
   // The same strict opt-in the route and pass commands use; checked before
   // anything is acknowledged or bound.
   const allowPool = poolOptIn(flags);
+  const verifyEnabled = bool(flags.verify, '--verify');
   const { env } = context;
   const out = path.resolve(context.cwd, required(flags.out, '--out'));
   const repository = repoOf(flags.repo, env);
@@ -341,6 +345,7 @@ async function gate(
         models: models.value,
         env,
         allowPool,
+        verifyEnabled,
       });
     } catch (error) {
       if (!isReviewError(error)) throw error;
@@ -563,6 +568,10 @@ const PASS_USAGE = `agent-ci review pass — one reviewer pass, read-only (model
   --route <id> | (the request's model)   --harness, --allow-pool, --seed-login,
   --home-root, --timeout-minutes (30), --max-attempts (2),
   --retry-delay-seconds (30), --models, --credential-from-env
+  --checks-dir <dir> --checks-digest <hex>
+                                         verify-review: the verify stage's
+                                         output and its digest (validated;
+                                         served through run_check).
   --github-output                        ok, code.`;
 
 async function passStage(
@@ -578,6 +587,8 @@ async function passStage(
       pass: { type: 'string' },
       cwd: { type: 'string' },
       out: { type: 'string' },
+      'checks-dir': { type: 'string' },
+      'checks-digest': { type: 'string' },
       'max-attempts': { type: 'string' },
       'retry-delay-seconds': { type: 'string' },
       'github-output': { type: 'boolean' },
@@ -620,6 +631,8 @@ async function passStage(
           : path.resolve(context.cwd, flags.models),
       env,
       credentialFromEnv: flags['credential-from-env'] === true,
+      checksDir: dirFlag(flags['checks-dir'], context.cwd),
+      checksDigest: optional(flags['checks-digest']),
       ...(deps.git === undefined ? {} : { git: deps.git }),
     });
     if (!ran.ok) {

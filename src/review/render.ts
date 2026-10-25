@@ -333,14 +333,19 @@ function severityLabel(severity: Severity): string {
 function passList(passes: readonly ReviewPass[]): string {
   return passes.map((pass) => PASS_LABELS[pass]).join(', ');
 }
+function exitText(exitCode: number | null): string {
+  return exitCode === null ? 'killed' : `exit ${exitCode}`;
+}
 function evidenceLine(finding: GatedFinding): string {
   return finding.evidence
     .map((item) =>
-      codeSpan(
-        `${item.side === 'LEFT' ? 'base:' : ''}${item.path}:${item.line}${
-          item.end_line > item.line ? `-${item.end_line}` : ''
-        }`,
-      ),
+      item.kind === 'check'
+        ? `check ${codeSpan(item.name)} (${exitText(item.exit_code)}, ${codeSpan(item.evidence_id)})`
+        : codeSpan(
+            `${item.side === 'LEFT' ? 'base:' : ''}${item.path}:${item.line}${
+              item.end_line > item.line ? `-${item.end_line}` : ''
+            }`,
+          ),
     )
     .join(', ');
 }
@@ -518,6 +523,32 @@ export function renderSummary(
     'Token counts are what each harness reported for the pass, including a repair turn; unknown means the harness did not report them. Cost is shown only when the harness reported one (a subscription or proxy route may report a list-price figure that is not billed).',
     '',
   );
+  if (gated.mode === 'verify-review') {
+    lines.push('### Checks', '');
+    if (gated.checks === undefined || gated.checks === null) {
+      lines.push(
+        'No valid check evidence reached the findings gate, so no finding could cite a check.',
+        '',
+      );
+    } else if (gated.checks.status === 'setup-failed') {
+      lines.push(
+        'The setup command failed, so no check ran and no finding could cite one.',
+        '',
+      );
+    } else {
+      lines.push(
+        '| Check | Result | Isolation | Evidence |',
+        '| --- | --- | --- | --- |',
+        ...gated.checks.entries.map(
+          (entry) =>
+            `| ${codeSpan(entry.name)} | ${entry.timed_out ? 'timed out' : exitText(entry.exit_code)} | ${codeSpan(entry.isolation)} | ${codeSpan(entry.evidence_id)} |`,
+        ),
+        '',
+        'agent-ci ran these configured checks on the PR head in a job without model credentials; their results reflect the PR code itself.',
+        '',
+      );
+    }
+  }
   const notes = usage.flatMap((row) =>
     (Array.isArray(row.notes) ? row.notes : [])
       .filter((note): note is string => typeof note === 'string')

@@ -1085,3 +1085,92 @@ describe('gate: failure policy, dedupe, floor and suggestions', () => {
     );
   });
 });
+
+describe('gate: check evidence (verify-review)', () => {
+  const ID = `check-${'a'.repeat(24)}`;
+  const checkFinding = finding({
+    evidence: [{ kind: 'check', evidence_id: ID }],
+  });
+
+  it('refuses a check citation in review mode', () => {
+    const gated = run({ primary: [checkFinding] });
+    expect(dispositions(gated)['primary-a1-F1']).toBe(
+      'invalid:evidence_check_unavailable',
+    );
+    expect(gated.checks).toBeUndefined();
+  });
+
+  it('refuses a check id that is not in the pass evidence and admits one that is', () => {
+    const evidence = {
+      version: 1 as const,
+      repository: IDENTITY.repository,
+      head_sha: HEAD,
+      config_sha256: 'c'.repeat(64),
+      status: 'complete' as const,
+      setup: null,
+      entries: [
+        {
+          evidence_id: ID,
+          name: 'test',
+          command: 'pnpm test',
+          exit_code: 1,
+          timed_out: false,
+          truncated: false,
+          output_sha256: 'd'.repeat(64),
+          output_tail: 'FAIL',
+          duration_ms: 1,
+          isolation: 'none' as const,
+        },
+      ],
+    };
+    const verifyRun = (findings: unknown[]) =>
+      gateReview({
+        identity: IDENTITY,
+        mode: 'verify-review',
+        base_sha: BASE,
+        merge_base_sha: MERGE,
+        head_sha: HEAD,
+        diff: diffFor(FILE),
+        read: readerFor(FILE),
+        passes: [
+          {
+            pass: 'primary',
+            enabled: true,
+            attempt: '1',
+            review: { ...review('primary', findings), mode: 'verify-review' },
+          },
+        ],
+        adjudication: { enabled: false, value: null },
+        checks: { primary: evidence },
+      });
+    const admitted = verifyRun([checkFinding]);
+    expect(validateGatedReview(admitted, IDENTITY)).toBe(admitted);
+    expect(admitted.findings[0]?.evidence).toEqual([
+      { kind: 'check', evidence_id: ID, name: 'test', exit_code: 1 },
+    ]);
+    expect(admitted.checks?.entries[0]).toEqual({
+      name: 'test',
+      evidence_id: ID,
+      exit_code: 1,
+      timed_out: false,
+      isolation: 'none',
+    });
+    const forged = verifyRun([
+      finding({
+        evidence: [{ kind: 'check', evidence_id: `check-${'b'.repeat(24)}` }],
+      }),
+    ]);
+    expect(dispositions(forged)['primary-a1-F1']).toBe(
+      'invalid:evidence_unknown_check',
+    );
+    // A malformed id never reaches the lookup.
+    const malformed = verifyRun([
+      finding({
+        evidence: [{ kind: 'check', evidence_id: 'primary-a1-chk-1' }],
+      }),
+    ]);
+    expect(malformed.candidates[0]?.disposition).toBe(
+      'invalid:schema:evidence.0',
+    );
+  });
+});

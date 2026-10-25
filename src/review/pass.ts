@@ -1,15 +1,28 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { writeOwnedFile } from '@agent-ci/files.js';
-import type { Usage } from '@agent-ci/harness/types.js';
+import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
+import type { ToolBridge, Usage } from '@agent-ci/harness/types.js';
 import { failure, type Result, success } from '@agent-ci/result.js';
+import {
+  CHECKS_MCP_SERVER,
+  RUN_CHECK_TOOL,
+  type ServedChecks,
+} from '@agent-ci/review/checks-mcp.js';
+import {
+  type ChecksEvidence,
+  validateChecksEvidence,
+} from '@agent-ci/review/checks.js';
 import {
   contractError,
   isReviewError,
   type ReviewPass,
 } from '@agent-ci/review/contracts.js';
-import { readArtifactFile } from '@agent-ci/review/files.js';
+import { readArtifactFile, verifyArtifactDir } from '@agent-ci/review/files.js';
 import { escapingLink } from '@agent-ci/review/links.js';
 import {
   type LoadedSpec,
@@ -21,12 +34,14 @@ import {
   buildReviewPrompt,
   checkoutReader,
   prMetadataFile,
-  REVIEW_ANSWER_SCHEMA,
   REVIEW_INPUT_DIR,
   REVIEW_INPUT_FILES,
+  reviewAnswerSchema,
   reviewRepairPrompt,
   USE_CASE,
+  verifyReviewRepairPrompt,
 } from '@agent-ci/review/prompt.js';
+import { VERIFY_FILES } from '@agent-ci/review/verify.js';
 import { loadModelsFile, resolveRoute } from '@agent-ci/routing/resolve.js';
 import type { HarnessId, Route } from '@agent-ci/routing/schema.js';
 import { readHead } from '@agent-ci/run/changed-files.js';
@@ -54,7 +69,91 @@ import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
 export const PASS_FILES = Object.freeze({
   review: 'review.json',
   pass: 'pass.json',
+  /** verify-review: the validated checks the pass served (gate input). */
+  checks: 'checks.json',
 });
+
+const CHECKS_MAX_BYTES = 1024 * 1024;
+
+/** The bridge server: compiled `.js` in dist, the `.ts` source under tests. */
+export function checksMcpPath(): string {
+  const built = fileURLToPath(new URL('./checks-mcp.js', import.meta.url));
+  return existsSync(built)
+    ? built
+    : fileURLToPath(new URL('./checks-mcp.ts', import.meta.url));
+}
+
+/**
+ * Read and validate the verify stage's output for this spec. The directory
+ * must match its digest (the verify job's report, or a local digest), and
+ * the file must bind to the spec: repository, head, config digest, the
+ * configured checks in order, every evidence id recomputed.
+ */
+export async function loadChecksDir(input: {
+  dir: string | undefined;
+  digest: string | undefined;
+  spec: LoadedSpec;
+}): Promise<Result<ChecksEvidence>> {
+  const { spec } = input.spec;
+  if (spec.verify === undefined)
+    return failure('E_REVIEW_INPUT', 'the spec has no checks configuration');
+  if (input.dir === undefined || input.dir === '')
+    return failure(
+      'E_VERIFY_EVIDENCE',
+      'verify-review needs the verify stage output (--checks-dir with checks.json)',
+    );
+  try {
+    await verifyArtifactDir(input.dir, input.digest ?? '');
+    const text = await readArtifactFile(
+      path.join(input.dir, VERIFY_FILES.evidence),
+      CHECKS_MAX_BYTES,
+    );
+    if (text === null)
+      return failure(
+        'E_VERIFY_EVIDENCE',
+        'the verify stage wrote no checks.json',
+      );
+    return success(
+      validateChecksEvidence(JSON.parse(text) as unknown, {
+        repository: spec.repository,
+        head_sha: spec.head_sha,
+        verify: spec.verify,
+      }),
+    );
+  } catch (error) {
+    if (isReviewError(error))
+      return failure('E_VERIFY_EVIDENCE', error.message);
+    return failure(
+      'E_VERIFY_EVIDENCE',
+      `the verify stage output is unusable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/** The file the bridge serves: validated results plus config descriptions. */
+export function servedChecks(
+  evidence: ChecksEvidence,
+  spec: LoadedSpec['spec'],
+): ServedChecks {
+  const descriptions = new Map(
+    (spec.verify?.config.checks ?? []).map((c) => [c.name, c.description]),
+  );
+  return {
+    version: 1,
+    head_sha: evidence.head_sha,
+    checks: evidence.entries.map((entry) => ({
+      name: entry.name,
+      description: descriptions.get(entry.name) ?? '',
+      evidence_id: entry.evidence_id,
+      command: entry.command,
+      exit_code: entry.exit_code,
+      timed_out: entry.timed_out,
+      truncated: entry.truncated,
+      isolation: entry.isolation,
+      output_tail: entry.output_tail,
+    })),
+  };
+}
 
 const SPEC_MAX_BYTES = 4 * 1024 * 1024;
 const DIFF_MAX_BYTES = 16 * 1024 * 1024;
@@ -72,6 +171,8 @@ export type PassRecord = {
   repair: RepairOutcome | null;
   usage: Usage | null;
   warnings: string[];
+  /** verify-review: check names `run_check` served, in call order. */
+  checks_served?: string[];
 };
 
 /** Read and verify a downloaded spec directory. */
@@ -113,6 +214,9 @@ export type ReviewPassOptions = {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly credentialFromEnv: boolean;
   readonly git?: string;
+  /** verify-review: the verify stage's output directory and its digest. */
+  readonly checksDir?: string | undefined;
+  readonly checksDigest?: string | undefined;
 };
 
 export type ReviewPassResult = {
@@ -160,6 +264,25 @@ export async function runReviewPass(
   if (!resolvedRoute.ok) return resolvedRoute;
   const { route, env } = resolvedRoute.value;
 
+  // verify-review: the recorded checks, validated before anything runs, and
+  // a route whose harness can offer the run_check bridge.
+  const verify = spec.request.mode === 'verify-review';
+  let checks: ChecksEvidence | undefined;
+  if (verify) {
+    if (!adapterFor(route.harness).supportsToolBridge)
+      return failure(
+        'E_POLICY_HARNESS',
+        `route ${route.id} runs on ${route.harness}, which has no verified run_check bridge; verify-review needs a Claude or Codex route`,
+      );
+    const loaded = await loadChecksDir({
+      dir: options.checksDir,
+      digest: options.checksDigest,
+      spec: options.spec,
+    });
+    if (!loaded.ok) return loaded;
+    checks = loaded.value;
+  }
+
   // The checkout must be the captured head: the findings gate anchors
   // against that tree, and a moved checkout would review other code.
   const root = await findWorkspaceRoot(options.cwd, options.git);
@@ -193,7 +316,34 @@ export async function runReviewPass(
       `the checkout already has ${REVIEW_INPUT_DIR} (${(err as NodeJS.ErrnoException).code ?? 'error'}); agent-ci writes its review inputs there`,
     );
   }
+  // The served file and the calls log live outside the checkout, in a
+  // directory only this pass uses.
+  const bridgeDir =
+    checks === undefined
+      ? undefined
+      : await mkdtemp(path.join(os.tmpdir(), 'agent-ci-checks-'));
   try {
+    let toolBridge: ToolBridge | undefined;
+    if (checks !== undefined && bridgeDir !== undefined) {
+      const served = path.join(bridgeDir, 'served.json');
+      await writeOwnedFile(
+        served,
+        `${JSON.stringify(servedChecks(checks, spec))}\n`,
+        0o600,
+      );
+      toolBridge = {
+        server: CHECKS_MCP_SERVER,
+        command: process.execPath,
+        args: [
+          checksMcpPath(),
+          '--checks',
+          served,
+          '--calls',
+          path.join(bridgeDir, 'calls.jsonl'),
+        ],
+        tool: RUN_CHECK_TOOL,
+      };
+    }
     await writeFile(
       path.join(root.value.root, REVIEW_INPUT_FILES.diff),
       options.spec.diffText,
@@ -219,6 +369,18 @@ export async function runReviewPass(
         changed_files: spec.changed_files,
         checkout: checkoutReader(root.value.root),
         channel: route.structuredOutput === 'prompt' ? 'final-text' : 'schema',
+        ...(checks === undefined
+          ? {}
+          : {
+              checks: {
+                status: checks.status,
+                setupExit: checks.setup?.exit_code ?? null,
+                entries: servedChecks(checks, spec).checks.map((c) => ({
+                  name: c.name,
+                  description: c.description,
+                })),
+              },
+            }),
       });
     } catch (error) {
       if (isReviewError(error)) return failure(error.code, error.message);
@@ -250,10 +412,22 @@ export async function runReviewPass(
         modelsPath: options.modelsPath,
         env,
         structured: {
-          schema: REVIEW_ANSWER_SCHEMA as unknown as Record<string, unknown>,
+          schema: reviewAnswerSchema(spec.request.mode),
           accept: (candidate, final) =>
-            acceptReviewAnswer(candidate, final, expectation),
-          repairPrompt: reviewRepairPrompt,
+            acceptReviewAnswer(
+              candidate,
+              final,
+              expectation,
+              checks === undefined
+                ? {}
+                : {
+                    checkIds: new Set(
+                      checks.entries.map((entry) => entry.evidence_id),
+                    ),
+                  },
+            ),
+          repairPrompt: verify ? verifyReviewRepairPrompt : reviewRepairPrompt,
+          ...(toolBridge === undefined ? {} : { toolBridge }),
           outputFile: PASS_FILES.review,
           describe: (value) =>
             `agent-ci ${options.pass} reviewer submitted ${
@@ -264,6 +438,17 @@ export async function runReviewPass(
       { ...deps, ...(options.git === undefined ? {} : { git: options.git }) },
     );
     if (!summary.ok) return summary;
+    const passDir = path.dirname(summary.value.resultPath);
+    let served: string[] | undefined;
+    if (checks !== undefined && bridgeDir !== undefined) {
+      // The gate validates citations against exactly what this pass served.
+      await writeOwnedFile(
+        path.join(passDir, PASS_FILES.checks),
+        `${JSON.stringify(checks, null, 2)}\n`,
+        0o644,
+      );
+      served = await readServedNames(path.join(bridgeDir, 'calls.jsonl'));
+    }
     const record: PassRecord = {
       version: 1,
       pass: options.pass,
@@ -276,11 +461,9 @@ export async function runReviewPass(
       repair: summary.value.repair ?? null,
       usage: summary.value.usage,
       warnings: prompt.warnings,
+      ...(served === undefined ? {} : { checks_served: served }),
     };
-    const passPath = path.join(
-      path.dirname(summary.value.resultPath),
-      PASS_FILES.pass,
-    );
+    const passPath = path.join(passDir, PASS_FILES.pass);
     await writeOwnedFile(
       passPath,
       `${JSON.stringify(record, null, 2)}\n`,
@@ -292,9 +475,36 @@ export async function runReviewPass(
       passPath,
     });
   } finally {
-    // Only what agent-ci created: the input directory it made above.
+    // Only what agent-ci created: the input directory and the bridge
+    // directory it made above.
     await rm(inputDir, { recursive: true, force: true });
+    if (bridgeDir !== undefined)
+      await rm(bridgeDir, { recursive: true, force: true });
   }
+}
+
+/** Check names from the bridge's calls log (diagnostic; bounded). */
+async function readServedNames(file: string): Promise<string[]> {
+  let text: string;
+  try {
+    text = await readFile(file, 'utf8');
+  } catch {
+    return [];
+  }
+  const names: string[] = [];
+  for (const line of text.split('\n').slice(0, 200)) {
+    try {
+      const value = JSON.parse(line) as { name?: unknown };
+      if (
+        typeof value.name === 'string' &&
+        /^[a-z][a-z0-9-]{0,39}$/u.test(value.name)
+      )
+        names.push(value.name);
+    } catch {
+      // skip a partial line
+    }
+  }
+  return names;
 }
 
 /**

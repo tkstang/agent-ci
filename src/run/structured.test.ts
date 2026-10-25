@@ -267,6 +267,24 @@ describe('structured runs', () => {
     expect(existsSync(opts.outDir)).toBe(false);
   });
 
+  it('refuses a tool bridge on a harness without a verified one, before anything is created', async () => {
+    const opts = await options({
+      routeId: 'grok-cursor',
+      structured: {
+        ...structured,
+        toolBridge: {
+          server: 'agent-ci-checks',
+          command: process.execPath,
+          args: ['checks-mcp.js'],
+          tool: 'run_check',
+        },
+      },
+    });
+    const summary = await runAgent(opts);
+    expect(summary).toMatchObject({ ok: false, code: 'E_POLICY_HARNESS' });
+    expect(existsSync(opts.outDir)).toBe(false);
+  });
+
   it('refuses an edit-mode structured run and a reserved output name', async () => {
     const edit = await runAgent(
       await options({ routeId: 'fake-review', mode: 'edit' }),

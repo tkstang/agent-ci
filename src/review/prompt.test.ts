@@ -12,6 +12,8 @@ import {
   REVIEW_ANSWER_SCHEMA,
   REVIEW_INPUT_FILES,
   type ReviewPromptInput,
+  reviewAnswerSchema,
+  VERIFY_REVIEW_ANSWER_SCHEMA,
 } from '@agent-ci/review/prompt.js';
 import { describe, expect, it } from 'vitest';
 
@@ -297,5 +299,145 @@ describe('acceptReviewAnswer', () => {
       Object.keys(item.properties).toSorted(),
     );
     expect(JSON.stringify(REVIEW_ANSWER_SCHEMA)).not.toContain('oneOf');
+  });
+});
+
+function verifyAnswer(evidenceId: string) {
+  return {
+    summary: 's',
+    findings: [
+      {
+        id: 'f1',
+        severity: 'high',
+        category: 'test',
+        rule_id: null,
+        title: 'Test fails',
+        body: 'The change breaks the test.',
+        path: 'src/a.ts',
+        line: 1,
+        end_line: 1,
+        side: 'RIGHT',
+        original_code: 'x',
+        suggestion: null,
+        evidence: [
+          {
+            kind: 'code',
+            path: 'src/a.ts',
+            line: 1,
+            end_line: 1,
+            side: 'RIGHT',
+            quote: 'x',
+            evidence_id: null,
+          },
+          {
+            kind: 'check',
+            evidence_id: evidenceId,
+            path: null,
+            line: null,
+            end_line: null,
+            side: null,
+            quote: null,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+describe('verify-review prompt and answer', () => {
+  const verifyConfig = { ...config, mode: 'verify-review' };
+  const ID = `check-${'a'.repeat(24)}`;
+
+  it('lists the recorded checks and the citation shape, or says no check ran', () => {
+    const { prompt } = buildReviewPrompt(
+      input({
+        request: verifyConfig,
+        checks: {
+          status: 'complete',
+          setupExit: 0,
+          entries: [
+            { name: 'test', description: 'unit tests' },
+            { name: 'lint', description: '' },
+          ],
+        },
+      }),
+    );
+    expect(prompt).toContain('Mode: verify-review.');
+    expect(prompt).not.toContain('Mode: review (static).');
+    expect(prompt).toContain('  - "test": "unit tests"');
+    expect(prompt).toContain('  - "lint"');
+    expect(prompt).toContain('run_check');
+    expect(prompt).toContain('"kind": "check", "evidence_id"');
+    const failed = buildReviewPrompt(
+      input({
+        request: verifyConfig,
+        checks: { status: 'setup-failed', setupExit: 2, entries: [] },
+      }),
+    ).prompt;
+    expect(failed).toContain('The setup command failed (exit 2)');
+  });
+
+  it('widens evidence items for checks without oneOf, every property required', () => {
+    expect(reviewAnswerSchema('review')).toBe(REVIEW_ANSWER_SCHEMA);
+    const item =
+      VERIFY_REVIEW_ANSWER_SCHEMA.properties.findings.items.properties.evidence
+        .items;
+    expect(item.required.toSorted()).toEqual(
+      Object.keys(item.properties).toSorted(),
+    );
+    expect(item.properties.kind.enum).toEqual(['code', 'check']);
+    expect(JSON.stringify(VERIFY_REVIEW_ANSWER_SCHEMA)).not.toContain('oneOf');
+  });
+
+  it('normalizes check items and accepts only ids run_check can return on the first answer', () => {
+    const expected = {
+      mode: 'verify-review' as const,
+      pass: 'primary' as const,
+      base_sha: BASE,
+      merge_base_sha: MERGE,
+      head_sha: HEAD,
+    };
+    const ok = acceptReviewAnswer(verifyAnswer(ID), false, expected, {
+      checkIds: new Set([ID]),
+    });
+    expect(ok.ok).toBe(true);
+    if (ok.ok)
+      expect(
+        (ok.value as { findings: Array<{ evidence: unknown[] }> }).findings[0]
+          ?.evidence,
+      ).toEqual([
+        {
+          kind: 'code',
+          path: 'src/a.ts',
+          line: 1,
+          end_line: 1,
+          side: 'RIGHT',
+          quote_sha256: quoteSha256('x'),
+        },
+        { kind: 'check', evidence_id: ID },
+      ]);
+    const unknown = `check-${'b'.repeat(24)}`;
+    expect(
+      acceptReviewAnswer(verifyAnswer(unknown), false, expected, {
+        checkIds: new Set([ID]),
+      }),
+    ).toMatchObject({ ok: false, code: 'E_REVIEW_INPUT' });
+    // The last chance keeps the envelope; the findings gate drops the finding.
+    expect(
+      acceptReviewAnswer(verifyAnswer(unknown), true, expected, {
+        checkIds: new Set([ID]),
+      }).ok,
+    ).toBe(true);
+    // Review mode never accepts check evidence.
+    expect(
+      acceptReviewAnswer(
+        verifyAnswer(ID),
+        false,
+        { ...expected, mode: 'review' },
+        {
+          checkIds: new Set([ID]),
+        },
+      ).ok,
+    ).toBe(false);
   });
 });

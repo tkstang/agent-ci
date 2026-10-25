@@ -47,6 +47,7 @@ import {
 import type {
   HarnessOutcome,
   RunMode,
+  ToolBridge,
   Usage,
 } from '@agent-ci/harness/types.js';
 import { buildChangeSet, CHANGE_SET_FILE } from '@agent-ci/publish/changes.js';
@@ -150,6 +151,12 @@ export interface StructuredRunOptions {
    * tool-free posture (Claude; the fake harness) may run it.
    */
   readonly noTools?: boolean;
+  /**
+   * One agent-ci MCP server tool the agent may call (verify-review's
+   * `run_check`). Read-only and only on harnesses with a verified bridge;
+   * every turn (attempts and the repair turn) gets it.
+   */
+  readonly toolBridge?: ToolBridge;
 }
 
 /** How the structured answer was obtained. */
@@ -640,6 +647,9 @@ async function runInHome(
                     : {
                         jsonSchema: options.structured.schema,
                         noTools: options.structured.noTools === true,
+                        ...(options.structured.toolBridge === undefined
+                          ? {}
+                          : { toolBridge: options.structured.toolBridge }),
                       }),
                 },
                 { timeoutMs },
@@ -803,6 +813,9 @@ async function runInHome(
           parentEnv: options.env,
           schema: structured.schema,
           noTools: structured.noTools === true,
+          ...(structured.toolBridge === undefined
+            ? {}
+            : { toolBridge: structured.toolBridge }),
           timeoutMs: remaining,
           ...(deps.harness === undefined ? {} : { harness: deps.harness }),
         });
@@ -1090,6 +1103,16 @@ function checkStructured(
       'Pick a Claude route for a tool-free run (the PR-review adjudicator).',
     );
   }
+  if (
+    structured.toolBridge !== undefined &&
+    !adapterFor(route.harness).supportsToolBridge
+  ) {
+    return failure(
+      'E_POLICY_HARNESS',
+      `route ${route.id} runs on ${route.harness}, which has no verified tool bridge (verify-review's run_check)`,
+      'Pick a Claude or Codex route for verify-review.',
+    );
+  }
   return undefined;
 }
 
@@ -1123,6 +1146,7 @@ interface RepairInput {
   readonly parentEnv: Readonly<Record<string, string | undefined>>;
   readonly schema: Record<string, unknown>;
   readonly noTools: boolean;
+  readonly toolBridge?: ToolBridge;
   readonly timeoutMs: number;
   readonly harness?: RunHarnessDeps;
 }
@@ -1145,6 +1169,9 @@ async function repairTurn(
         parentEnv: input.parentEnv,
         jsonSchema: input.schema,
         noTools: input.noTools,
+        ...(input.toolBridge === undefined
+          ? {}
+          : { toolBridge: input.toolBridge }),
         resumeSessionId: input.sessionId,
       },
       { timeoutMs: input.timeoutMs },

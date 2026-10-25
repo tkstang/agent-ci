@@ -26,8 +26,14 @@
  * (`--resume`), then like `review`. `adjudicate` keeps every finding.
  * Test-only: `review-repair-escape` links its home into the workspace on
  * the resumed turn.
+ *
+ * `verify-review` calls the `run_check` tool bridge it is given
+ * (`--bridge <json>`: command, args, tool) over stdio for the first check the
+ * server lists, then answers like `review` with the returned evidence id
+ * cited as a check evidence item next to the code evidence. Test-only:
+ * `verify-review-forged` cites an evidence id the bridge never returned.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
@@ -174,7 +180,92 @@ function reviewAnswer(): string {
   });
 }
 
+/** `value[k0][k1]...`, or undefined when any step is not an object. */
+function dig(value: unknown, ...keys: Array<string | number>): unknown {
+  let current = value;
+  for (const key of keys) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = (current as Record<string | number, unknown>)[key];
+  }
+  return current;
+}
+
+/** Ask the bridge for the first listed check; returns its evidence id. */
+function bridgeEvidence(): string | undefined {
+  const text = argValue('--bridge');
+  if (text === undefined) return undefined;
+  const bridge = JSON.parse(text) as {
+    command: string;
+    args: string[];
+    tool: string;
+  };
+  const ask = (requests: unknown[]): unknown[] => {
+    const ran = spawnSync(bridge.command, bridge.args, {
+      input: `${requests.map((r) => JSON.stringify(r)).join('\n')}\n`,
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    return String(ran.stdout)
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as unknown);
+  };
+  const listed = ask([
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+    { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+  ]);
+  const tools = dig(listed[1], 'result', 'tools');
+  const tool = Array.isArray(tools)
+    ? tools.find((t) => dig(t, 'name') === bridge.tool)
+    : undefined;
+  const name = dig(tool, 'inputSchema', 'properties', 'name', 'enum', 0);
+  if (typeof name !== 'string') return undefined;
+  const called = ask([
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+    {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: bridge.tool, arguments: { name } },
+    },
+  ]);
+  const id = dig(called[1], 'result', 'structuredContent', 'evidence_id');
+  return typeof id === 'string' ? id : undefined;
+}
+
+/** A verify-review answer citing `evidenceId` (verify schema shape). */
+function verifyAnswer(evidenceId: string | undefined): string {
+  const review = JSON.parse(reviewAnswer()) as {
+    summary: string;
+    findings: Array<{ evidence: Array<Record<string, unknown>> }>;
+  };
+  for (const finding of review.findings) {
+    finding.evidence = finding.evidence.map((item) => ({
+      ...item,
+      evidence_id: null,
+    }));
+    if (evidenceId !== undefined)
+      finding.evidence.push({
+        kind: 'check',
+        evidence_id: evidenceId,
+        path: null,
+        line: null,
+        end_line: null,
+        side: null,
+        quote: null,
+      });
+  }
+  review.summary = `${review.summary} Check evidence: ${evidenceId ?? 'none'}.`;
+  return JSON.stringify(review);
+}
+
 switch (scenario) {
+  case 'verify-review':
+    emit(verifyAnswer(bridgeEvidence()), false);
+    break;
+  case 'verify-review-forged':
+    emit(verifyAnswer(`check-${'0'.repeat(24)}`), false);
+    break;
   case 'review':
     emit(reviewAnswer(), false);
     break;

@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 
 import {
+  CHECK_EVIDENCE_ID,
+  CHECK_NAME,
   closedRecord,
   contractError,
   isHex64,
@@ -45,9 +47,8 @@ export const CHECK_LIMITS = Object.freeze({
   tailBytes: 16 * 1024,
 });
 
-const CHECK_NAME = /^[a-z][a-z0-9-]{0,39}$/u;
 /** `check-` and 24 lowercase hex characters (96 bits of the hash). */
-export const EVIDENCE_ID = /^check-[0-9a-f]{24}$/u;
+export const EVIDENCE_ID = CHECK_EVIDENCE_ID;
 
 const Command = z
   .string()

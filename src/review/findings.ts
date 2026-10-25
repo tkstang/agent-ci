@@ -2,6 +2,10 @@ import path from 'node:path';
 
 import type { Usage } from '@agent-ci/harness/types.js';
 import {
+  type ChecksEvidence,
+  validateChecksEvidence,
+} from '@agent-ci/review/checks.js';
+import {
   type GatedReview,
   type PostedMarker,
   type ReviewIdentity,
@@ -54,7 +58,11 @@ export type LoadedPass = {
   record: PassRecord | null;
   /** Why no review was read, when none was. */
   problem: string | null;
+  /** verify-review: the pass's `checks.json` (parsed, not yet validated). */
+  checks?: unknown;
 };
+
+const CHECKS_MAX_BYTES = 1024 * 1024;
 
 /** One pass's artifact directory, verified against its job's digest. */
 export async function loadPassDir(input: {
@@ -77,6 +85,18 @@ export async function loadPassDir(input: {
   const record = parsePassRecord(
     await readArtifactFile(path.join(input.dir, PASS_FILES.pass), 64 * 1024),
   );
+  const checksText = await readArtifactFile(
+    path.join(input.dir, PASS_FILES.checks),
+    CHECKS_MAX_BYTES,
+  );
+  let checks: unknown = null;
+  if (checksText !== null) {
+    try {
+      checks = JSON.parse(checksText);
+    } catch {
+      checks = null;
+    }
+  }
   const text = await readArtifactFile(
     path.join(input.dir, PASS_FILES.review),
     REVIEW_MAX_BYTES,
@@ -87,6 +107,7 @@ export async function loadPassDir(input: {
       review: null,
       record,
       problem: 'no review.json',
+      checks,
     };
   try {
     return {
@@ -94,6 +115,7 @@ export async function loadPassDir(input: {
       review: JSON.parse(text),
       record,
       problem: null,
+      checks,
     };
   } catch {
     return {
@@ -101,6 +123,7 @@ export async function loadPassDir(input: {
       review: null,
       record,
       problem: 'review.json is not JSON',
+      checks,
     };
   }
 }
@@ -173,6 +196,24 @@ export function gateArtifacts(input: {
 }): GatedReview {
   const { spec } = input.spec;
   const passes: PassInput[] = [];
+  // verify-review: each pass's own copy of the checks it served, validated
+  // again here against the spec; a copy that fails counts as none.
+  const checks: Partial<Record<ReviewPass, ChecksEvidence | null>> = {};
+  if (spec.request.mode === 'verify-review' && spec.verify !== undefined)
+    for (const loaded of input.passes) {
+      try {
+        checks[loaded.pass] =
+          loaded.checks === undefined || loaded.checks === null
+            ? null
+            : validateChecksEvidence(loaded.checks, {
+                repository: spec.repository,
+                head_sha: spec.head_sha,
+                verify: spec.verify,
+              });
+      } catch {
+        checks[loaded.pass] = null;
+      }
+    }
   for (const name of ['primary', 'second'] as const) {
     const enabled = name === 'primary' || spec.request.second.enabled;
     if (!enabled) continue;
@@ -202,6 +243,7 @@ export function gateArtifacts(input: {
       },
       policy: input.policy,
       posted: [...input.posted],
+      ...(spec.request.mode === 'verify-review' ? { checks } : {}),
     }),
     input.identity,
   );
@@ -245,12 +287,16 @@ export function usageRows(
   for (const pass of passes)
     if (pass.record !== null)
       rows.push(
-        row(
-          pass.pass,
-          pass.record.model,
-          pass.record.usage,
-          pass.record.warnings,
-        ),
+        row(pass.pass, pass.record.model, pass.record.usage, [
+          ...(Array.isArray(pass.record.warnings) ? pass.record.warnings : []),
+          ...(Array.isArray(pass.record.checks_served)
+            ? [
+                pass.record.checks_served.length === 0
+                  ? 'run_check was not called'
+                  : `run_check served: ${[...new Set(pass.record.checks_served.filter((n) => typeof n === 'string'))].slice(0, 10).join(', ')}`,
+              ]
+            : []),
+        ]),
       );
   if (adjudicator !== null && adjudicator.status !== 'skipped')
     rows.push(row('adjudicator', adjudicator.model, adjudicator.usage));

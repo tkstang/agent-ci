@@ -10,9 +10,9 @@ import type { ErrorCode } from '@agent-ci/result.js';
  * untrusted model output; validation is hand-written and closed (unknown
  * fields are rejected) so the gate never acts on a shape it did not check.
  *
- * Differences from pntr: evidence is code evidence only (check evidence and
- * check ledgers arrive with `verify-review` in p04), the only mode is
- * `review`, and errors are `ReviewError`s with a closed agent-ci code.
+ * Differences from pntr: check evidence cites a `checks.json` entry the
+ * verify stage recorded (not a per-pass ledger kept in worker memory), and
+ * errors are `ReviewError`s with a closed agent-ci code.
  */
 
 /** Severity, most severe first. */
@@ -108,6 +108,11 @@ export function contractError(code: ReviewErrorCode, message: string): never {
   throw new ReviewError(code, message);
 }
 
+/** A verify-review check name (`checks.yaml`). */
+export const CHECK_NAME = /^[a-z][a-z0-9-]{0,39}$/u;
+/** A check evidence id: `check-` and 24 lowercase hex characters. */
+export const CHECK_EVIDENCE_ID = /^check-[0-9a-f]{24}$/u;
+
 export type CodeEvidence = {
   kind: 'code';
   path: string;
@@ -117,7 +122,9 @@ export type CodeEvidence = {
   /** sha256 of the canonical quote (see {@link quoteSha256}). */
   quote_sha256: string;
 };
-export type Evidence = CodeEvidence;
+/** A recorded check (verify-review), cited by its evidence id. */
+export type CheckEvidence = { kind: 'check'; evidence_id: string };
+export type Evidence = CodeEvidence | CheckEvidence;
 /** One validated reviewer finding (agent-local identity). */
 export type ReviewFinding = {
   id: string;
@@ -199,12 +206,21 @@ export type CandidateDisposition =
   | 'merged'
   | 'dropped_by_adjudicator'
   | `invalid:${string}`;
-export type GatedEvidence = {
-  kind: 'code';
-  path: string;
-  line: number;
-  end_line: number;
-  side: Side;
+export type GatedEvidence =
+  | { kind: 'code'; path: string; line: number; end_line: number; side: Side }
+  | {
+      kind: 'check';
+      evidence_id: string;
+      name: string;
+      exit_code: number | null;
+    };
+/** One recorded check as the summary shows it (verify-review). */
+export type GatedCheck = {
+  name: string;
+  evidence_id: string;
+  exit_code: number | null;
+  timed_out: boolean;
+  isolation: string;
 };
 export type GatedCandidate = {
   candidate_id: string;
@@ -287,6 +303,14 @@ export type GatedReview = {
   candidates: GatedCandidate[];
   findings: GatedFinding[];
   not_reproduced: PostedMarker[];
+  /**
+   * verify-review only: the checks the passes could read; `null` when the
+   * mode is verify-review but no valid evidence reached the gate.
+   */
+  checks?: {
+    status: 'complete' | 'setup-failed';
+    entries: GatedCheck[];
+  } | null;
 };
 
 type Fields = Record<string, unknown>;
@@ -520,6 +544,15 @@ function range(
 }
 function evidenceItem(value: unknown, index: number): Evidence {
   const at = `evidence.${index}`;
+  if (record(value) && value.kind === 'check') {
+    if (
+      !closedRecord(value, ['kind', 'evidence_id']) ||
+      typeof value.evidence_id !== 'string' ||
+      !CHECK_EVIDENCE_ID.test(value.evidence_id)
+    )
+      invalidFinding(`schema:${at}`);
+    return { kind: 'check', evidence_id: value.evidence_id as string };
+  }
   if (
     !closedRecord(value, [
       'kind',
@@ -795,6 +828,15 @@ function diffPosition(value: unknown): boolean {
   );
 }
 function gatedEvidence(value: unknown): boolean {
+  if (closedRecord(value, ['kind', 'evidence_id', 'name', 'exit_code']))
+    return (
+      value.kind === 'check' &&
+      typeof value.evidence_id === 'string' &&
+      CHECK_EVIDENCE_ID.test(value.evidence_id) &&
+      typeof value.name === 'string' &&
+      CHECK_NAME.test(value.name) &&
+      (value.exit_code === null || Number.isSafeInteger(value.exit_code))
+    );
   return (
     closedRecord(value, ['kind', 'path', 'line', 'end_line', 'side']) &&
     value.kind === 'code' &&
@@ -896,6 +938,7 @@ export function validateGatedReview(
       'candidates',
       'findings',
       'not_reproduced',
+      'checks',
     ])
   )
     invalidGated('gated review must be an object with only known fields');
@@ -1023,5 +1066,38 @@ export function validateGatedReview(
     !value.not_reproduced.every(marker)
   )
     invalidGated('invalid not_reproduced');
+  if (value.checks !== undefined && value.checks !== null) {
+    const checks = value.checks;
+    if (
+      !closedRecord(checks, ['status', 'entries']) ||
+      !oneOf(checks.status, ['complete', 'setup-failed'] as const) ||
+      !Array.isArray(checks.entries) ||
+      checks.entries.length > 10 ||
+      !checks.entries.every(
+        (entry) =>
+          closedRecord(entry, [
+            'name',
+            'evidence_id',
+            'exit_code',
+            'timed_out',
+            'isolation',
+          ]) &&
+          typeof entry.name === 'string' &&
+          CHECK_NAME.test(entry.name) &&
+          typeof entry.evidence_id === 'string' &&
+          CHECK_EVIDENCE_ID.test(entry.evidence_id) &&
+          (entry.exit_code === null || Number.isSafeInteger(entry.exit_code)) &&
+          typeof entry.timed_out === 'boolean' &&
+          oneOf(entry.isolation, [
+            'linux-namespaces',
+            'macos-sandbox',
+            'none',
+          ] as const),
+      )
+    )
+      invalidGated('invalid checks');
+  }
+  if (value.checks !== undefined && value.mode !== 'verify-review')
+    invalidGated('checks belong to verify-review only');
   return value as unknown as GatedReview;
 }

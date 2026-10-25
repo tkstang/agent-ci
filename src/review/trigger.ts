@@ -698,6 +698,11 @@ export function configureRequest(input: {
   allowPool?: boolean;
   /** Local runs only: allow login routes (always refused in CI). */
   seedLogin?: boolean;
+  /**
+   * Whether this workflow (its `verify` input) or local run (`--verify`)
+   * allows verify-review requests. Off by default.
+   */
+  verifyEnabled?: boolean;
 }): ConfigureOutcome {
   const { request } = input.authorized;
   let mode: ReviewMode;
@@ -723,6 +728,11 @@ export function configureRequest(input: {
       return fail('command', error.message);
     }
   }
+  if (mode === 'verify-review' && input.verifyEnabled !== true)
+    return fail(
+      'command',
+      'verify-review is not enabled for this repository (the review workflow sets `verify: true` to allow it); request `/agent-ci-review` or the `agent-ci:review` label instead.',
+    );
   let config: ResolvedRequestConfig;
   try {
     config = resolveRequestConfig({
@@ -782,6 +792,15 @@ export function configureRequest(input: {
       return fail(
         route,
         `the ${pass.name} model ${shown} has no usable route here (${resolved.code}).`,
+      );
+    if (
+      mode === 'verify-review' &&
+      !pass.adjudicator &&
+      !adapterFor(resolved.value.route.harness).supportsToolBridge
+    )
+      return fail(
+        route,
+        `the ${pass.name} model ${shown} runs on ${resolved.value.route.harness}; verify-review reviewers need the run_check tool bridge, which only Claude and Codex routes have.`,
       );
     if (
       pass.adjudicator &&

@@ -37,10 +37,24 @@ describe('parseReviewCommand', () => {
       'please /agent-ci-review',
       '/pntr-review',
       '/agent-ci-reviewer',
-      '/agent-ci-verify-review',
+      '/agent-ci-verify-reviewer',
       42,
     ])
       expect(parseReviewCommand(body)).toEqual({ kind: 'not-command' });
+  });
+
+  it('parses the verify-review command with options and an instruction', () => {
+    expect(
+      parseReviewCommand(
+        '/agent-ci-verify-review reviewer_model=x check tests',
+      ),
+    ).toEqual({
+      kind: 'command',
+      command: '/agent-ci-verify-review',
+      mode: 'verify-review',
+      options: { reviewer_model: 'x' },
+      instruction: 'check tests',
+    });
   });
 
   it('parses leading options, then the instruction (with -- and later lines)', () => {

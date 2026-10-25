@@ -22,15 +22,20 @@ import {
  * quoting or escaping. Labels carry no options.
  */
 
-/** Comment commands; `/agent-ci-verify-review` arrives with p04. */
+/**
+ * Comment commands. `/agent-ci-verify-review` asks for verify-review, which
+ * the workflow must enable (its `verify` input).
+ */
 export const REVIEW_COMMANDS: Readonly<Record<string, ReviewMode>> =
   Object.freeze({
     '/agent-ci-review': 'review',
+    '/agent-ci-verify-review': 'verify-review',
   });
-/** Trigger labels; `agent-ci:verify-review` arrives with p04. */
+/** Trigger labels. */
 export const REVIEW_LABELS: Readonly<Record<string, ReviewMode>> =
   Object.freeze({
     'agent-ci:review': 'review',
+    'agent-ci:verify-review': 'verify-review',
   });
 
 export const OPTION_KEYS = Object.freeze([

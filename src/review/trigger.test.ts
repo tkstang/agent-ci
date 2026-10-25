@@ -120,7 +120,7 @@ describe('resolvePrReviewTrigger', () => {
     [
       'an unrelated label',
       'pull_request_target',
-      labelEvent({}, 'agent-ci:verify-review'),
+      labelEvent({}, 'agent-ci:summarize'),
     ],
     ['a bot labeler', 'pull_request_target', labelEvent({ sender: bot('x') })],
     [
@@ -362,6 +362,61 @@ const configure = (
   });
 
 describe('configureRequest', () => {
+  it('plans verify-review only when the workflow enables it, on bridge harnesses', () => {
+    expect(configure('/agent-ci-verify-review')).toMatchObject({
+      status: 'failed',
+      failure: {
+        route: 'command',
+        detail: expect.stringContaining('not enabled'),
+      },
+    });
+    expect(
+      configure('/agent-ci-verify-review', { verifyEnabled: true }),
+    ).toMatchObject({
+      status: 'planned',
+      config: { mode: 'verify-review', primary: { model: 'claude-haiku-4-5' } },
+    });
+    // A label carries the mode too.
+    const label = authorized(null);
+    expect(
+      configureRequest({
+        authorized: {
+          ...label,
+          request: {
+            ...label.request,
+            labelMode: 'verify-review',
+            label: 'agent-ci:verify-review',
+          },
+        },
+        defaults: DEFAULTS,
+        allowedModels: ['claude-haiku-4-5'],
+        models: MODELS.value,
+        env: CI_ENV,
+        verifyEnabled: true,
+      }),
+    ).toMatchObject({ status: 'planned', config: { mode: 'verify-review' } });
+    // OpenCode (and Cursor) reviewers have no run_check bridge.
+    expect(
+      configure('/agent-ci-verify-review reviewer_model=grok-4.7', {
+        verifyEnabled: true,
+      }),
+    ).toMatchObject({
+      status: 'failed',
+      failure: {
+        route: 'command',
+        detail: expect.stringContaining('run_check tool bridge'),
+      },
+    });
+    expect(
+      configure('/agent-ci-verify-review second_reviewer=on', {
+        verifyEnabled: true,
+      }),
+    ).toMatchObject({
+      status: 'failed',
+      failure: { route: 'configuration' },
+    });
+  });
+
   it('resolves a label request to the workflow settings', () => {
     expect(configure(null)).toMatchObject({
       status: 'planned',

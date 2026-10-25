@@ -1,3 +1,4 @@
+import type { ChecksEvidence } from '@agent-ci/review/checks.js';
 import {
   type AdjudicationOperation,
   CANDIDATE_ID,
@@ -44,11 +45,11 @@ import {
 
 /**
  * The deterministic PR-review findings gate, ported from pntr's
- * `pntr-pr-review/gate.ts` (voxmedia/pntr@e438668) without check evidence
- * and ledgers (p04). It treats every reviewer artifact and adjudication as
- * untrusted and applies, in order: schema → side-specific anchors →
- * evidence (quote digests against the trusted source) → union of the
- * passes' valid candidates →
+ * `pntr-pr-review/gate.ts` (voxmedia/pntr@e438668). It treats every reviewer
+ * artifact and adjudication as untrusted and applies, in order: schema →
+ * side-specific anchors → evidence (quote digests against the trusted
+ * source; in verify-review, check citations against the pass's own
+ * validated `checks.json`) → union of the passes' valid candidates →
  * adjudication (drop/downgrade only, protected severities, reasons and
  * references) → `fail_on_severity` → fingerprint grouping at the highest
  * surviving severity → dedupe against posted markers → presentation floor →
@@ -82,6 +83,12 @@ export type GateInput = {
   policy?: GatePolicy;
   /** Markers already posted by the validated bot identity for this scope. */
   posted?: PostedMarker[];
+  /**
+   * verify-review: each pass's `checks.json`, already validated against the
+   * spec (repository, head, config, recomputed ids), or `null` when the
+   * pass had none that validated. Check citations resolve only here.
+   */
+  checks?: Partial<Record<ReviewPass, ChecksEvidence | null>>;
 };
 
 export const DEFAULT_FLOOR: Severity = 'medium';
@@ -129,9 +136,38 @@ function resolvePolicy(policy: GatePolicy = {}) {
   return { fail_on_severity: failOn, floor, budget };
 }
 
+/**
+ * Resolve one check citation against the citing pass's evidence. Check
+ * evidence exists only in verify-review and only for ids the verify stage
+ * recorded: anything else (a review-mode citation, a pass without valid
+ * evidence, an invented or altered id) is refused with a reason.
+ */
+function checkCitation(
+  evidenceId: string,
+  pass: ReviewPass,
+  input: GateInput,
+): { evidence: GatedEvidence } | { reason: string } {
+  if (input.mode !== 'verify-review')
+    return { reason: 'evidence_check_unavailable' };
+  const checks = input.checks?.[pass];
+  if (checks === undefined || checks === null)
+    return { reason: 'evidence_check_unavailable' };
+  const entry = checks.entries.find((e) => e.evidence_id === evidenceId);
+  if (entry === undefined) return { reason: 'evidence_unknown_check' };
+  return {
+    evidence: {
+      kind: 'check',
+      evidence_id: entry.evidence_id,
+      name: entry.name,
+      exit_code: entry.exit_code,
+    },
+  };
+}
+
 /** Validate one finding's anchor and evidence; returns a reason on failure. */
 function admit(
   finding: ReviewFinding,
+  pass: ReviewPass,
   input: GateInput,
 ):
   | {
@@ -148,6 +184,12 @@ function admit(
     return { reason: 'anchor_too_large' };
   const evidence: GatedEvidence[] = [];
   for (const item of finding.evidence) {
+    if (item.kind === 'check') {
+      const cited = checkCitation(item.evidence_id, pass, input);
+      if ('reason' in cited) return cited;
+      evidence.push(cited.evidence);
+      continue;
+    }
     const source = input.read(item.side, item.path);
     if (source === null) return { reason: 'evidence_source_missing' };
     const quoted = sliceLines(source, item.line, item.end_line);
@@ -421,7 +463,7 @@ export function gateReview(input: GateInput): GatedReview {
         reject('duplicate_id');
         continue;
       }
-      const admitted = admit(item.finding, input);
+      const admitted = admit(item.finding, name, input);
       if ('reason' in admitted) {
         reject(admitted.reason);
         continue;
@@ -620,5 +662,22 @@ export function gateReview(input: GateInput): GatedReview {
     candidates: gatedCandidates,
     findings,
     not_reproduced: notReproduced,
+    ...(input.mode === 'verify-review' ? { checks: gatedChecks(input) } : {}),
+  };
+}
+
+/** The checks the summary shows: the primary pass's validated evidence. */
+function gatedChecks(input: GateInput): GatedReview['checks'] {
+  const evidence = input.checks?.primary ?? input.checks?.second ?? null;
+  if (evidence === null) return null;
+  return {
+    status: evidence.status,
+    entries: evidence.entries.map((entry) => ({
+      name: entry.name,
+      evidence_id: entry.evidence_id,
+      exit_code: entry.exit_code,
+      timed_out: entry.timed_out,
+      isolation: entry.isolation,
+    })),
   };
 }
