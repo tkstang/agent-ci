@@ -19,7 +19,10 @@
 # workflows reference only in their resolve and publish jobs (no repository
 # code, no agent). Jobs that run repository code or the agent check other
 # targets out with the read-only AGENT_CI_TARGET_READ_TOKEN (needed for
-# private targets). A missing token stops that target's run.
+# private targets; refused when it can write). A missing token stops that
+# target's run. One read token serves every target, so an agent on one
+# target could read any private target that token reads; split fleets of
+# different trust.
 #
 # Permissions: GitHub validates nested reusable-workflow job permissions
 # against the original caller, so the calling workflow must grant

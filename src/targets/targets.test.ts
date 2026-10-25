@@ -350,21 +350,37 @@ function fakeFetch(
   >,
   commits: Record<string, string>,
   deniedToken?: string,
+  behavior: {
+    /** Tokens allowed to write (dry-run ref creation answers 422). */
+    writers?: readonly string[];
+    /** Classic-token scopes reported per token. */
+    scopes?: Readonly<Record<string, string>>;
+  } = {},
 ) {
   const calls: Call[] = [];
   const impl = (async (url: string | URL, init?: RequestInit) => {
     const text = String(url);
     const headers = new Headers(init?.headers);
     calls.push({ url: text, auth: headers.get('authorization') });
-    if (headers.get('authorization') === `Bearer ${deniedToken}`) {
+    const token = (headers.get('authorization') ?? '').replace('Bearer ', '');
+    if (token === deniedToken) {
       return new Response('{}', { status: 404 });
+    }
+    if (init?.method === 'POST' && text.endsWith('/git/refs')) {
+      return new Response('{}', {
+        status: behavior.writers?.includes(token) === true ? 422 : 403,
+      });
     }
     const repo = /\/repos\/([^/]+\/[^/]+)$/u.exec(text);
     if (repo !== null) {
       const found = repos[(repo[1] ?? '').toLowerCase()];
+      const scopes = behavior.scopes?.[token];
       return found === undefined
         ? new Response('{}', { status: 404 })
-        : new Response(JSON.stringify(found), { status: 200 });
+        : new Response(JSON.stringify(found), {
+            status: 200,
+            headers: scopes === undefined ? {} : { 'x-oauth-scopes': scopes },
+          });
     }
     const commit = /\/commits\/(.+)$/u.exec(text);
     const sha = commits[decodeURIComponent(commit?.[1] ?? '')];
@@ -474,12 +490,50 @@ describe('resolveTarget', () => {
       cross: true,
       sha: SHA_B,
     });
-    // The read token is only used to prove the checkout can read the target.
+    // The read token only proves it can read, and cannot write, the target.
     expect(calls.map((call) => call.auth)).toEqual([
       'Bearer target-token',
       'Bearer read-token',
+      'Bearer read-token',
       'Bearer target-token',
     ]);
+    expect(calls[2]?.url).toMatch(/\/repos\/octo\/secret\/git\/refs$/u);
+  });
+
+  it('refuses a read token that is the write token, carries a write scope, or can write', async () => {
+    const { impl } = fakeFetch(
+      REPOS,
+      { main: SHA_B, trunk: SHA_A },
+      undefined,
+      {
+        writers: ['writer'],
+        scopes: { classic: 'read:org, repo', reader: 'read:org' },
+      },
+    );
+    const base = {
+      repository: 'octo/secret',
+      callingRepository: 'octo/caller',
+      targetToken: 'target-token',
+      fetch: impl,
+    };
+    for (const readToken of ['target-token', 'classic', 'writer']) {
+      const refused = await resolveTarget({ ...base, readToken });
+      expect(code(refused), readToken).toBe('E_TARGET_TOKEN');
+    }
+    // A classic token with read-only scopes that cannot write passes.
+    expect(code(await resolveTarget({ ...base, readToken: 'reader' }))).toBe(
+      'ok',
+    );
+    // A public target without a read token needs none of these checks.
+    expect(
+      code(
+        await resolveTarget({
+          ...base,
+          repository: 'octo/widgets',
+          readToken: undefined,
+        }),
+      ),
+    ).toBe('ok');
   });
 
   it('stops before any request when another repository has no target token', async () => {

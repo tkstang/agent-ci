@@ -21,8 +21,8 @@ import { isRepository } from '@agent-ci/targets/schema.js';
  * runner any step can read every secret its job references. Jobs that do
  * run repository code check another repository out with the optional,
  * read-only `AGENT_CI_TARGET_READ_TOKEN` (else `GITHUB_TOKEN`, which reads
- * public repositories only); a private target without it is refused here,
- * before any job runs its code.
+ * public repositories only); a private target without it, and a read token
+ * that can write, are refused here, before any job runs its code.
  * Event-derived defaults (the triggering PR, its head commit, its head
  * branch) describe the calling repository, so they are never applied to
  * another repository.
@@ -77,9 +77,25 @@ function field(value: unknown, key: string): unknown {
     : undefined;
 }
 
+function notReadOnly(why: string): Result<never> {
+  return failure(
+    'E_TARGET_TOKEN',
+    `AGENT_CI_TARGET_READ_TOKEN ${why}`,
+    'It reaches the jobs that run repository code and the agent: use a token with contents: read only (a fine-grained token or GitHub App token), never the write token.',
+  );
+}
+
+/** Classic-token scopes that can write to a repository. */
+const WRITE_SCOPES = new Set(['repo', 'public_repo', 'workflow']);
+
 /**
  * Another repository's checkout runs with the read-only token: it must read
- * the repository, and a private repository needs one (GITHUB_TOKEN cannot).
+ * the repository, a private repository needs one (GITHUB_TOKEN cannot), and
+ * it must not be able to write: it may not be the write token, a classic
+ * token may not carry a write scope, and a dry-run ref creation (an all-zero
+ * SHA, which GitHub rejects without creating anything: 422 when the token
+ * may write, 403/404 when it may not) must be refused for lack of
+ * permission. Anything else fails closed.
  */
 async function checkoutAccess(
   repo: unknown,
@@ -96,18 +112,56 @@ async function checkoutAccess(
           'Pass a read-only token (contents: read on the target) as AGENT_CI_TARGET_READ_TOKEN; the write token never reaches the jobs that run repository code or the agent.',
         );
   }
+  if (readToken === blank(input.targetToken)) {
+    return notReadOnly('is the same token as AGENT_CI_TARGET_TOKEN');
+  }
+  let reader: GithubClient;
   try {
-    const reader = new GithubClient(
+    reader = new GithubClient(
       fetchTransport(readToken, input.apiUrl, input.fetch ?? fetch),
     );
-    await reader.send({ method: 'GET', path: `/repos/${repository}` });
-    return success(undefined);
+  } catch {
+    return notReadOnly('is not usable');
+  }
+  let scopes: string[];
+  try {
+    const response = await reader.send({
+      method: 'GET',
+      path: `/repos/${repository}`,
+    });
+    scopes = (response.header('x-oauth-scopes') ?? '')
+      .split(',')
+      .map((scope) => scope.trim().toLowerCase())
+      .filter(Boolean);
   } catch {
     return failure(
       'E_TARGET_TOKEN',
       `AGENT_CI_TARGET_READ_TOKEN cannot read ${repository}`,
     );
   }
+  const writeScope = scopes.find((scope) => WRITE_SCOPES.has(scope));
+  if (writeScope !== undefined) {
+    return notReadOnly(`is a classic token with the ${writeScope} scope`);
+  }
+  try {
+    const probe = await reader.send(
+      {
+        method: 'POST',
+        path: `/repos/${repository}/git/refs`,
+        body: {
+          ref: 'refs/heads/agent-ci/read-token-check',
+          sha: '0'.repeat(40),
+        },
+      },
+      [403, 404, 422],
+    );
+    if (probe.status === 422) {
+      return notReadOnly(`can write to ${repository}`);
+    }
+  } catch {
+    return notReadOnly(`could not be verified as read-only on ${repository}`);
+  }
+  return success(undefined);
 }
 
 export async function resolveTarget(
