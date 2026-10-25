@@ -1,9 +1,8 @@
 /**
- * Public library barrel — the single entry point. Consumers import `@tkstang/agent-ci`
- * (renamed to `@<project>/single`), never deep internal paths.
+ * Public library barrel — the single entry point. Consumers import
+ * `@tkstang/agent-ci`, never deep internal paths.
  */
 
-export { parseConfig, ConfigSchema, type Config } from '@agent-ci/config.js';
 export {
   type Result,
   type Success,
@@ -14,4 +13,18 @@ export {
   failure,
   isSuccess,
 } from '@agent-ci/result.js';
-export { CliError, isCliError } from '@agent-ci/errors.js';
+export { CliError, isCliError, exitCodeFor } from '@agent-ci/errors.js';
+export {
+  OUTPUT_CONTRACTS,
+  type OutputContract,
+  type RunResult,
+  type ValidatedRunResult,
+  validateRunResult,
+  buildFailedRunResult,
+} from '@agent-ci/contracts/run-result.js';
+export { extractStructuredResult } from '@agent-ci/contracts/final-answer.js';
+export {
+  assertSecretFree,
+  maskSecrets,
+  KNOWN_CREDENTIAL_ENV,
+} from '@agent-ci/contracts/secret-guard.js';

@@ -1,11 +1,11 @@
+#!/usr/bin/env node
 import { realpathSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { parseConfig } from '@agent-ci/config.js';
+import { COMMANDS } from '@agent-ci/commands/registry.js';
+import type { CommandContext, CommandSpec } from '@agent-ci/commands/types.js';
 import { CliError, isCliError } from '@agent-ci/errors.js';
-import { isSuccess } from '@agent-ci/result.js';
 
 /**
  * Agent-first CLI contract:
@@ -15,10 +15,7 @@ import { isSuccess } from '@agent-ci/result.js';
  *  - no interactivity; flags only,
  *  - NO_COLOR-safe (we emit no color at all).
  *
- * Usage:
- *   single --config '{"name":"my-app"}'
- *   single --config-file ./config.json
- *   echo '{"name":"my-app"}' | single --stdin
+ * Usage: agent-ci <command> [flags]   (agent-ci --help lists commands)
  */
 
 interface OkEnvelope {
@@ -35,155 +32,83 @@ interface ErrEnvelope {
   readonly hint?: string;
 }
 
-type Envelope = OkEnvelope | ErrEnvelope;
+export type Envelope = OkEnvelope | ErrEnvelope;
 
-interface Flags {
-  readonly help: boolean;
-  readonly config: string | undefined;
-  readonly configFile: string | undefined;
-  readonly stdin: boolean;
+function usage(commands: readonly CommandSpec[]): string {
+  const width = Math.max(4, ...commands.map((spec) => spec.name.length));
+  const lines = commands.map(
+    (spec) => `  ${spec.name.padEnd(width)}  ${spec.summary}`,
+  );
+  return [
+    'agent-ci — run a model through Claude Code, Codex, OpenCode or Cursor.',
+    '',
+    'Usage: agent-ci <command> [flags]',
+    '',
+    'Commands:',
+    ...lines,
+    '',
+    'Run `agent-ci <command> --help` for command flags.',
+    'Emits one JSON envelope on stdout; logs go to stderr.',
+  ].join('\n');
 }
 
-const USAGE = `single — parse and validate a config envelope.
-
-Options:
-  --config <json>        Inline JSON config string.
-  --config-file <path>   Read JSON config from a file.
-  --stdin                Read JSON config from stdin.
-  -h, --help             Show this help.
-
-Emits one JSON envelope on stdout; logs to stderr.`;
-
-/** A logger that ALWAYS writes to stderr — stdout is reserved for the envelope. */
-function logStderr(message: string): void {
-  process.stderr.write(`${message}\n`);
+function defaultContext(): CommandContext {
+  return {
+    env: process.env,
+    cwd: process.cwd(),
+    log: (message) => process.stderr.write(`${message}\n`),
+  };
 }
 
-function parseFlags(argv: readonly string[]): Flags {
-  let help = false;
-  let config: string | undefined;
-  let configFile: string | undefined;
-  let stdin = false;
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    switch (arg) {
-      case '-h':
-      case '--help':
-        help = true;
-        break;
-      case '--config': {
-        const next = argv[i + 1];
-        if (next === undefined) {
-          throw new CliError('E_INVALID_INPUT', '--config requires a value');
-        }
-        config = next;
-        i += 1;
-        break;
-      }
-      case '--config-file': {
-        const next = argv[i + 1];
-        if (next === undefined) {
-          throw new CliError(
-            'E_INVALID_INPUT',
-            '--config-file requires a value',
-          );
-        }
-        configFile = next;
-        i += 1;
-        break;
-      }
-      case '--stdin':
-        stdin = true;
-        break;
-      default:
-        throw new CliError('E_INVALID_INPUT', `unknown argument: ${arg}`, {
-          hint: 'Run with --help to see supported flags.',
-        });
-    }
-  }
-
-  return { help, config, configFile, stdin };
+function errEnvelope(command: string, err: CliError): ErrEnvelope {
+  return {
+    ok: false,
+    command,
+    code: err.code,
+    message: err.message,
+    ...(err.hint === undefined ? {} : { hint: err.hint }),
+  };
 }
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-async function resolveInput(flags: Flags): Promise<string> {
-  if (flags.config !== undefined) {
-    return flags.config;
-  }
-  if (flags.configFile !== undefined) {
-    try {
-      return await readFile(flags.configFile, 'utf8');
-    } catch {
-      throw new CliError(
-        'E_INVALID_INPUT',
-        `could not read file: ${flags.configFile}`,
-        {
-          hint: 'Check the path exists and is readable.',
-        },
-      );
-    }
-  }
-  if (flags.stdin) {
-    return readStdin();
-  }
-  throw new CliError('E_INVALID_INPUT', 'no input provided', {
-    hint: 'Pass one of --config, --config-file, or --stdin.',
-  });
-}
-
-/** Core, testable run: returns an envelope + exit code, never touches process. */
+/** Core, testable run: returns an envelope + exit code, never touches stdout. */
 export async function run(
   argv: readonly string[],
+  context: CommandContext = defaultContext(),
+  commands: readonly CommandSpec[] = COMMANDS,
 ): Promise<{ envelope: Envelope; exitCode: number }> {
-  const command = 'parse-config';
+  const [name, ...rest] = argv;
+  const command = name ?? 'help';
   try {
-    const flags = parseFlags(argv);
-    if (flags.help) {
-      logStderr(USAGE);
+    if (name === undefined || name === '-h' || name === '--help') {
+      context.log(usage(commands));
+      return {
+        envelope: {
+          ok: true,
+          command: 'help',
+          data: { commands: commands.map((spec) => spec.name) },
+        },
+        exitCode: 0,
+      };
+    }
+    const spec = commands.find((candidate) => candidate.name === name);
+    if (spec === undefined) {
+      throw new CliError('E_INVALID_INPUT', `unknown command: ${name}`, {
+        hint: 'Run agent-ci --help to list commands.',
+      });
+    }
+    if (rest.includes('--help') || rest.includes('-h')) {
+      context.log(spec.usage);
       return {
         envelope: { ok: true, command, data: { help: true } },
         exitCode: 0,
       };
     }
-
-    const input = await resolveInput(flags);
-    const result = parseConfig(input);
-
-    if (isSuccess(result)) {
-      return {
-        envelope: { ok: true, command, data: result.value },
-        exitCode: 0,
-      };
-    }
-
-    const errEnvelope: ErrEnvelope = {
-      ok: false,
-      command,
-      code: result.code,
-      message: result.message,
-      ...(result.hint === undefined ? {} : { hint: result.hint }),
-    };
-    return { envelope: errEnvelope, exitCode: 1 };
+    const data = await spec.run(rest, context);
+    return { envelope: { ok: true, command, data }, exitCode: 0 };
   } catch (err) {
     if (isCliError(err)) {
-      const errEnvelope: ErrEnvelope = {
-        ok: false,
-        command,
-        code: err.code,
-        message: err.message,
-        ...(err.hint === undefined ? {} : { hint: err.hint }),
-      };
-      return { envelope: errEnvelope, exitCode: err.exitCode };
+      return { envelope: errEnvelope(command, err), exitCode: err.exitCode };
     }
-    // Unexpected: map to a system-level envelope (exit 2).
     const message = err instanceof Error ? err.message : String(err);
     return {
       envelope: { ok: false, command, code: 'E_UNEXPECTED', message },

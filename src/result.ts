@@ -10,7 +10,34 @@
  * Closed set of domain error codes. Add codes here deliberately; the union is
  * the contract. Keep them machine-readable (`E_*`), never free-form strings.
  */
-export const ERROR_CODES = ['E_INVALID_INPUT', 'E_EMPTY_INPUT'] as const;
+export const ERROR_CODES = [
+  // Input and configuration
+  'E_INVALID_INPUT',
+  'E_ROUTE_CONFIG',
+  'E_ROUTE_NOT_FOUND',
+  // Routing policy
+  'E_POLICY_HARNESS',
+  'E_POLICY_FALLBACK',
+  'E_POLICY_ACCOUNT_FALLBACK',
+  'E_POLICY_POOL',
+  'E_POLICY_POOL_CI',
+  'E_POLICY_CREDENTIAL',
+  'E_POLICY_LOGIN_CI',
+  'E_CREDENTIAL_MISSING',
+  // Isolated home root
+  'E_HOME_ROOT',
+  'E_SEED_REFUSED',
+  'E_SEED_UNSUPPORTED',
+  // Harness execution
+  'E_HARNESS_NOT_FOUND',
+  'E_HARNESS_AUTH',
+  'E_HARNESS_FAILED',
+  'E_HARNESS_TIMEOUT',
+  'E_HARNESS_OUTPUT_LIMIT',
+  // Results
+  'E_INVALID_RUN_RESULT',
+  'E_SECRET_COPY',
+] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
