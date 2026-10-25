@@ -129,6 +129,14 @@ const okProcess = (stdout: string) => ({
   durationMs: 1,
 });
 
+// The guard re-reads the isolated OpenCode store with `opencode auth export`.
+// A stubbed `pipe` imports nothing, so that store is empty; stub the export
+// too rather than depend on an opencode binary on the host PATH.
+const emptyStoreExport: ExportRunner = async () => ({
+  exitCode: 0,
+  stdout: '[]',
+});
+
 const opencodeAnswer = (text: string) =>
   `${JSON.stringify({
     type: 'text',
@@ -187,6 +195,7 @@ describe('runAgent', () => {
     );
     const summary = await runAgent(opts, {
       pipe,
+      loginExport: emptyStoreExport,
       harness: {
         commandOverride: {
           command: process.execPath,
@@ -293,8 +302,11 @@ describe('runAgent', () => {
         stdout: `${JSON.stringify({ type: 'text', sessionID: 'ses_x', part: { text: leaked } })}\n`,
       }),
     );
+    // The isolated store exports nothing, so only the seeded transfer can
+    // have put the token in the guard.
     const summary = await runAgent(opts, {
       pipe,
+      loginExport: emptyStoreExport,
       harness: {
         commandOverride: {
           command: process.execPath,
