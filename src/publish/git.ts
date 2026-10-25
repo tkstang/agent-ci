@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 
+import { SAFE_GIT_ENV, safeGitArgs } from '@agent-ci/git/safe-git.js';
+
 export interface GitResult {
   readonly code: number | null;
   readonly stdout: string;
@@ -28,11 +30,10 @@ export function createGit(
       for (const [key, value] of Object.entries(baseEnv)) {
         if (value !== undefined) env[key] = value;
       }
-      Object.assign(env, options.env ?? {}, {
-        GIT_TERMINAL_PROMPT: '0',
-        LC_ALL: 'C',
-      });
-      const child = spawn(command, [...args], {
+      Object.assign(env, options.env ?? {}, SAFE_GIT_ENV, { LC_ALL: 'C' });
+      // The publisher talks to the remote (fetch, ls-remote, push); every
+      // other neutralizing setting applies.
+      const child = spawn(command, safeGitArgs(args, { network: true }), {
         cwd,
         env,
         stdio: [

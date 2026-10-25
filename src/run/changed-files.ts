@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
+import { SAFE_GIT_ENV, safeGitArgs } from '@agent-ci/git/safe-git.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import {
   findWorkspaceRoot,
@@ -52,10 +53,10 @@ async function listChanges(
   return new Promise((resolve) => {
     const child = execFile(
       git,
-      ['status', '--porcelain', '-z', '--untracked-files=all'],
+      safeGitArgs(['status', '--porcelain', '-z', '--untracked-files=all']),
       {
         cwd: root,
-        env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },
         maxBuffer: 16 * 1024 * 1024,
       },
       (error, stdout, stderr) => {
@@ -182,8 +183,11 @@ export function readHead(
   return new Promise((resolve) => {
     const child = execFile(
       git,
-      ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
-      { cwd, env: { PATH: process.env.PATH ?? '/usr/bin:/bin' } },
+      safeGitArgs(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']),
+      {
+        cwd,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },
+      },
       (error, stdout, stderr) => {
         const sha = String(stdout).trim();
         if (error === null && /^[0-9a-f]{40}$/u.test(sha)) {

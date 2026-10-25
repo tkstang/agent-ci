@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { lstat, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
+import { SAFE_GIT_ENV, safeGitArgs } from '@agent-ci/git/safe-git.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 
 /** Symlink hops allowed while resolving one path (as in POSIX MAXSYMLINKS). */
@@ -143,8 +144,11 @@ export function findWorkspaceRoot(
   return new Promise((resolve) => {
     const child = execFile(
       git,
-      ['rev-parse', '--show-toplevel'],
-      { cwd, env: { PATH: process.env.PATH ?? '/usr/bin:/bin' } },
+      safeGitArgs(['rev-parse', '--show-toplevel']),
+      {
+        cwd,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },
+      },
       (error, stdout, stderr) => {
         void (async () => {
           try {
