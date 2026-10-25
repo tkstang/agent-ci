@@ -56,3 +56,29 @@ hand-assemble the OAT layer.
 - Run `pnpm run worktree:validate` before handoff or push. It asserts a clean
   tree, runs the local gate, and asserts cleanliness again to catch generated
   drift.
+
+<!-- OAT tools -->
+## Tool Packs
+
+- **User skills directory:** `~/.agents/skills/` (core, ideas, docs, workflows, utility, project-management, research, brainstorm packs installed at user scope)
+- **Discover available skills:** scan `~/.agents/skills/*/SKILL.md`
+- **Refresh provider views:** `oat sync --scope all`
+- **Update skills to latest versions:** `oat tools update`
+
+### Installed Packs
+
+- **core** — Diagnostics and documentation (oat-doctor, oat-docs) _(user scope)_
+- **ideas** — Idea capture and refinement _(user scope)_
+- **docs** — Documentation and instruction governance workflows _(user scope)_
+- **workflows** — Project lifecycle (create, discover, plan, implement, review, complete) _(user scope)_
+- **utility** — Standalone utilities (skill authoring, maintainability review, code reviews) _(user scope)_
+- **project-management** — Local backlog, roadmap, and reference doc management (oat-pjm-* skills) _(user scope)_
+- **research** — Research, analysis, verification, and synthesis _(user scope)_
+- **brainstorm** — Always-on brainstorming entry point with visual companion _(user scope)_
+
+### Workflow Execution Continuation
+
+- This guidance applies only to OAT project lifecycle execution, such as `oat-project-implement`, and OAT project review/receive flows. It does not apply to non-OAT tasks or ad-hoc work outside the OAT project workflow.
+- When executing an OAT project implementation or OAT project review workflow, do not stop at task boundaries, phase boundaries, or other clean checkpoints unless the configured HiLL checkpoint has been reached, a real blocker exists, or explicit user input is required.
+- Status summaries, completed bookkeeping, and "clean boundary" pauses are not valid stop reasons. After updating tracking artifacts, continue execution until an allowed stop condition applies.
+<!-- END OAT tools -->
