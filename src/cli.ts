@@ -98,7 +98,9 @@ export async function run(
         hint: 'Run agent-ci --help to list commands.',
       });
     }
-    if (rest.includes('--help') || rest.includes('-h')) {
+    const wantsHelp = rest.includes('--help') || rest.includes('-h');
+    const bareHelp = rest[0] === '--help' || rest[0] === '-h';
+    if (wantsHelp && (spec.ownsHelp !== true || bareHelp)) {
       context.log(spec.usage);
       return {
         envelope: { ok: true, command, data: { help: true } },

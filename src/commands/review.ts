@@ -1241,8 +1241,13 @@ export function createReviewCommand(deps: Deps = {}): CommandSpec {
     summary:
       'AI pull-request review stages (gate, prepare, pass, …, publish) and local run',
     usage: USAGE,
+    ownsHelp: true,
     async run(argv, context) {
       const [name, ...rest] = argv;
+      if (name === '--help' || name === '-h') {
+        context.log(USAGE);
+        return { help: true };
+      }
       const body = name === undefined ? undefined : STAGES[name];
       if (body === undefined)
         throw new CliError(

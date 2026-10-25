@@ -96,6 +96,38 @@ describe('cli run()', () => {
     expect(ctx.logs).toEqual(['agent-ci echo [args]']);
   });
 
+  it('passes <command> <sub> --help to a command that owns its help', async () => {
+    const seen: (readonly string[])[] = [];
+    const owner: CommandSpec = {
+      name: 'owner',
+      summary: 'has subcommands',
+      usage: 'agent-ci owner <sub>',
+      ownsHelp: true,
+      run: async (argv) => {
+        seen.push(argv);
+        return { help: true };
+      },
+    };
+    const ctx = context();
+    const sub = await run(['owner', 'sub', '--help'], ctx, [owner]);
+    expect(sub.envelope).toEqual({
+      ok: true,
+      command: 'owner',
+      data: { help: true },
+    });
+    expect(seen).toEqual([['sub', '--help']]);
+    expect(ctx.logs).toEqual([]);
+    // A bare `<command> --help` still prints the command usage here.
+    const bare = await run(['owner', '--help'], ctx, [owner]);
+    expect(bare.envelope.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(ctx.logs).toEqual(['agent-ci owner <sub>']);
+    // Commands without ownsHelp keep the interception for any position.
+    const plain = context();
+    await run(['echo', 'sub', '--help'], plain, commands);
+    expect(plain.logs).toEqual(['agent-ci echo [args]']);
+  });
+
   it('maps an unknown command to E_INVALID_INPUT (exit 1)', async () => {
     const { envelope, exitCode } = await run(['nope'], context(), commands);
     expect(exitCode).toBe(1);

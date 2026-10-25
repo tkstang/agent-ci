@@ -18,6 +18,12 @@ export interface CommandSpec {
   readonly summary: string;
   readonly usage: string;
   /**
+   * True for a command with subcommands that prints each subcommand's own
+   * usage: `cli.ts` then passes `<command> <sub> --help` through to `run`
+   * and intercepts only a bare `<command> --help`.
+   */
+  readonly ownsHelp?: boolean;
+  /**
    * Run the command and return the envelope `data`. Throw `CliError` for an
    * expected failure; anything else becomes `E_UNEXPECTED`.
    */

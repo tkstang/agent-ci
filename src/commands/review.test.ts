@@ -1074,3 +1074,38 @@ describe('agent-ci review on a rerun (workflow attempt 2)', () => {
     expect(review.findings).toEqual([]);
   }, 60_000);
 });
+
+const help = async (argv: string[]) => {
+  const logs: string[] = [];
+  const result = await run(
+    argv,
+    { env: {}, cwd: os.tmpdir(), log: (line) => logs.push(line) },
+    [createReviewCommand()],
+  );
+  return { ...result, text: logs.join('\n') };
+};
+
+describe('agent-ci review help', () => {
+  it('prints the stage usage for `review <stage> --help`', async () => {
+    const gate = await help(['review', 'gate', '--help']);
+    expect(gate.exitCode).toBe(0);
+    expect(gate.envelope).toEqual({
+      ok: true,
+      command: 'review',
+      data: { help: true },
+    });
+    expect(gate.text).toMatch(/^agent-ci review gate — authorize/u);
+    expect(gate.text).toContain('--reviewer-model <model>');
+    const local = await help(['review', 'run', '-h']);
+    expect(local.text).toMatch(/^agent-ci review run — a whole PR review/u);
+    expect(local.text).toContain('--verify-trust-pr-code');
+  });
+
+  it('prints the review usage for a bare `review --help`', async () => {
+    const bare = await help(['review', '--help']);
+    expect(bare.exitCode).toBe(0);
+    expect(bare.text).toMatch(
+      /^agent-ci review — AI pull-request review stages/u,
+    );
+  });
+});
