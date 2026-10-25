@@ -1075,6 +1075,12 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
   --seed-login                 Login routes (local only).
   --publish                    Post the inline review and summary as the
                                token's user (default: gate only, no posting).
+  --verify                     verify-review: first run the checks in
+                               .github/agent-ci/checks.yaml (base commit) on
+                               the PR head, then give the reviewers run_check
+                               (Claude or Codex routes). The PR's code runs on
+                               this machine as you, sandboxed where the host
+                               allows (sandbox-exec, user namespaces).
   --scope <scope>              Marker scope (default local).
   --out <dir>                  Keep the stage artifacts here.
   --timeout-minutes <n>        Per stage (default 30).
@@ -1101,6 +1107,7 @@ async function runLocal(
       'allow-pool-value': { type: 'string' },
       'seed-login': { type: 'boolean' },
       publish: { type: 'boolean' },
+      verify: { type: 'boolean' },
       scope: { type: 'string' },
       out: { type: 'string' },
       'timeout-minutes': { type: 'string' },
@@ -1126,6 +1133,7 @@ async function runLocal(
     allowPool,
     seedLogin: flags['seed-login'] === true,
     publish: flags.publish === true,
+    verify: flags.verify === true,
     scope,
     policy: {
       failOnSeverity: flags['fail-on-severity'],

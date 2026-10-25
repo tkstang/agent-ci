@@ -1,0 +1,27 @@
+# verify-review checks for agent-ci itself (see pr-review.yml's verify
+# input). agent-ci reads this file from the pull request's BASE commit, so a
+# pull request cannot add or change a check. Each check runs on the PR head
+# in a fresh copy with no credentials and, where the host allows, no network;
+# setup keeps the network to install dependencies into the shared scratch
+# HOME and the prepared tree. Checks call the installed tools directly:
+# each check runs in a copy at another path, and pnpm's pre-run dependency
+# check would see a moved install and try to reinstall (without network).
+version: 1
+setup:
+  command: >-
+    npm install --global --prefix "$HOME/.npm-global" pnpm@11.8.0
+    && "$HOME/.npm-global/bin/pnpm" install --frozen-lockfile
+  timeout_minutes: 10
+checks:
+  - name: typecheck
+    description: tsrs type check of the whole package
+    command: node_modules/.bin/tsrs --noEmit -p tsconfig.json
+    timeout_minutes: 10
+  - name: lint
+    description: oxlint
+    command: node_modules/.bin/oxlint
+    timeout_minutes: 5
+  - name: review-tests
+    description: the PR review contract and gate tests
+    command: node_modules/.bin/vitest run src/review/contracts.test.ts src/review/gate.test.ts
+    timeout_minutes: 10

@@ -38,6 +38,7 @@ import {
   parsePolicy,
   type ReviewPolicyInputs,
 } from '@agent-ci/review/trigger.js';
+import { runVerify } from '@agent-ci/review/verify.js';
 import { loadModelsFile } from '@agent-ci/routing/resolve.js';
 import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
 
@@ -50,6 +51,13 @@ import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
  * with `publish`, one inline review plus the summary comment posted as that
  * user. Pool and login routes are allowed only when asked for (`allowPool`,
  * `seedLogin`); the routing policy still applies (checkPoolPolicy).
+ *
+ * With `verify`, the request is verify-review: the checks configured on the
+ * base commit run first, in their own worktree at the head, before any
+ * reviewer home root exists or any harness starts
+ * (DR-261025-run-verify-review-checks-where). They run the pull request's
+ * code on this machine as you; containment is what the host offers
+ * (`sandbox-exec` on macOS, user namespaces on Linux), recorded per check.
  */
 
 export type LocalReviewOptions = {
@@ -65,6 +73,8 @@ export type LocalReviewOptions = {
   readonly allowPool: boolean;
   readonly seedLogin: boolean;
   readonly publish: boolean;
+  /** Run as verify-review (checks first, then reviewers with run_check). */
+  readonly verify?: boolean;
   readonly scope: string;
   readonly policy: ReviewPolicyInputs;
   readonly outDir?: string | undefined;
@@ -123,7 +133,7 @@ async function localReview(
   const policy = parsePolicy(options.policy);
   const publisher = await tokenUser(github);
   const commandText = [
-    '/agent-ci-review',
+    options.verify === true ? '/agent-ci-verify-review' : '/agent-ci-review',
     ...(options.instruction === undefined || options.instruction === ''
       ? []
       : ['--', options.instruction]),
@@ -166,6 +176,7 @@ async function localReview(
     env: options.env,
     allowPool: options.allowPool,
     seedLogin: options.seedLogin,
+    verifyEnabled: options.verify === true,
   });
   const runId = String(Date.now());
   const acknowledged = await acknowledgeRequest({
@@ -229,6 +240,57 @@ async function localReview(
         `git fetch origin ${sha} failed: ${fetched.stderr.trim().split('\n')[0] ?? ''}`,
       );
   }
+  // verify-review: the checks, in a worktree of their own (removed before
+  // the review worktree exists), with nothing of the review run yet on disk
+  // but the spec and this output directory, which commands cannot reach.
+  let checksDir: string | undefined;
+  let checksDigest: string | undefined;
+  if (record.config.mode === 'verify-review') {
+    const verifyParent = await mkdtemp(
+      path.join(os.tmpdir(), 'agent-ci-verify-head-'),
+    );
+    const verifyTree = path.join(verifyParent, 'head');
+    const addedVerify = await runGit([
+      'worktree',
+      'add',
+      '--detach',
+      '--quiet',
+      verifyTree,
+      record.head_sha,
+    ]);
+    if (addedVerify.code !== 0) {
+      await rm(verifyParent, { recursive: true, force: true });
+      return failure(
+        'E_REVIEW_INPUT',
+        `git worktree add failed: ${addedVerify.stderr.trim().split('\n')[0] ?? ''}`,
+      );
+    }
+    try {
+      log('agent-ci review: running the configured checks (verify-review)');
+      checksDir = path.join(outDir, 'checks');
+      const verified = await runVerify({
+        cwd: verifyTree,
+        spec,
+        outDir: checksDir,
+        env: options.env,
+        protectedPaths: [outDir, root.value.root],
+        log,
+        ...(options.git === undefined ? {} : { git: options.git }),
+      });
+      if (!verified.ok) return verified;
+      for (const entry of verified.value.evidence.entries)
+        log(
+          `agent-ci review: check ${entry.name}: ${entry.timed_out ? 'timed out' : `exit ${entry.exit_code ?? 'killed'}`} (${entry.isolation})`,
+        );
+      const digest = await digestResultDir(checksDir);
+      if (!digest.ok) return digest;
+      checksDigest = digest.value;
+    } finally {
+      await runGit(['worktree', 'remove', '--force', verifyTree]);
+      await rm(verifyParent, { recursive: true, force: true });
+    }
+  }
+
   const worktreeParent = await mkdtemp(
     path.join(os.tmpdir(), 'agent-ci-review-head-'),
   );
@@ -265,6 +327,8 @@ async function localReview(
         modelsPath: options.modelsPath,
         env: options.env,
         credentialFromEnv: false,
+        checksDir,
+        checksDigest,
         ...(options.git === undefined ? {} : { git: options.git }),
       });
       if (!ran.ok) {

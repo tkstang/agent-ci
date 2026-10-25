@@ -176,6 +176,18 @@ routes:
     notes: >-
       Built-in plumbing harness for PR review: one medium finding on the first
       added line of the review diff, without a model.
+  - id: fake-verify-review
+    model: fake-verify-review
+    harness: fake
+    family: fake
+    providerModel: verify-review
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: >-
+      Built-in plumbing harness for verify-review: calls the run_check bridge
+      for the first recorded check and cites its evidence id, without a model.
   - id: fake-adjudicate
     model: fake-adjudicate
     harness: fake

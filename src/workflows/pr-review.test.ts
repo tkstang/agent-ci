@@ -80,6 +80,7 @@ describe('pr-review.yml', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(Object.keys(workflow.jobs)).toEqual([
       'gate',
+      'verify',
       'review-primary',
       'review-second',
       'adjudicate',
@@ -97,7 +98,12 @@ describe('pr-review.yml', () => {
       issues: 'write',
       'pull-requests': 'write',
     });
-    for (const name of ['review-primary', 'review-second', 'adjudicate'])
+    for (const name of [
+      'verify',
+      'review-primary',
+      'review-second',
+      'adjudicate',
+    ])
       expect(jobs[name]?.permissions).toEqual({ contents: 'read' });
     expect(jobs.findings?.permissions).toEqual({
       contents: 'read',
@@ -151,7 +157,7 @@ describe('pr-review.yml', () => {
           '${{ inputs.agent_ci_ref || job.workflow_sha }}',
         );
       } else {
-        expect(['review-primary', 'review-second']).toContain(job);
+        expect(['verify', 'review-primary', 'review-second']).toContain(job);
         expect(step.with?.ref).toBe('${{ needs.gate.outputs.head_sha }}');
       }
       expect(step.with?.['persist-credentials']).toBe(false);
@@ -234,6 +240,87 @@ describe('pr-review.yml', () => {
   });
 });
 
+describe('pr-review.yml verify-review', () => {
+  it('offers verify-review only through the verify input (default false), passed to the gate', async () => {
+    const workflow = await review();
+    const inputs = (
+      workflow.on.workflow_call as {
+        inputs: Record<string, { type?: string; default?: unknown }>;
+      }
+    ).inputs;
+    expect(inputs.verify).toMatchObject({ type: 'boolean', default: false });
+    const gate = (workflow.jobs.gate?.steps ?? []).find((s) => s.id === 'gate');
+    expect(gate?.env?.VERIFY).toBe('${{ inputs.verify }}');
+    expect(gate?.run).toContain('--verify "$VERIFY"');
+  });
+
+  it('runs the checks in a job that holds no secret, no helper token and no GitHub token step', async () => {
+    const { jobs } = await review();
+    const job = jobs.verify ?? {};
+    const text = JSON.stringify(job);
+    expect(job.if).toContain("needs.gate.outputs.mode == 'verify-review'");
+    expect(job.permissions).toEqual({ contents: 'read' });
+    expect(text).not.toContain('secrets.');
+    expect(text).not.toContain('github.token');
+    expect(text).not.toContain('AGENT_CI_SOURCE_TOKEN');
+    expect(text).not.toContain('.agent-ci-src');
+    expect(text).not.toContain('setup-agent-ci');
+    const jobSteps = job.steps ?? [];
+    // agent-ci comes from the gate's bundle, pinned by id and sha256, and
+    // is unpacked before the pull request head is checked out.
+    const names = jobSteps.map((s) => s.name ?? '');
+    const unpack = names.indexOf(
+      "Unpack the helpers (checked against the gate's sha256)",
+    );
+    const checkout = names.indexOf('Check out the pull request head');
+    const run = names.indexOf('Run the configured checks');
+    expect(unpack).toBeGreaterThan(-1);
+    expect(unpack).toBeLessThan(checkout);
+    expect(checkout).toBeLessThan(run);
+    expect(jobSteps[unpack]?.run).toContain('sha256sum -c -');
+    expect(jobSteps[unpack]?.env?.BUNDLE_SHA256).toBe(
+      '${{ needs.gate.outputs.helpers_sha256 }}',
+    );
+    expect(
+      jobSteps.find((s) => s.name === 'Download the helper bundle')?.with?.[
+        'artifact-ids'
+      ],
+    ).toBe('${{ needs.gate.outputs.helpers_artifact_id }}');
+    expect(jobSteps[run]?.run).toContain(
+      'node "$RUNNER_TEMP/agent-ci-helpers/dist/cli.js" review verify',
+    );
+    expect(Object.keys(jobSteps[run]?.env ?? {})).toEqual(['SPEC_SHA256']);
+    // The gate packs the bundle only for verify-review requests.
+    const gateSteps = jobs.gate?.steps ?? [];
+    expect(gateSteps.find((s) => s.id === 'helpers')?.if).toContain(
+      "steps.gate.outputs.mode == 'verify-review'",
+    );
+  });
+
+  it('feeds the verify output to both reviewer passes and still runs them when verify is skipped', async () => {
+    const { jobs } = await review();
+    for (const name of ['review-primary', 'review-second']) {
+      const job = jobs[name] ?? {};
+      expect(job.needs).toEqual(['gate', 'verify']);
+      expect(job.if).toContain('!cancelled()');
+      const pass = (job.steps ?? []).find((s) =>
+        (s.run ?? '').includes('agent-ci review pass'),
+      );
+      expect(pass?.run).toContain(
+        '--checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"',
+      );
+      expect(pass?.env?.CHECKS_DIGEST).toBe(
+        '${{ needs.verify.outputs.digest }}',
+      );
+      expect(
+        (job.steps ?? []).find((s) =>
+          s.name?.startsWith('Download the check results'),
+        )?.with?.['artifact-ids'],
+      ).toBe('${{ needs.verify.outputs.artifact_id }}');
+    }
+  });
+});
+
 describe('agent-ci-review-selftest.yml', () => {
   it('runs pr-review.yml with the fake harness for same-repository labeled PRs only', async () => {
     const workflow = await load(
@@ -249,6 +336,17 @@ describe('agent-ci-review-selftest.yml', () => {
     expect(job.with?.reviewer_model).toBe('fake-review');
     expect(job.with?.adjudicator_model).toBe('fake-adjudicate');
     expect(job.secrets).toBeUndefined();
+    const verify = workflow.jobs['verify-review'] ?? {};
+    expect(verify.uses).toBe('./.github/workflows/pr-review.yml');
+    expect(verify.if).toContain(
+      "github.event.label.name == 'agent-ci:verify-review'",
+    );
+    expect(verify.with).toMatchObject({
+      verify: true,
+      reviewer_model: 'fake-verify-review',
+      artifact_scope: 'selftest-verify',
+    });
+    expect(verify.secrets).toBeUndefined();
   });
 });
 
@@ -273,6 +371,8 @@ describe('consumer PR review template', () => {
     );
     // The template itself has no steps: nothing runs outside the gate.
     expect(job.steps).toBeUndefined();
+    // verify-review stays off until the repository opts in.
+    expect(job.with?.verify).toBe(false);
   });
 });
 

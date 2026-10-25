@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { PACKAGE_ROOT } from '@agent-ci/paths.js';
 import {
   type ChecksEvidence,
   checkEvidenceId,
@@ -86,6 +87,21 @@ describe('checks.yaml', () => {
         },
       ],
     });
+  });
+
+  it("parses this repository's own checks configuration", async () => {
+    const config = parseChecksConfig(
+      await readFile(
+        path.join(PACKAGE_ROOT, '.github', 'agent-ci', 'checks.yaml'),
+        'utf8',
+      ),
+    );
+    expect(config.setup?.command).toContain('install --frozen-lockfile');
+    expect(config.checks.map((check) => check.name)).toEqual([
+      'typecheck',
+      'lint',
+      'review-tests',
+    ]);
   });
 
   it('refuses malformed, oversized and ambiguous configurations', () => {

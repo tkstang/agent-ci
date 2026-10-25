@@ -9,10 +9,19 @@
 #                admin; same-repository open, non-draft PR; PR author with
 #                write or an allowlisted bot; forks never), checks the models
 #                and binds the request and the digest-bound review spec.
+# - verify:      verify-review only (the verify input). contents: read, NO
+#                secret of any kind: no model credential and no helper
+#                token (agent-ci arrives as the gate's helper bundle, checked
+#                against its sha256). Runs the checks in
+#                .github/agent-ci/checks.yaml (read from the base commit) on
+#                the PR head in a controlled environment and uploads
+#                checks.json. This job runs pull-request code; its output
+#                is untrusted and the reviewer passes validate it.
 # - review-*:    contents: read. The PR head checkout (no persisted token)
 #                and ONLY the route's model credential, in the pass step
 #                only. The harness runs read-only: no setup command, no
-#                skills, no repository code.
+#                skills, no repository code. In verify-review it reads the
+#                recorded checks through the run_check MCP bridge.
 # - adjudicate:  contents: read. Sources come from the git database API (trees and blobs) in a
 #                step without the model credential; the adjudicator runs
 #                tool-free (Claude only) in an empty scratch directory. No
@@ -103,6 +112,15 @@ on:
           Login the publishing token acts as. Empty means github-actions[bot] (GITHUB_TOKEN).
         type: string
         default: ''
+      verify:
+        description: >-
+          Allow verify-review requests (/agent-ci-verify-review, the agent-ci:verify-review
+          label). A verify job without any secret runs the checks in
+          .github/agent-ci/checks.yaml (read from the base commit) on the PR head, and
+          Claude or Codex reviewers read the results through run_check. This runs
+          pull-request code in that job.
+        type: boolean
+        default: false
       allow_pool:
         description: >-
           Allow a proxy-pool route (models.yaml account: pool). CI allows one only
@@ -167,9 +185,12 @@ jobs:
       second_reviewer_model: ${{ steps.gate.outputs.second_reviewer_model }}
       adjudicator_enabled: ${{ steps.gate.outputs.adjudicator_enabled }}
       adjudicator_model: ${{ steps.gate.outputs.adjudicator_model }}
+      mode: ${{ steps.gate.outputs.mode }}
       spec_artifact_id: ${{ steps.spec-upload.outputs.artifact-id }}
       spec_sha256: ${{ steps.prepare.outputs.spec_sha256 }}
       prepare_error: ${{ steps.prepare.outputs.error_code }}
+      helpers_artifact_id: ${{ steps.helpers-upload.outputs.artifact-id }}
+      helpers_sha256: ${{ steps.helpers.outputs.sha256 }}
     steps:
       - name: Require a resolvable helper ref
         if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
@@ -211,6 +232,7 @@ jobs:
           MAX_INLINE: ${{ inputs.max_inline_comments }}
           PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          VERIFY: ${{ inputs.verify }}
         run: >-
           agent-ci review gate --out "$RUNNER_TEMP/review-gate"
           --dispatch-pr "$DISPATCH_PR" --dispatch-command "$DISPATCH_COMMAND"
@@ -218,7 +240,7 @@ jobs:
           --reviewer-model "$REVIEWER_MODEL" --second-reviewer "$SECOND_REVIEWER" --second-reviewer-model "$SECOND_REVIEWER_MODEL"
           --adjudicator "$ADJUDICATOR" --adjudicator-model "$ADJUDICATOR_MODEL" --allowed-models "$ALLOWED_MODELS"
           --fail-on-severity "$FAIL_ON" --min-inline-severity "$MIN_INLINE" --max-inline-comments "$MAX_INLINE"
-          --publisher-login "$PUBLISHER_LOGIN" --allow-pool-value "$ALLOW_POOL" --github-output
+          --publisher-login "$PUBLISHER_LOGIN" --allow-pool-value "$ALLOW_POOL" --verify "$VERIFY" --github-output
 
       # A spec failure (stale head, too-large diff, bad guidance) is reported
       # by the publish job as a failure summary from its trusted error code.
@@ -247,10 +269,104 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      # verify-review: the built CLI for the verify job, which must not hold
+      # AGENT_CI_SOURCE_TOKEN (it runs pull-request code).
+      - name: Pack the agent-ci helpers for the verify job
+        id: helpers
+        if: steps.spec-upload.outcome == 'success' && steps.gate.outputs.mode == 'verify-review'
+        run: agent-ci helpers bundle --out "$RUNNER_TEMP/agent-ci-helpers/agent-ci-helpers.tgz" --github-output
+
+      - name: Upload the helper bundle
+        id: helpers-upload
+        if: steps.helpers.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-helpers
+          path: ${{ runner.temp }}/agent-ci-helpers
+          retention-days: 1
+          if-no-files-found: error
+
+  verify:
+    name: Run the configured checks (no credentials)
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.mode == 'verify-review'
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.verify.outputs.digest }}
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download the helper bundle
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.helpers_artifact_id }}
+          path: ${{ runner.temp }}/helpers-bundle
+          merge-multiple: true
+
+      - name: Unpack the helpers (checked against the gate's sha256)
+        env:
+          BUNDLE_SHA256: ${{ needs.gate.outputs.helpers_sha256 }}
+        run: |
+          echo "$BUNDLE_SHA256  $RUNNER_TEMP/helpers-bundle/agent-ci-helpers.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/agent-ci-helpers"
+          tar -xzf "$RUNNER_TEMP/helpers-bundle/agent-ci-helpers.tgz" -C "$RUNNER_TEMP/agent-ci-helpers"
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Check out the pull request head
+        uses: actions/checkout@v5
+        with:
+          path: target
+          ref: ${{ needs.gate.outputs.head_sha }}
+          persist-credentials: false
+
+      # Linux isolation for the checks (user, pid and loopback-only network
+      # namespaces) needs unprivileged user namespaces.
+      - name: Allow unprivileged user namespaces (GitHub-hosted Linux)
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Trust the target checkout for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
+
+      - name: Run the configured checks
+        id: verify
+        env:
+          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
+        run: >-
+          node "$RUNNER_TEMP/agent-ci-helpers/dist/cli.js" review verify
+          --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --cwd target --out "$RUNNER_TEMP/review-checks" --github-output
+
+      - name: Upload the check results
+        id: upload
+        if: steps.verify.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-checks
+          path: ${{ runner.temp }}/review-checks
+          retention-days: 7
+          if-no-files-found: error
+
   review-primary:
     name: Primary reviewer (read-only)
-    needs: gate
-    if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != ''
+    needs: [gate, verify]
+    if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
@@ -291,6 +407,14 @@ jobs:
         with:
           artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
           path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Download the check results (verify-review)
+        if: needs.verify.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-checks
           merge-multiple: true
 
       - name: Resolve the route
@@ -330,9 +454,12 @@ jobs:
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          CHECKS_DIR: ${{ needs.verify.outputs.artifact_id != '' && format('{0}/review-checks', runner.temp) || '' }}
+          CHECKS_DIGEST: ${{ needs.verify.outputs.digest }}
         run: >-
           agent-ci review pass --pass primary --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
           --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
+          --checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"
           --allow-pool-value "$ALLOW_POOL"
           --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
 
@@ -358,8 +485,8 @@ jobs:
 
   review-second:
     name: Second reviewer (read-only)
-    needs: gate
-    if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.second_enabled == 'true'
+    needs: [gate, verify]
+    if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.second_enabled == 'true' }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
@@ -402,6 +529,14 @@ jobs:
           path: ${{ runner.temp }}/review-spec
           merge-multiple: true
 
+      - name: Download the check results (verify-review)
+        if: needs.verify.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-checks
+          merge-multiple: true
+
       - name: Resolve the route
         id: route
         env:
@@ -435,9 +570,12 @@ jobs:
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          CHECKS_DIR: ${{ needs.verify.outputs.artifact_id != '' && format('{0}/review-checks', runner.temp) || '' }}
+          CHECKS_DIGEST: ${{ needs.verify.outputs.digest }}
         run: >-
           agent-ci review pass --pass second --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
           --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
+          --checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"
           --allow-pool-value "$ALLOW_POOL"
           --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
 

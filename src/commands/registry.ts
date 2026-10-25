@@ -1,6 +1,7 @@
 import { digestCommand } from '@agent-ci/commands/digest.js';
 import { doctorCommand } from '@agent-ci/commands/doctor.js';
 import { harnessCommand } from '@agent-ci/commands/harness.js';
+import { helpersCommand } from '@agent-ci/commands/helpers.js';
 import { modelsCommand } from '@agent-ci/commands/models.js';
 import { notifyCommand } from '@agent-ci/commands/notify.js';
 import { presetCommand } from '@agent-ci/commands/preset.js';
@@ -32,4 +33,5 @@ export const COMMANDS: readonly CommandSpec[] = [
   notifyCommand,
   workspaceCommand,
   digestCommand,
+  helpersCommand,
 ];

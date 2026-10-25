@@ -4,6 +4,11 @@
 # fake tool-free adjudicator, the findings gate and the publisher, which
 # posts one inline review and the summary comment on the pull request.
 #
+# Labeling it `agent-ci:verify-review` runs the verify-review path: the
+# credential-free verify job runs .github/agent-ci/checks.yaml (from the base
+# branch) on the PR head, and the fake reviewer calls run_check through the
+# MCP bridge and cites the returned evidence id.
+#
 # This caller uses `pull_request` so it runs from the pull request's branch
 # before the workflows reach the default branch; consumers use
 # `pull_request_target` (consumer-workflows/agent-ci-pr-review.yml), which
@@ -37,3 +42,21 @@ jobs:
         fake-adjudicate
       min_inline_severity: medium
       artifact_scope: selftest
+
+  verify-review:
+    name: verify-review with the fake harness
+    if: >-
+      github.event.label.name == 'agent-ci:verify-review' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/pr-review.yml
+    with:
+      verify: true
+      reviewer_model: fake-verify-review
+      allowed_models: |
+        fake-verify-review
+      min_inline_severity: medium
+      artifact_scope: selftest-verify

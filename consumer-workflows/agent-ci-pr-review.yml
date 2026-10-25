@@ -15,9 +15,10 @@
 # Why `pull_request_target` and `issue_comment`: GitHub runs both from the
 # DEFAULT branch, so a pull request cannot change this file, the allowed
 # models, the review policy or the agent-ci pin it runs under. The workflow
-# never runs pull-request code: the reviewer reads the PR head read-only with
-# no setup command and no repository skills, and the gate, findings and
-# publish jobs never check it out. Changes to this file take effect once they
+# never runs pull-request code next to a credential: the reviewer reads the PR
+# head read-only with no setup command and no repository skills, the gate,
+# findings and publish jobs never check it out, and verify-review (when
+# enabled) runs it only in a job without secrets. Changes to this file take effect once they
 # are merged.
 #
 # Setup (once per repository):
@@ -30,6 +31,15 @@
 #    OPENCODE_API_KEY for grok-4.7. Only the reviewer and adjudicator steps
 #    receive it.
 # 4. Create the `agent-ci:review` label.
+#
+# verify-review (off by default): set `verify: true` below and add
+# .github/agent-ci/checks.yaml (an optional setup command and up to 10 named
+# checks) on the default branch. `/agent-ci-verify-review` or the
+# `agent-ci:verify-review` label then runs those checks on the PR head in a
+# separate job that holds NO secret (not even AGENT_CI_SOURCE_TOKEN), and
+# Claude or Codex reviewers read the results through the run_check tool and
+# cite them. That job runs pull-request code: enable it only where pull
+# request authors (who need write access) may run code in your Actions.
 #
 # Accepted residual risk: the reviewer reads untrusted pull-request text
 # while holding the model credential. Its tools are read-only, but a prompt
@@ -59,8 +69,8 @@ jobs:
   review:
     # Cheap filters only; the reusable workflow's gate is the authority.
     if: >-
-      (github.event_name == 'pull_request_target' && github.event.label.name == 'agent-ci:review') ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/agent-ci-review')) ||
+      (github.event_name == 'pull_request_target' && (github.event.label.name == 'agent-ci:review' || github.event.label.name == 'agent-ci:verify-review')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/agent-ci-review') || startsWith(github.event.comment.body, '/agent-ci-verify-review'))) ||
       github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
@@ -71,6 +81,7 @@ jobs:
       pr_number: ${{ inputs.pr_number || '' }}
       command: ${{ inputs.command || '' }}
       reviewer_model: claude-haiku-4-5
+      verify: false # true allows verify-review (see above)
       allowed_models: |
         claude-haiku-4-5
         grok-4.7

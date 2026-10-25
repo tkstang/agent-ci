@@ -24,7 +24,25 @@ routes:
     account: personal
     structuredOutput: prompt
     qualified: null
+  - id: fake-verify-review
+    model: fake-verify-review
+    harness: fake
+    family: fake
+    providerModel: verify-review
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: null
 `;
+const CHECKS = [
+  'version: 1',
+  'checks:',
+  '  - name: unit',
+  '    command: echo "2 passed"',
+  '  - name: lint',
+  '    command: echo "1 problem"; exit 1',
+  '',
+].join('\n');
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync(
@@ -34,12 +52,20 @@ function git(cwd: string, ...args: string[]): string {
   ).trim();
 }
 
-async function setup(options: { occupied?: boolean } = {}) {
+async function setup(options: { occupied?: boolean; checks?: string } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-review-cli-'));
   const repo = path.join(root, 'target');
   await mkdir(path.join(repo, 'src'), { recursive: true });
   git(repo, 'init', '-q', '-b', 'main');
   await writeFile(path.join(repo, 'src', 'a.ts'), 'one\nthree\n');
+  if (options.checks !== undefined) {
+    // verify-review reads the checks from the BASE commit.
+    await mkdir(path.join(repo, '.github', 'agent-ci'), { recursive: true });
+    await writeFile(
+      path.join(repo, '.github', 'agent-ci', 'checks.yaml'),
+      options.checks,
+    );
+  }
   git(repo, 'add', '.');
   git(repo, 'commit', '-qm', 'base');
   const base = git(repo, 'rev-parse', 'HEAD');
@@ -90,6 +116,9 @@ async function setup(options: { occupied?: boolean } = {}) {
     )
     .on('GET', `${API}/pulls/7/files`, { body: [{ filename: 'src/a.ts' }] })
     .on('DELETE', `${API}/issues/7/labels/agent-ci%3Areview`, { status: 204 })
+    .on('DELETE', `${API}/issues/7/labels/agent-ci%3Averify-review`, {
+      status: 204,
+    })
     .serveGitDatabase(API, repo)
     .on('GET', `${API}/pulls/7/comments`, { body: [] })
     .on('GET', `${API}/issues/7/comments`, () => ({ body: posted }))
@@ -647,4 +676,214 @@ describe('review gate pool opt-in (gate 2 H1)', () => {
     });
     expect(replies).toBe('[]');
   });
+});
+
+describe('agent-ci review verify-review stages', () => {
+  it('runs gate, prepare, verify, pass, findings and publish like the workflow jobs', async () => {
+    const t = await setup({ checks: CHECKS });
+    const labeled = await event(t.root, {
+      action: 'labeled',
+      label: { name: 'agent-ci:verify-review' },
+      pull_request: { number: 7 },
+      sender: { login: 'maintainer', type: 'User' },
+    });
+    const gateFlags = [
+      '--reviewer-model',
+      'fake-verify-review',
+      '--allowed-models',
+      'fake-verify-review',
+      '--models',
+      t.modelsPath,
+      '--github-output',
+    ];
+    // Off unless the workflow sets verify: the requester gets one reply.
+    const refused = await t.cli([
+      'gate',
+      '--out',
+      'gate-off',
+      '--event-name',
+      'pull_request_target',
+      '--event-path',
+      labeled,
+      ...gateFlags,
+    ]);
+    expect(refused).toMatchObject({
+      exitCode: 1,
+      envelope: { ok: false, code: 'E_REVIEW_REQUEST' },
+    });
+    expect(await t.outputs()).toMatchObject({ should_run: 'false' });
+    expect(existsSync(path.join(t.root, 'gate-off', 'request.json'))).toBe(
+      false,
+    );
+    const gated = await t.cli([
+      'gate',
+      '--out',
+      'gate',
+      '--event-name',
+      'pull_request_target',
+      '--event-path',
+      labeled,
+      '--verify',
+      'true',
+      ...gateFlags,
+    ]);
+    expect(gated).toMatchObject({ exitCode: 0 });
+    const gateOut = await t.outputs();
+    expect(gateOut).toMatchObject({
+      should_run: 'true',
+      mode: 'verify-review',
+    });
+    const prepared = await t.cli([
+      'prepare',
+      '--request',
+      'gate/request.json',
+      '--request-sha256',
+      gateOut.request_sha256 ?? '',
+      '--out',
+      'spec',
+      '--github-output',
+    ]);
+    expect(prepared.exitCode).toBe(0);
+    const specSha = (await t.outputs()).spec_sha256 ?? '';
+    // The verify job: no GitHub token and no model credential needed.
+    const verified = await t.cli(
+      [
+        'verify',
+        '--spec-dir',
+        'spec',
+        '--spec-sha256',
+        specSha,
+        '--cwd',
+        'target',
+        '--out',
+        'checks',
+        '--github-output',
+      ],
+      { GITHUB_TOKEN: '', CI: '', GITHUB_ACTIONS: '' },
+    );
+    expect(verified).toMatchObject({
+      exitCode: 0,
+      envelope: { data: { status: 'complete' } },
+    });
+    const checksDigest = (await t.outputs()).digest ?? '';
+    const passed = await t.cli(
+      [
+        'pass',
+        '--spec-dir',
+        'spec',
+        '--spec-sha256',
+        specSha,
+        '--pass',
+        'primary',
+        '--cwd',
+        'target',
+        '--out',
+        'primary',
+        '--models',
+        t.modelsPath,
+        '--max-attempts',
+        '1',
+        '--checks-dir',
+        'checks',
+        '--checks-digest',
+        checksDigest,
+      ],
+      { CI: '', GITHUB_ACTIONS: '' },
+    );
+    expect(passed).toMatchObject({
+      exitCode: 0,
+      envelope: { data: { ok: true, checks_served: ['unit'] } },
+    });
+    const primaryDigest = await digestResultDir(path.join(t.root, 'primary'));
+    if (!primaryDigest.ok) throw new Error(primaryDigest.message);
+    const found = await t.cli([
+      'findings',
+      '--spec-dir',
+      'spec',
+      '--spec-sha256',
+      specSha,
+      '--primary-dir',
+      'primary',
+      '--primary-digest',
+      primaryDigest.value,
+      '--out',
+      'gated',
+      '--github-output',
+    ]);
+    expect(found).toMatchObject({
+      exitCode: 0,
+      envelope: { data: { reviewStatus: 'complete', findings: 1 } },
+    });
+    const gatedReview = JSON.parse(
+      await readFile(path.join(t.root, 'gated', 'review-gated.json'), 'utf8'),
+    ) as { checks: { entries: Array<{ name: string; exit_code: number }> } };
+    expect(
+      gatedReview.checks.entries.map((e) => [e.name, e.exit_code]),
+    ).toEqual([
+      ['unit', 0],
+      ['lint', 1],
+    ]);
+    const published = await t.cli([
+      'publish',
+      '--gated-dir',
+      'gated',
+      '--gated-digest',
+      (await t.outputs()).gated_digest ?? '',
+      '--pr',
+      '7',
+      '--head-sha',
+      t.head,
+    ]);
+    expect(published).toMatchObject({
+      exitCode: 0,
+      envelope: { data: { status: 'published' } },
+    });
+    const summary = t.fake
+      .sent('POST')
+      .find(
+        (r) =>
+          r.path === `${API}/issues/7/comments` &&
+          JSON.stringify(r.body).includes('## agent-ci PR review'),
+      );
+    expect(JSON.stringify(summary?.body)).toContain('### Checks');
+  }, 60_000);
+
+  it('runs a whole local verify-review: checks first in their own worktree, then the bridge', async () => {
+    const t = await setup({ checks: CHECKS });
+    const origin = path.join(t.root, 'origin.git');
+    git(t.root, 'clone', '-q', '--bare', t.repo, origin);
+    const clone = path.join(t.root, 'clone');
+    git(t.root, 'clone', '-q', origin, clone);
+    t.fake.on('GET', '/user', { body: { login: 'maintainer', type: 'User' } });
+    const result = await t.cli(
+      [
+        'run',
+        '--pr',
+        '7',
+        '--cwd',
+        'clone',
+        '--model',
+        'fake-verify-review',
+        '--models',
+        t.modelsPath,
+        '--verify',
+        '--publish',
+        '--out',
+        'local',
+      ],
+      { CI: '', GITHUB_ACTIONS: '' },
+    );
+    expect(result).toMatchObject({
+      exitCode: 0,
+      envelope: {
+        ok: true,
+        data: { reviewStatus: 'complete', findings: 1, posted: 1 },
+      },
+    });
+    expect(
+      existsSync(path.join(t.root, 'local', 'checks', 'checks.json')),
+    ).toBe(true);
+    // Neither the verify worktree nor the review worktree is left behind.
+    expect(git(clone, 'worktree', 'list').split('\n')).toHaveLength(1);
+  }, 60_000);
 });
