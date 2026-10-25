@@ -1100,49 +1100,59 @@ describe('gate: check evidence (verify-review)', () => {
     expect(gated.checks).toBeUndefined();
   });
 
-  it('refuses a check id that is not in the pass evidence and admits one that is', () => {
-    const evidence = {
-      version: 1 as const,
-      repository: IDENTITY.repository,
+  const evidence = {
+    version: 1 as const,
+    repository: IDENTITY.repository,
+    head_sha: HEAD,
+    config_sha256: 'c'.repeat(64),
+    status: 'complete' as const,
+    setup: null,
+    entries: [
+      {
+        evidence_id: ID,
+        name: 'test',
+        command: 'pnpm test',
+        exit_code: 1,
+        timed_out: false,
+        truncated: false,
+        output_sha256: 'd'.repeat(64),
+        output_tail: 'FAIL',
+        duration_ms: 1,
+        isolation: 'none' as const,
+      },
+    ],
+  };
+  const verifyPass = (pass: 'primary' | 'second', findings: unknown[]) => ({
+    pass,
+    enabled: true,
+    attempt: '1',
+    review: { ...review(pass, findings), mode: 'verify-review' },
+  });
+  const verifyRun = (
+    findings: unknown[],
+    second?: { findings: unknown[]; checks: typeof evidence | null },
+  ) =>
+    gateReview({
+      identity: IDENTITY,
+      mode: 'verify-review',
+      base_sha: BASE,
+      merge_base_sha: MERGE,
       head_sha: HEAD,
-      config_sha256: 'c'.repeat(64),
-      status: 'complete' as const,
-      setup: null,
-      entries: [
-        {
-          evidence_id: ID,
-          name: 'test',
-          command: 'pnpm test',
-          exit_code: 1,
-          timed_out: false,
-          truncated: false,
-          output_sha256: 'd'.repeat(64),
-          output_tail: 'FAIL',
-          duration_ms: 1,
-          isolation: 'none' as const,
-        },
+      diff: diffFor(FILE),
+      read: readerFor(FILE),
+      passes: [
+        verifyPass('primary', findings),
+        ...(second === undefined
+          ? []
+          : [verifyPass('second', second.findings)]),
       ],
-    };
-    const verifyRun = (findings: unknown[]) =>
-      gateReview({
-        identity: IDENTITY,
-        mode: 'verify-review',
-        base_sha: BASE,
-        merge_base_sha: MERGE,
-        head_sha: HEAD,
-        diff: diffFor(FILE),
-        read: readerFor(FILE),
-        passes: [
-          {
-            pass: 'primary',
-            enabled: true,
-            attempt: '1',
-            review: { ...review('primary', findings), mode: 'verify-review' },
-          },
-        ],
-        adjudication: { enabled: false, value: null },
-        checks: { primary: evidence },
-      });
+      adjudication: { enabled: false, value: null },
+      checks:
+        second === undefined
+          ? { primary: evidence }
+          : { primary: evidence, second: second.checks },
+    });
+  it('refuses a check id that is not in the pass evidence and admits one that is', () => {
     const admitted = verifyRun([checkFinding]);
     expect(validateGatedReview(admitted, IDENTITY)).toBe(admitted);
     expect(admitted.findings[0]?.evidence).toEqual([
@@ -1172,5 +1182,18 @@ describe('gate: check evidence (verify-review)', () => {
     expect(malformed.candidates[0]?.disposition).toBe(
       'invalid:schema:evidence.0',
     );
+  });
+
+  it("binds check citations to the citing pass's own evidence", () => {
+    // The second pass has no valid evidence; citing the primary's id is
+    // refused while the primary's own citation is admitted.
+    const gated = verifyRun([checkFinding], {
+      findings: [checkFinding],
+      checks: null,
+    });
+    expect(dispositions(gated)).toEqual({
+      'primary-a1-F1': 'posted',
+      'second-a1-F1': 'invalid:evidence_check_unavailable',
+    });
   });
 });
