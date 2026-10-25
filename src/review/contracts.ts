@@ -292,7 +292,10 @@ const LOCAL_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/u;
 /** Namespaced candidate id: `<pass>-a<attempt>-<local id>`. */
 export const CANDIDATE_ID =
   /^(primary|second)-a[1-9][0-9]{0,5}-[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/u;
-const REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/u;
+// Owner, then a repository name of letters, digits, `.`, `_` and `-` that
+// may start with any of them (`org/.github`) but is not `.` or `..`.
+const REPOSITORY =
+  /^[A-Za-z0-9][A-Za-z0-9_.-]*\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/u;
 const ATTEMPT = /^[1-9][0-9]{0,5}$/u;
 const RUN_ID = /^[1-9][0-9]{0,19}$/u;
 // Control and format characters (bidi overrides, zero-width joiners) never

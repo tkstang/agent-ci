@@ -1,9 +1,13 @@
+import { execFileSync } from 'node:child_process';
+
+import { validateIdentity } from '@agent-ci/review/contracts.js';
 import { FakeGithub } from '@agent-ci/review/testing/fake-github.js';
 import {
   acknowledgeRequest,
   type Authorized,
   authorizeRequest,
   configureRequest,
+  isBranchName,
   parseAllowedModels,
   parsePolicy,
   resolvePrReviewTrigger,
@@ -570,5 +574,128 @@ describe('acknowledgeRequest', () => {
       acknowledge: false,
     });
     expect(github.requests).toEqual([]);
+  });
+});
+
+describe('base branch names', () => {
+  const names = [
+    'main',
+    'release+next',
+    '_main',
+    'リリース',
+    'feature/a.b-c',
+    'v1.2@x',
+    '-main',
+    'a..b',
+    'a b',
+    'a:b',
+    'a~1',
+    'a^',
+    'a?',
+    'a*',
+    'a[b',
+    'a\\b',
+    '.hidden',
+    'a/.b',
+    'a.lock',
+    'a/',
+    '/a',
+    'a//b',
+    'a.',
+    'a@{1}',
+    'a\u0001b',
+    'a\u007fb',
+  ];
+
+  it.each([...names, '@'])(
+    'agrees with git check-ref-format on refs/heads/%s',
+    (name) => {
+      let git = !name.startsWith('-'); // `git branch` refuses a leading dash
+      try {
+        execFileSync('git', ['check-ref-format', `refs/heads/${name}`], {
+          stdio: 'ignore',
+        });
+      } catch {
+        git = false;
+      }
+      expect(isBranchName(name)).toBe(git);
+    },
+  );
+
+  it.each(['release+next', 'リリース', 'main'])(
+    'authorizes a same-repository request whose base is %j and binds it',
+    async (ref) => {
+      const github = new FakeGithub()
+        .on('GET', `${API}/collaborators/maintainer/permission`, {
+          body: { permission: 'write' },
+        })
+        .on('GET', `${API}/pulls/7`, {
+          body: pull({ base: { sha: BASE, ref, repo: { full_name: REPO } } }),
+        })
+        .on('GET', `${API}/collaborators/author/permission`, {
+          body: { permission: 'write' },
+        })
+        .on('GET', `${API}/compare/${BASE}...${HEAD}`, {
+          body: { merge_base_commit: { sha: MERGE } },
+        });
+      const outcome = await authorizeRequest({
+        github: github.client(),
+        repository: REPO,
+        eventName: 'pull_request_target',
+        event: labelEvent(),
+      });
+      expect(outcome).toMatchObject({
+        status: 'authorized',
+        authorized: { pullRequest: { baseRef: ref } },
+      });
+    },
+  );
+
+  it('still refuses a base name git would refuse (multi-line, traversal)', () => {
+    for (const ref of ['main\nshould_run=true', 'a..b'])
+      expect(() =>
+        resolvePrReviewTrigger({
+          eventName: 'pull_request_target',
+          event: labelEvent(),
+          repository: REPO,
+          facts: {
+            actorPermission: 'write',
+            pullRequest: pull({
+              base: { sha: BASE, ref, repo: { full_name: REPO } },
+            }),
+          },
+        }),
+      ).toThrow(expect.objectContaining({ code: 'E_GITHUB_API' }));
+  });
+});
+
+const identity = (repository: string) => ({
+  repository,
+  workflow: 'agent-ci-pr-review',
+  pr_number: 1,
+  scope: 'default',
+  run_id: '1',
+  run_attempt: '1',
+});
+
+describe('repository names', () => {
+  it('accepts names GitHub allows, including a leading dot, and refuses dot names', () => {
+    for (const ok of [
+      'tkstang/.github',
+      'tkstang/_tools',
+      'tkstang/-x',
+      'tkstang/app',
+    ])
+      expect(validateIdentity(identity(ok)).repository).toBe(ok);
+    for (const bad of [
+      'tkstang/.',
+      'tkstang/..',
+      '.org/app',
+      'tkstang/a b',
+      'tkstang',
+    ])
+      expect(() => validateIdentity(identity(bad))).toThrow(
+        expect.objectContaining({ code: 'E_REVIEW_INPUT' }),
+      );
   });
 });

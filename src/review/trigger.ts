@@ -196,6 +196,33 @@ function isCommand(text: string): boolean {
   );
 }
 
+/**
+ * Git's branch-name rules (`refs/heads/<name>` passes `git check-ref-format`,
+ * and no leading `-`, which `git branch` refuses), so any base
+ * branch GitHub can hold (`release+next`, `_main`, non-ASCII names) is
+ * accepted, with a 255-byte bound. The name is captured metadata only:
+ * every diff and tree read uses the captured SHAs, and the value leaves the
+ * gate only through the request file and a single-line step output.
+ */
+export function isBranchName(name: string): boolean {
+  if (name === '' || Buffer.byteLength(name, 'utf8') > 255) return false;
+  if (name.startsWith('-') || name.startsWith('/') || name.endsWith('/'))
+    return false;
+  if (name.endsWith('.') || name.includes('..') || name.includes('@{'))
+    return false;
+  // ~ ^ : ? * [ backslash, then ASCII controls, space and DEL.
+  if (/[~^:?*[\\]/u.test(name)) return false;
+  for (const ch of name) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code <= 0x20 || code === 0x7f) return false;
+  }
+  return name
+    .split('/')
+    .every(
+      (part) => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'),
+    );
+}
+
 /** Validate the fields of a fetched PR the gate relies on; `null` if malformed. */
 export function readPullRequest(
   value: unknown,
@@ -225,8 +252,7 @@ export function readPullRequest(
     typeof baseSha !== 'string' ||
     !SHA.test(baseSha) ||
     typeof baseRef !== 'string' ||
-    !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/u.test(baseRef) ||
-    baseRef.includes('..') ||
+    !isBranchName(baseRef) ||
     typeof field(value, 'state') !== 'string'
   )
     return null;
