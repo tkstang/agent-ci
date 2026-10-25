@@ -76,7 +76,10 @@ describe('spawnHarness', () => {
         process.stdout.write(String(child.pid) + '\\n');
         setInterval(() => {}, 1000);
       `),
-      timeoutMs: 500,
+      // Long enough for a loaded machine to start Node and print the
+      // grandchild's PID; the test is about the group kill, not deadline
+      // precision.
+      timeoutMs: 3_000,
       killGraceMs: 200,
     });
     expect(result.started).toBe(true);
