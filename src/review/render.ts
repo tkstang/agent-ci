@@ -544,7 +544,7 @@ export function renderSummary(
             `| ${codeSpan(entry.name)} | ${entry.timed_out ? 'timed out' : exitText(entry.exit_code)} | ${codeSpan(entry.isolation)} | ${codeSpan(entry.evidence_id)} |`,
         ),
         '',
-        'agent-ci ran these configured checks on the PR head in a job without model credentials; their results reflect the PR code itself.',
+        'agent-ci ran these configured checks on the PR head before any reviewer started and without model credentials (in Actions, in a separate job); their results reflect the PR code itself.',
         '',
       );
     }

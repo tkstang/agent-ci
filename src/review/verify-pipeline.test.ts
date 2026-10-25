@@ -251,6 +251,9 @@ describe('verify-review pipeline (fake harness, real bridge)', () => {
     const summary = renderSummary(gated);
     expect(summary).toContain('### Checks');
     expect(summary).toContain('| ` test ` | exit 1 | ` none ` |');
+    expect(summary).toContain(
+      'before any reviewer started and without model credentials',
+    );
   }, 60_000);
 
   it('drops a finding that cites an evidence id the bridge never returned', async () => {
