@@ -753,21 +753,36 @@ describe('agent-ci review verify-review stages', () => {
     expect(prepared.exitCode).toBe(0);
     const specSha = (await t.outputs()).spec_sha256 ?? '';
     // The verify job: no GitHub token and no model credential needed.
-    const verified = await t.cli(
-      [
-        'verify',
-        '--spec-dir',
-        'spec',
-        '--spec-sha256',
-        specSha,
-        '--cwd',
-        'target',
-        '--out',
-        'checks',
-        '--github-output',
-      ],
-      { GITHUB_TOKEN: '', CI: '', GITHUB_ACTIONS: '' },
-    );
+    const verifyArgv = [
+      'verify',
+      '--spec-dir',
+      'spec',
+      '--spec-sha256',
+      specSha,
+      '--cwd',
+      'target',
+      '--out',
+      'checks',
+      '--github-output',
+    ];
+    if (detectIsolation() !== 'linux-namespaces') {
+      // Outside Actions, without credential isolation, the stage refuses
+      // (as `review run --verify` does) and runs nothing.
+      const unisolated = await t.cli(verifyArgv, {
+        GITHUB_TOKEN: '',
+        CI: '',
+        GITHUB_ACTIONS: '',
+      });
+      expect(unisolated).toMatchObject({
+        exitCode: 1,
+        envelope: { ok: false, code: 'E_VERIFY_RUN' },
+      });
+    }
+    const verified = await t.cli(verifyArgv, {
+      GITHUB_TOKEN: '',
+      CI: 'true',
+      GITHUB_ACTIONS: 'true',
+    });
     expect(verified).toMatchObject({
       exitCode: 0,
       envelope: { data: { status: 'complete' } },

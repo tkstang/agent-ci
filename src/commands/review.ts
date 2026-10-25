@@ -494,17 +494,20 @@ async function prepare(
 
 const VERIFY_USAGE = `agent-ci review verify — run the configured checks (verify-review).
 
-Runs every check in the spec's checks configuration (read from the base
-commit) on the PR head checkout: a fresh copy per check, an environment
-allowlist with no credential, a PATH without checkout entries, a deadline,
-a 1 MiB output capture, a process-group kill, and namespaces (Linux) or
-sandbox-exec (macOS) where available. Run it only where no model credential
-or other secret exists: the PR's code runs here.
+Runs every check in the spec's checks configuration (read at prepare from the
+default branch head, or --verify-config-ref) on the PR head checkout: a fresh
+copy per check, an environment allowlist with no credential, a PATH without
+checkout entries, a deadline, a 1 MiB output capture and a process-group
+kill. The PR's code runs here: run it only where no model credential or
+other secret exists (pr-review.yml's verify job). Outside GitHub Actions it
+refuses unless Linux user namespaces (non-root) isolate the checks, or
+--verify-trust-pr-code acknowledges that the PR's code runs as you.
 
   --spec-dir <dir> --spec-sha256 <hex>   The prepared spec (verified).
   --repo <owner/name>                    Default $GITHUB_REPOSITORY.
   --cwd <dir>                            The PR head checkout (default .).
   --out <dir>                            checks.json (outside the checkout).
+  --verify-trust-pr-code                 Run without credential isolation.
   --github-output                        status, digest (of --out).`;
 
 async function verifyStage(
@@ -518,6 +521,7 @@ async function verifyStage(
       ...SPEC_FLAGS,
       cwd: { type: 'string' },
       out: { type: 'string' },
+      'verify-trust-pr-code': { type: 'boolean' },
       'github-output': { type: 'boolean' },
     },
     VERIFY_USAGE,
@@ -535,6 +539,10 @@ async function verifyStage(
       spec,
       outDir,
       env,
+      // The Actions verify job is the boundary there; anywhere else this
+      // stage needs credential isolation or the explicit acknowledgment.
+      requireCredentialIsolation:
+        env.GITHUB_ACTIONS !== 'true' && flags['verify-trust-pr-code'] !== true,
       log: context.log,
       ...(deps.git === undefined ? {} : { git: deps.git }),
     });
