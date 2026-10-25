@@ -83,6 +83,8 @@ export type UsageRow = {
   cache_write_tokens: number | null;
   /** Cost the harness itself reported (Claude); `null` when it reported none. */
   reported_cost_usd: number | null;
+  /** agent-ci's own notes on the pass (for example a shortened prompt). */
+  notes?: string[];
 };
 /** One inline review comment for `POST /pulls/{n}/reviews`. */
 export type ReviewComment = {
@@ -516,6 +518,16 @@ export function renderSummary(
     'Token counts are what each harness reported for the pass, including a repair turn; unknown means the harness did not report them. Cost is shown only when the harness reported one (a subscription or proxy route may report a list-price figure that is not billed).',
     '',
   );
+  const notes = usage.flatMap((row) =>
+    (Array.isArray(row.notes) ? row.notes : [])
+      .filter((note): note is string => typeof note === 'string')
+      .slice(0, 5)
+      .map(
+        (note) =>
+          `- **${PASS_LABELS[row.pass] ?? 'pass'}:** ${sanitizeTitle(Array.from(note).slice(0, 300).join(''))}`,
+      ),
+  );
+  if (notes.length > 0) lines.push('### Pass notes', '', ...notes, '');
 
   const findings = gated.findings;
   const by = (disposition: GatedFinding['disposition']) =>

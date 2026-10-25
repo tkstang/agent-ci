@@ -117,14 +117,58 @@ describe('buildReviewPrompt', () => {
     ).toThrow(expect.objectContaining({ code: 'E_REVIEW_GUIDANCE' }));
   });
 
-  it('keeps the whole prompt under the argv-safe cap', () => {
-    const files = Array.from(
-      { length: 300 },
-      (_, i) => `src/${'deep/'.repeat(60)}file-${i}.ts`,
-    );
-    expect(() => buildReviewPrompt(input({ changed_files: files }))).toThrow(
-      expect.objectContaining({ code: 'E_REVIEW_GUIDANCE' }),
-    );
+  it.each([
+    ['no caller guidance', 400, false],
+    ['no caller guidance, 1 KiB paths', 1000, false],
+    ['48 KiB of caller guidance', 400, true],
+    ['48 KiB of caller guidance, 1 KiB paths', 1000, true],
+  ])(
+    'shortens PR-controlled path lists instead of failing (%s)',
+    (_name, length, guidance) => {
+      const files = Array.from(
+        { length: 300 },
+        (_, i) => `d/${String(i).padStart(4, '0')}${'x'.repeat(length - 7)}.ts`,
+      );
+      // Every changed path has its own AGENTS.md, so both lists are long.
+      const reader = {
+        read: () => ({ status: 'ok' as const, text: 'g'.repeat(16_000) }),
+        exists: (p: string) => p.endsWith('AGENTS.md'),
+      };
+      const spec = buildReviewPrompt(
+        input({
+          changed_files: files,
+          checkout: reader,
+          ...(guidance
+            ? {
+                request: { ...config, instruction: '\u{1F600}'.repeat(2000) },
+                guidance: {
+                  repo_guidance: 'r'.repeat(16_000),
+                  repo_guidance_path: 'docs/review.md',
+                },
+              }
+            : {}),
+        }),
+      );
+      expect(Buffer.byteLength(spec.prompt)).toBeLessThanOrEqual(
+        PROMPT_LIMITS.promptBytes,
+      );
+      expect(spec.prompt).toMatch(
+        /more changed file\(s\) are not listed here; the diff file names every change/u,
+      );
+      expect(spec.prompt).toContain('Output:');
+      expect(spec.warnings.join('\n')).toMatch(
+        /listed \d+ of 300 changed files/u,
+      );
+      if (guidance) expect(spec.prompt).toContain('r'.repeat(16_000));
+    },
+  );
+
+  it('lists every path that fits, with no note (control)', () => {
+    const files = Array.from({ length: 300 }, (_, i) => `d/file-${i}.ts`);
+    const spec = buildReviewPrompt(input({ changed_files: files }));
+    expect(spec.prompt).toContain('"d/file-299.ts"');
+    expect(spec.prompt).not.toContain('more changed file');
+    expect(spec.warnings).toEqual([]);
   });
 });
 

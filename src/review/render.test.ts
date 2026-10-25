@@ -535,6 +535,29 @@ describe('summary', () => {
     ).toBe(false);
   });
 
+  it('lists agent-ci pass notes as inert text', () => {
+    const summary = renderSummary(gated(), [
+      {
+        pass: 'primary',
+        model: 'claude-haiku-4-5',
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_read_tokens: null,
+        cache_write_tokens: null,
+        reported_cost_usd: null,
+        notes: [
+          'the reviewer prompt listed 120 of 300 changed files [x](https://e.example) @team',
+        ],
+      },
+    ]);
+    expect(summary).toContain('### Pass notes');
+    expect(summary).toContain(
+      '- **primary reviewer:** the reviewer prompt listed 120 of 300 changed files',
+    );
+    expect(summary).not.toContain('](https://');
+    expect(summary).not.toContain('@team');
+  });
+
   it('flags incomplete reviews, truncation, adjudicator failure and the failure policy', () => {
     const summary = renderSummary(
       gated({

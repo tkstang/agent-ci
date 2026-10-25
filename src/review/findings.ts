@@ -217,9 +217,16 @@ function row(
   pass: UsageRow['pass'],
   model: string | null,
   usage: Usage | null | undefined,
+  notes: unknown = [],
 ): UsageRow {
+  const kept = Array.isArray(notes)
+    ? notes
+        .filter((note): note is string => typeof note === 'string')
+        .slice(0, 5)
+    : [];
   return {
     pass,
+    ...(kept.length === 0 ? {} : { notes: kept }),
     model,
     input_tokens: count(usage?.inputTokens),
     output_tokens: count(usage?.outputTokens),
@@ -237,7 +244,14 @@ export function usageRows(
   const rows: UsageRow[] = [];
   for (const pass of passes)
     if (pass.record !== null)
-      rows.push(row(pass.pass, pass.record.model, pass.record.usage));
+      rows.push(
+        row(
+          pass.pass,
+          pass.record.model,
+          pass.record.usage,
+          pass.record.warnings,
+        ),
+      );
   if (adjudicator !== null && adjudicator.status !== 'skipped')
     rows.push(row('adjudicator', adjudicator.model, adjudicator.usage));
   return rows;
