@@ -298,7 +298,7 @@ describe('claude argv and posture', () => {
       '--permission-mode',
       'dontAsk',
       '--tools',
-      'Read,Grep,Glob',
+      'Read,Grep,Glob,Skill',
       '--',
       'Reply with exactly: agent-ci-probe-ok',
     ]);

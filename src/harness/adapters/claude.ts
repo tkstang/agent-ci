@@ -9,8 +9,13 @@ import type {
   HarnessRequest,
 } from '@agent-ci/harness/types.js';
 
-/** Built-in tools a read-only run may use: read and search, no edits or shell. */
-export const CLAUDE_READ_ONLY_TOOLS = 'Read,Grep,Glob';
+/**
+ * Built-in tools a read-only run may use: read, search and load installed
+ * skills; no edits or shell. Without `Skill`, skills installed into the home
+ * root are invisible (live probe 2026-10-25, research
+ * `skill-discovery-2026-10-25.md`); loading one only reads its instructions.
+ */
+export const CLAUDE_READ_ONLY_TOOLS = 'Read,Grep,Glob,Skill';
 
 /**
  * Claude Code: `claude -p --output-format json --model M ... -- <prompt>`.
