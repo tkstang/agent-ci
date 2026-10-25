@@ -126,7 +126,7 @@ function docsUpdatePrompt(context: PromptContext): string {
     '- Do not create helper scripts, audit tools, CI checks, or other non-documentation files.',
     '- Edit existing docs-tree content, tracked Markdown, and OAT tracking only.',
     ...AGENT_BOUNDARY,
-    '- The publisher refuses changes outside docs directories, Markdown files, OAT tracking and agent instruction views.',
+    '- The publisher refuses any change outside documentation files (Markdown, MDX and assets under docs directories, root-level Markdown, AGENTS.md, CLAUDE.md and GEMINI.md) and the OAT tracking and analysis artifacts, and refuses executables and symlinks.',
     '',
     ...footer(context),
   ].join('\n');
@@ -151,7 +151,7 @@ function instructionsUpdatePrompt(context: PromptContext): string {
     '',
     'Agent boundary:',
     ...AGENT_BOUNDARY,
-    '- The publisher refuses changes outside agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md), provider views and OAT tracking.',
+    '- The publisher refuses any change outside instruction files (AGENTS.md, CLAUDE.md, GEMINI.md), rules directories, Copilot instructions and the OAT tracking and analysis artifacts; settings, hooks, permission and MCP files, skills and agent, command or prompt definitions are always refused.',
     '',
     ...footer(context),
   ].join('\n');
@@ -189,92 +189,110 @@ export const PRESETS: Readonly<Record<PresetName, Preset>> = Object.freeze({
   },
 });
 
-const PROVIDER_VIEWS = [
-  '.agents/',
-  '.claude/',
-  '.codex/',
-  '.cursor/',
-  '.gemini/',
-  '.github/agents/',
-  '.github/instructions/',
-  '.github/skills/',
-  '.oat/',
+/** Agent and tool configuration directories, at any depth (skills, agents, commands, hooks, settings). */
+const PROVIDER_DIRS =
+  /(?:^|\/)\.(?:agents|claude|codex|cursor|gemini|windsurf|opencode)\//u;
+/** OAT files the agent presets write: tracking and analysis artifacts only. */
+const OAT_ARTIFACTS = [
+  /^\.oat\/tracking\.json$/u,
+  /^\.oat\/repo\/analysis\/(?:[^/]+\/)*[^/]+\.(?:md|json)$/u,
 ];
-
-const SKILL_TREES = [
-  '.agents/skills/',
-  '.claude/skills/',
-  '.codex/skills/',
-  '.cursor/skills/',
-  '.gemini/skills/',
-  '.github/skills/',
-];
+/** Instruction file names allowed anywhere outside a denied tree. */
+const INSTRUCTION_FILES = /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI)\.md$/u;
 
 /**
- * Code a later run executes: the OAT tracking helper (agents run it with the
- * model credential in their environment) and CI. Only tools-update, which
- * runs no agent, may refresh OAT scripts.
+ * Configuration a later agent or tool run executes or that widens its
+ * permissions, denied for both agent presets: settings, hooks, CLI
+ * permission files, MCP configuration, skills (and their scripts), agent,
+ * command and prompt definitions, OAT scripts and CI.
  */
-const EXECUTABLE_TREES = ['.oat/scripts/', '.github/workflows/'];
+const EXECUTED_CONFIG = [
+  /(?:^|\/)settings[^/]*\.json$/u,
+  /(?:^|\/)hooks?(?:\/|\.json$)/u,
+  /^\.cursor\/cli\.json$/u,
+  /^\.codex\/config\.toml$/u,
+  /(?:^|\/)\.?mcp\.json$/u,
+  /(?:^|\/)skills\//u,
+  /(?:^|\/)(?:agents|commands|prompts)\//u,
+  /^\.oat\/scripts\//u,
+  /^\.github\/workflows\//u,
+];
 
+/** Files `oat tools update` manages: OAT trees, provider views, root git metadata. */
 const TOOLS_PATHS = [
-  '.oat/',
-  '.cursor/',
-  '.claude/',
-  '.agents/',
-  '.codex/agents/',
+  /^\.oat\//u,
+  /^\.cursor\//u,
+  /^\.claude\//u,
+  /^\.agents\//u,
+  /^\.codex\/agents\//u,
+  /^\.git(?:ignore|attributes)$/u,
 ];
-/** Root git metadata that `oat tools update` rewrites inside OAT-managed blocks. */
-const MANAGED_GIT_METADATA = ['.gitignore', '.gitattributes'];
-const LOCKFILES = [
-  'package.json',
-  'pnpm-lock.yaml',
-  'package-lock.json',
-  'yarn.lock',
-];
+const LOCKFILES =
+  /^(?:package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$/u;
 
 /**
  * The publish-time path policies, ported from pntr's wrapper defaults and
- * narrowed: docs updates may touch any `docs` directory, Markdown anywhere
- * and OAT tracking, never a skill tree, provider configuration or OAT script;
- * instruction updates may touch instruction files, provider views and OAT
- * tracking (`.github/` only by named subtree), never OAT scripts; tools
- * updates may touch OAT-managed trees and root git metadata, plus lockfiles
- * when allowed.
+ * narrowed to the files each preset exists to change:
+ *
+ * - docs-update: Markdown/MDX and documentation assets under any `docs`
+ *   tree, root-level Markdown, instruction files (AGENTS.md, CLAUDE.md,
+ *   GEMINI.md) anywhere, and the OAT tracking and analysis artifacts. Never
+ *   agent or tool configuration directories, `.github/`, executables or
+ *   symlinks.
+ * - instructions-update: instruction files, rules directories
+ *   (`.claude/rules`, `.cursor/rules`, `.agents/rules`, `.windsurf/rules`),
+ *   Copilot instructions and the OAT artifacts. Never settings, hooks,
+ *   permission or MCP files, skills, agent/command/prompt definitions, OAT
+ *   scripts, CI, executables or symlinks.
+ * - tools-update: OAT-managed trees and root git metadata (the deterministic
+ *   OAT CLI writes scripts and provider-view symlinks), plus lockfiles when
+ *   allowed.
  */
 export const PATH_POLICIES: Readonly<Record<PathPolicyName, PathPolicy>> =
   Object.freeze({
     'docs-update': {
-      exact: [],
-      prefixes: ['.oat/'],
-      denyPrefixes: [...SKILL_TREES, ...EXECUTABLE_TREES],
-      segments: ['docs'],
-      extensions: ['.md', '.mdx'],
-      basenames: [],
+      allow: [
+        /^(?:[^/]+\/)*docs\/(?:[^/]+\/)*[^/]+\.(?:md|mdx|png|jpe?g|gif|svg|webp|json|ya?ml)$/u,
+        /^[^/]+\.mdx?$/u,
+        INSTRUCTION_FILES,
+        ...OAT_ARTIFACTS,
+      ],
+      // Not EXECUTED_CONFIG's generic segment rules: `docs/hooks/` or
+      // `docs/agents/` pages are documentation; configuration directories
+      // are refused at any depth instead.
+      deny: [
+        PROVIDER_DIRS,
+        /^\.github\//u,
+        /(?:^|\/)\.?mcp\.json$/u,
+        /^\.oat\/scripts\//u,
+      ],
+      executables: false,
+      symlinks: false,
     },
     'instructions-update': {
-      exact: ['.github/copilot-instructions.md'],
-      prefixes: PROVIDER_VIEWS,
-      denyPrefixes: EXECUTABLE_TREES,
-      segments: [],
-      extensions: [],
-      basenames: ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'],
+      allow: [
+        INSTRUCTION_FILES,
+        /^\.(?:claude|agents|windsurf)\/rules\/(?:[^/]+\/)*[^/]+\.md$/u,
+        /^\.cursor\/rules\/(?:[^/]+\/)*[^/]+\.mdc?$/u,
+        /^\.github\/copilot-instructions\.md$/u,
+        /^\.github\/instructions\/(?:[^/]+\/)*[^/]+\.instructions\.md$/u,
+        ...OAT_ARTIFACTS,
+      ],
+      deny: EXECUTED_CONFIG,
+      executables: false,
+      symlinks: false,
     },
     'tools-update': {
-      exact: MANAGED_GIT_METADATA,
-      prefixes: TOOLS_PATHS,
-      denyPrefixes: [],
-      segments: [],
-      extensions: [],
-      basenames: [],
+      allow: TOOLS_PATHS,
+      deny: [],
+      executables: true,
+      symlinks: true,
     },
     'tools-update-lockfile': {
-      exact: [...MANAGED_GIT_METADATA, ...LOCKFILES],
-      prefixes: TOOLS_PATHS,
-      denyPrefixes: [],
-      segments: [],
-      extensions: [],
-      basenames: [],
+      allow: [...TOOLS_PATHS, LOCKFILES],
+      deny: [],
+      executables: true,
+      symlinks: true,
     },
   });
 

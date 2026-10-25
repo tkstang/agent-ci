@@ -1,60 +1,43 @@
+import type { ChangeEntry } from '@agent-ci/publish/changes.js';
+
 /**
  * Changed-path policies for the use-case wrappers, after pntr's
  * `quality_change_policy` (voxmedia/pntr@e438668). The publish job, which
- * holds write authority and runs no agent, checks every path of the change
+ * holds write authority and runs no agent, checks every entry of the change
  * set against the wrapper's policy before anything is pushed, so a prompt
- * injection that edits source, CI or skill files is refused instead of
- * published.
+ * injection that edits source, CI, agent configuration or skill files is
+ * refused instead of published.
  *
- * A path is allowed when no deny prefix matches it and at least one allow
- * rule does: an exact path, a path prefix, a directory segment at any depth,
- * a file extension, or a file basename. Deny prefixes compare
- * case-insensitively (refusing more is the safe side); allow rules compare
- * exactly.
+ * An entry passes when no deny rule matches its path, at least one allow
+ * rule does, and its kind is allowed: an executable file or a symlink passes
+ * only a policy that allows them. Deny rules match case-insensitively
+ * (refusing more is the safe side); allow rules match exactly. Rules are
+ * anchored regular expressions over the repository-relative path.
  */
 
 export interface PathPolicy {
-  /** Exact repository-relative paths. */
-  readonly exact: readonly string[];
-  /** Path prefixes (directories end in `/`). */
-  readonly prefixes: readonly string[];
-  /** Prefixes refused even when an allow rule matches. */
-  readonly denyPrefixes: readonly string[];
-  /** Directory names that allow everything below them, at any depth. */
-  readonly segments: readonly string[];
-  /** File extensions, with the dot (`.md`). */
-  readonly extensions: readonly string[];
-  /** File names allowed in any directory (`AGENTS.md`). */
-  readonly basenames: readonly string[];
+  /** A path must match at least one. */
+  readonly allow: readonly RegExp[];
+  /** A path matching any is refused, whatever the allow rules say. */
+  readonly deny: readonly RegExp[];
+  /** Whether a file may be written with mode 100755. */
+  readonly executables: boolean;
+  /** Whether the change set may create or change a symlink. */
+  readonly symlinks: boolean;
 }
 
 export const EMPTY_POLICY: PathPolicy = Object.freeze({
-  exact: [],
-  prefixes: [],
-  denyPrefixes: [],
-  segments: [],
-  extensions: [],
-  basenames: [],
+  allow: [],
+  deny: [],
+  executables: false,
+  symlinks: false,
 });
 
-/** True when `file` (repository-relative, `/`-separated) passes the policy. */
+/** True when `file` (repository-relative, `/`-separated) passes the policy's path rules. */
 export function isAllowedPath(file: string, policy: PathPolicy): boolean {
   const lower = file.toLowerCase();
-  if (
-    policy.denyPrefixes.some((prefix) => lower.startsWith(prefix.toLowerCase()))
-  )
-    return false;
-  if (policy.exact.includes(file)) return true;
-  if (policy.prefixes.some((prefix) => file.startsWith(prefix))) return true;
-  const parts = file.split('/');
-  const basename = parts.at(-1) ?? '';
-  if (parts.slice(0, -1).some((part) => policy.segments.includes(part)))
-    return true;
-  if (policy.basenames.includes(basename)) return true;
-  return policy.extensions.some(
-    (extension) =>
-      basename.length > extension.length && basename.endsWith(extension),
-  );
+  if (policy.deny.some((rule) => rule.test(lower))) return false;
+  return policy.allow.some((rule) => rule.test(file));
 }
 
 /** The paths the policy refuses, sorted. */
@@ -65,4 +48,26 @@ export function findDisallowedPaths(
   return [...new Set(files)]
     .filter((file) => !isAllowedPath(file, policy))
     .toSorted();
+}
+
+/** Change-set entries the policy refuses (by path or by kind), as `path (reason)`. */
+export function findPolicyViolations(
+  entries: readonly ChangeEntry[],
+  policy: PathPolicy,
+): string[] {
+  const refused: string[] = [];
+  for (const entry of entries) {
+    if (!isAllowedPath(entry.path, policy)) {
+      refused.push(entry.path);
+    } else if (entry.action === 'symlink' && !policy.symlinks) {
+      refused.push(`${entry.path} (symlink)`);
+    } else if (
+      entry.action === 'write' &&
+      entry.mode === '100755' &&
+      !policy.executables
+    ) {
+      refused.push(`${entry.path} (executable)`);
+    }
+  }
+  return refused.toSorted();
 }

@@ -3,10 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '@agent-ci/cli.js';
+import type { ChangeEntry } from '@agent-ci/publish/changes.js';
 import {
   EMPTY_POLICY,
   findDisallowedPaths,
+  findPolicyViolations,
   isAllowedPath,
+  type PathPolicy,
 } from '@agent-ci/use-cases/policy.js';
 import {
   PATH_POLICIES,
@@ -24,66 +27,147 @@ const context = {
   staticBranch: 'agent-ci/oat-docs-update',
 };
 
+function expectPaths(
+  policy: PathPolicy,
+  allowed: readonly string[],
+  denied: readonly string[],
+): void {
+  for (const file of allowed)
+    expect(isAllowedPath(file, policy), file).toBe(true);
+  for (const file of denied)
+    expect(isAllowedPath(file, policy), file).toBe(false);
+}
+
+const write = (
+  file: string,
+  mode: '100644' | '100755' = '100644',
+): ChangeEntry => ({
+  path: file,
+  action: 'write',
+  mode,
+  size: 1,
+  sha256: 'a'.repeat(64),
+  contentBase64: 'eA==',
+});
+
 describe('path policies', () => {
-  it('allows docs trees, Markdown and OAT tracking for docs updates, never skills, OAT scripts or CI', () => {
-    const policy = PATH_POLICIES['docs-update'];
-    for (const file of [
-      'docs/index.md',
-      'apps/site/docs/guide/image.png',
-      'README.md',
-      'packages/a/CONTRIBUTING.mdx',
-      '.oat/tracking.json',
-    ]) {
-      expect(isAllowedPath(file, policy), file).toBe(true);
-    }
-    for (const file of [
-      'src/index.ts',
-      'package.json',
-      '.agents/skills/x/SKILL.md',
-      '.claude/skills/x/SKILL.md',
-      '.Agents/Skills/x/SKILL.md',
-      '.oat/scripts/resolve-tracking.sh',
-      '.github/workflows/ci.yml',
-      '.github/workflows/notes.md',
-      '.claude/settings.json',
-      // A bare `.md` is not a Markdown file name; `docs` as a file is no tree.
-      '.md',
-      'docs',
-    ]) {
-      expect(isAllowedPath(file, policy), file).toBe(false);
-    }
+  it('docs-update: documentation files only', () => {
+    expectPaths(
+      PATH_POLICIES['docs-update'],
+      [
+        'docs/index.md',
+        'docs/guide/setup.mdx',
+        'apps/site/docs/guide/image.png',
+        'docs/nav.yml',
+        'docs/hooks/git-hooks.md',
+        'docs/agents/overview.md',
+        'README.md',
+        'CONTRIBUTING.md',
+        'AGENTS.md',
+        'packages/api/AGENTS.md',
+        'CLAUDE.md',
+        '.oat/tracking.json',
+        '.oat/repo/analysis/docs-2026-10-25-1000.md',
+      ],
+      [
+        // Review probe: agent, command and prompt definitions and rules.
+        '.agents/agents/oat-reviewer.md',
+        '.agents/rules/x.md',
+        '.claude/agents/a.md',
+        '.claude/commands/deploy.md',
+        '.claude/CLAUDE.md',
+        '.github/agents/a.md',
+        '.github/prompts/p.prompt.md',
+        '.cursor/commands/c.md',
+        'packages/x/.claude/commands/c.md',
+        // Review probe: code under docs trees, OAT configuration.
+        'src/docs/evil.ts',
+        'docs/run.sh',
+        'docs/plugin.js',
+        '.oat/config.json',
+        '.oat/sync/manifest.json',
+        '.oat/scripts/resolve-tracking.sh',
+        // Skills, provider configuration, CI, nested Markdown outside docs.
+        '.agents/skills/x/SKILL.md',
+        '.claude/settings.json',
+        '.github/workflows/ci.yml',
+        '.github/workflows/notes.md',
+        '.mcp.json',
+        'docs/.claude/settings.json',
+        'src/notes.md',
+        'package.json',
+        'docs',
+        '.md',
+      ],
+    );
   });
 
-  it('allows instruction files and provider views for instruction updates, never workflows or OAT scripts', () => {
-    const policy = PATH_POLICIES['instructions-update'];
-    for (const file of [
-      'AGENTS.md',
-      'packages/api/AGENTS.md',
-      'CLAUDE.md',
-      '.github/copilot-instructions.md',
-      '.github/instructions/ts.instructions.md',
-      '.cursor/rules/base.mdc',
-      '.oat/tracking.json',
-    ]) {
-      expect(isAllowedPath(file, policy), file).toBe(true);
-    }
-    for (const file of [
-      'README.md',
-      'src/AGENTS.ts',
-      '.github/workflows/ci.yml',
-      '.github/dependabot.yml',
-      '.oat/scripts/resolve-tracking.sh',
-    ]) {
-      expect(isAllowedPath(file, policy), file).toBe(false);
-    }
+  it('instructions-update: instruction files and rules, never settings, hooks, permissions or definitions', () => {
+    expectPaths(
+      PATH_POLICIES['instructions-update'],
+      [
+        'AGENTS.md',
+        'packages/api/AGENTS.md',
+        'CLAUDE.md',
+        '.claude/CLAUDE.md',
+        'GEMINI.md',
+        '.claude/rules/testing.md',
+        '.cursor/rules/base.mdc',
+        '.cursor/rules/team/style.md',
+        '.agents/rules/x.md',
+        '.windsurf/rules/x.md',
+        '.github/copilot-instructions.md',
+        '.github/instructions/ts.instructions.md',
+        '.oat/tracking.json',
+        '.oat/repo/analysis/agent-instructions-2026-10-25.md',
+      ],
+      [
+        // Review probe: hook and permission configuration.
+        '.claude/settings.json',
+        '.claude/settings.local.json',
+        '.claude/hooks/h.sh',
+        '.cursor/hooks.json',
+        '.cursor/cli.json',
+        '.codex/config.toml',
+        '.agents/skills/a/scripts/run.sh',
+        '.agents/skills/a/SKILL.md',
+        '.mcp.json',
+        '.cursor/mcp.json',
+        // Definitions, scripts, CI and everything that is not an instruction file.
+        '.claude/agents/a.md',
+        '.claude/commands/c.md',
+        '.github/prompts/p.prompt.md',
+        '.github/agents/a.md',
+        'skills/x/AGENTS.md',
+        '.oat/scripts/resolve-tracking.sh',
+        '.oat/config.json',
+        '.github/workflows/ci.yml',
+        '.github/dependabot.yml',
+        'README.md',
+        'src/AGENTS.ts',
+      ],
+    );
   });
 
-  it('allows lockfiles for tools updates only with the lockfile policy', () => {
-    const tools = PATH_POLICIES['tools-update'];
-    expect(isAllowedPath('.oat/scripts/x.sh', tools)).toBe(true);
-    expect(isAllowedPath('.gitignore', tools)).toBe(true);
-    expect(isAllowedPath('pnpm-lock.yaml', tools)).toBe(false);
-    expect(isAllowedPath('.codex/config.toml', tools)).toBe(false);
+  it('tools-update: OAT-managed trees, lockfiles only with the lockfile policy', () => {
+    expectPaths(
+      PATH_POLICIES['tools-update'],
+      [
+        '.oat/scripts/x.sh',
+        '.agents/skills/a/SKILL.md',
+        '.claude/skills/a',
+        '.gitignore',
+        '.gitattributes',
+        '.codex/agents/a.toml',
+      ],
+      [
+        'pnpm-lock.yaml',
+        'package.json',
+        '.codex/config.toml',
+        'src/x.ts',
+        '.github/workflows/ci.yml',
+      ],
+    );
     expect(
       isAllowedPath('pnpm-lock.yaml', PATH_POLICIES['tools-update-lockfile']),
     ).toBe(true);
@@ -93,6 +177,32 @@ describe('path policies', () => {
     expect(presetPathPolicy('docs-update', 'include-lockfile')).toBe(
       'docs-update',
     );
+  });
+
+  it('refuses executables and symlinks for the agent presets, allows them for tools-update', () => {
+    const entries: ChangeEntry[] = [
+      write('docs/index.md'),
+      write('docs/build.md', '100755'),
+      { path: 'docs/link.md', action: 'symlink', target: '../README.md' },
+      { path: 'docs/old.md', action: 'delete' },
+      write('src/x.ts'),
+    ];
+    expect(findPolicyViolations(entries, PATH_POLICIES['docs-update'])).toEqual(
+      ['docs/build.md (executable)', 'docs/link.md (symlink)', 'src/x.ts'],
+    );
+    expect(
+      findPolicyViolations(
+        [
+          write('.oat/scripts/x.sh', '100755'),
+          {
+            path: '.claude/skills/a',
+            action: 'symlink',
+            target: '../../.agents/skills/a',
+          },
+        ],
+        PATH_POLICIES['tools-update'],
+      ),
+    ).toEqual([]);
   });
 
   it('reports refused paths once, sorted; an empty policy refuses everything', () => {

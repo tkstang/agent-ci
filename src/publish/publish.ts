@@ -28,7 +28,7 @@ import {
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isWithin, resolvePhysical } from '@agent-ci/run/workspace.js';
 import {
-  findDisallowedPaths,
+  findPolicyViolations,
   type PathPolicy,
 } from '@agent-ci/use-cases/policy.js';
 
@@ -290,8 +290,8 @@ export async function publishRun(
       );
       if (!checked.ok) return checked;
       if (options.pathPolicy !== undefined) {
-        const refused = findDisallowedPaths(
-          changeSet.files.map((entry) => entry.path),
+        const refused = findPolicyViolations(
+          changeSet.files,
           options.pathPolicy.policy,
         );
         if (refused.length > 0) {
