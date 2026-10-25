@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import {
   chmod,
   cp,
@@ -280,15 +280,98 @@ export const execCommand: CommandExec = ({
 /** What the host can contain commands with. */
 export type IsolationKind = Exclude<Isolation, 'none'> | 'none';
 
-/** Probe once: `unshare` on Linux, `sandbox-exec` on macOS, else none. */
+/** Absolute paths of the Linux isolation tools, verified before use. */
+export type LinuxTools = {
+  readonly unshare: string;
+  readonly mount: string;
+  /** Brings loopback up in a new network namespace; optional. */
+  readonly ip: string | null;
+};
+
+/** Fixed system locations; PATH is never consulted for these tools. */
+export const LINUX_TOOL_CANDIDATES = Object.freeze({
+  unshare: ['/usr/bin/unshare', '/bin/unshare'],
+  mount: ['/usr/bin/mount', '/bin/mount'],
+  ip: ['/usr/sbin/ip', '/usr/bin/ip', '/sbin/ip', '/bin/ip'],
+});
+
+/** Root-owned and not writable by group or others (file: also executable). */
+function rootOwned(target: string, regular: boolean): boolean {
+  try {
+    const info = statSync(target);
+    if (info.uid !== 0 || (info.mode & 0o022) !== 0) return false;
+    return regular
+      ? info.isFile() && (info.mode & 0o111) !== 0
+      : info.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The first candidate whose resolved file is a regular, executable file
+ * owned by root and not writable by group or others, under directories
+ * that are all owned by root and not writable by group or others. A tool
+ * the checked code could replace (anything in a user-writable PATH entry,
+ * such as `~/.local/bin` or a tool cache) is never used: a planted
+ * `unshare` or `mount` would otherwise run every later check with no
+ * namespace while the record still claimed one.
+ */
+export function trustedSystemBinary(
+  candidates: readonly string[],
+): string | undefined {
+  for (const candidate of candidates) {
+    let resolved: string;
+    try {
+      lstatSync(candidate);
+      resolved = realpathSync(candidate);
+    } catch {
+      continue;
+    }
+    if (!rootOwned(resolved, true)) continue;
+    let dir = path.dirname(resolved);
+    let ok = true;
+    for (;;) {
+      if (!rootOwned(dir, false)) {
+        ok = false;
+        break;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    if (ok) return resolved;
+  }
+  return undefined;
+}
+
+/** The verified Linux tools, or undefined when `unshare` or `mount` is not. */
+export function resolveLinuxTools(
+  candidates: typeof LINUX_TOOL_CANDIDATES = LINUX_TOOL_CANDIDATES,
+): LinuxTools | undefined {
+  const unshare = trustedSystemBinary(candidates.unshare);
+  const mount = trustedSystemBinary(candidates.mount);
+  if (unshare === undefined || mount === undefined) return undefined;
+  return { unshare, mount, ip: trustedSystemBinary(candidates.ip) ?? null };
+}
+
+/**
+ * Probe once: verified `unshare` on Linux (with the exact flags checks use),
+ * `sandbox-exec` on macOS, else none. The recorded isolation comes from this
+ * launcher-side check, never from a report by the checked code.
+ */
 export function detectIsolation(
   platform: NodeJS.Platform = process.platform,
+  tools: LinuxTools | undefined = platform === 'linux'
+    ? resolveLinuxTools()
+    : undefined,
 ): IsolationKind {
   if (platform === 'linux') {
+    if (tools === undefined) return 'none';
     const probe = spawnSync(
-      'unshare',
+      tools.unshare,
       [...LINUX_NS, '--net', '--', '/bin/true'],
-      { stdio: 'ignore', timeout: 10_000 },
+      { stdio: 'ignore', timeout: 10_000, env: { PATH: '/usr/bin:/bin' } },
     );
     return probe.status === 0 ? 'linux-namespaces' : 'none';
   }
@@ -325,14 +408,16 @@ const LINUX_NS = [
  * only this pid namespace (no other process's environment).
  */
 export const LINUX_INIT = [
-  'cmd=$1; net=$2; shift 2',
-  'if [ "$net" = 0 ]; then ip link set lo up >/dev/null 2>&1 || true; fi',
+  // Every tool is an absolute, launcher-verified path argument: nothing
+  // here is looked up through the (checked-code-writable) PATH.
+  'cmd=$1; net=$2; unshare_bin=$3; mount_bin=$4; ip_bin=$5; shift 5',
+  'if [ "$net" = 0 ] && [ -n "$ip_bin" ]; then "$ip_bin" link set lo up >/dev/null 2>&1 || true; fi',
   'for p in "$@"; do',
-  '  if [ -d "$p" ]; then mount -t tmpfs -o size=16k agent-ci-hidden "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
-  '  elif [ -e "$p" ]; then mount --bind /dev/null "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
+  '  if [ -d "$p" ]; then "$mount_bin" -t tmpfs -o size=16k agent-ci-hidden "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
+  '  elif [ -e "$p" ]; then "$mount_bin" --bind /dev/null "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
   '  fi',
   'done',
-  'exec unshare --user --map-root-user --mount -- /bin/bash -c "$cmd"',
+  'exec "$unshare_bin" --user --map-root-user --mount -- /bin/bash -c "$cmd"',
 ].join('\n');
 
 /** Real-home paths a macOS-sandboxed command may not read or write. */
@@ -407,12 +492,17 @@ export function isolatedArgv(input: {
   profile?: string;
   /** Linux: absolute paths hidden from the command (see LINUX_INIT). */
   hidden?: readonly string[];
+  /** Linux: the verified tools (required for `linux-namespaces`). */
+  tools?: LinuxTools;
 }): string[] {
   const bash = ['/bin/bash', '-c', input.command];
   switch (input.isolation) {
-    case 'linux-namespaces':
+    case 'linux-namespaces': {
+      const tools = input.tools;
+      if (tools === undefined)
+        throw new Error('linux-namespaces needs the verified tool paths');
       return [
-        'unshare',
+        tools.unshare,
         ...LINUX_NS,
         ...(input.network ? [] : ['--net']),
         '--',
@@ -422,8 +512,12 @@ export function isolatedArgv(input: {
         'agent-ci-check',
         input.command,
         input.network ? '1' : '0',
+        tools.unshare,
+        tools.mount,
+        tools.ip ?? '',
         ...(input.hidden ?? []),
       ];
+    }
     case 'macos-sandbox':
       return ['/usr/bin/sandbox-exec', '-p', input.profile ?? '', ...bash];
     case 'none':
@@ -567,6 +661,8 @@ async function homeRoots(parents: readonly string[]): Promise<string[]> {
 export type VerifyDeps = {
   readonly exec?: CommandExec;
   readonly isolation?: IsolationKind;
+  /** Linux tools (test seam; default: resolved from fixed system paths). */
+  readonly linuxTools?: LinuxTools;
   readonly now?: () => number;
   /** Real home whose credential stores the macOS sandbox denies. */
   readonly realHome?: string;
@@ -606,7 +702,17 @@ export async function runVerify(
     );
 
   const exec = deps.exec ?? execCommand;
-  const isolation = deps.isolation ?? detectIsolation();
+  // Linux tools are resolved and verified once, here, before any checked
+  // code runs; without them there is no namespace isolation to record.
+  const linuxTools =
+    deps.linuxTools ??
+    (process.platform === 'linux' ? resolveLinuxTools() : undefined);
+  const detected =
+    deps.isolation ?? detectIsolation(process.platform, linuxTools);
+  const isolation: IsolationKind =
+    detected === 'linux-namespaces' && linuxTools === undefined
+      ? 'none'
+      : detected;
   if (isolation === 'none' && options.requireIsolation === true)
     return failure(
       'E_VERIFY_RUN',
@@ -685,7 +791,9 @@ export async function runVerify(
         command,
         network,
         ...(isolation === 'macos-sandbox' ? { profile: profile(network) } : {}),
-        ...(isolation === 'linux-namespaces' ? { hidden } : {}),
+        ...(isolation === 'linux-namespaces' && linuxTools !== undefined
+          ? { hidden, tools: linuxTools }
+          : {}),
       });
       let result: ExecResult;
       try {

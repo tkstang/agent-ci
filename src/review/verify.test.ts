@@ -1,6 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -24,9 +31,11 @@ import {
   execCommand,
   isolatedArgv,
   LINUX_INIT,
+  resolveLinuxTools,
   runVerify,
   sandboxProfile,
   secretValues,
+  trustedSystemBinary,
 } from '@agent-ci/review/verify.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -341,15 +350,21 @@ describe('controlled environment', () => {
   });
 
   it('wraps checks in loopback-only namespaces on Linux and a no-network sandbox on macOS', () => {
+    const tools = {
+      unshare: '/usr/bin/unshare',
+      mount: '/usr/bin/mount',
+      ip: '/usr/sbin/ip',
+    };
     expect(
       isolatedArgv({
         isolation: 'linux-namespaces',
         command: 'pnpm test',
         network: false,
         hidden: ['/out', '/home/me/.ssh'],
+        tools,
       }),
     ).toEqual([
-      'unshare',
+      '/usr/bin/unshare',
       '--user',
       '--map-root-user',
       '--mount',
@@ -365,24 +380,42 @@ describe('controlled environment', () => {
       'agent-ci-check',
       'pnpm test',
       '0',
+      '/usr/bin/unshare',
+      '/usr/bin/mount',
+      '/usr/sbin/ip',
       '/out',
       '/home/me/.ssh',
     ]);
     // The init hides each path, fails closed, and runs the command in a
     // nested namespace where those mounts are locked.
-    expect(LINUX_INIT).toContain('mount -t tmpfs');
-    expect(LINUX_INIT).toContain('mount --bind /dev/null');
+    expect(LINUX_INIT).toContain('"$mount_bin" -t tmpfs');
+    expect(LINUX_INIT).toContain('"$mount_bin" --bind /dev/null');
     expect(LINUX_INIT).toContain('exit 125');
     expect(LINUX_INIT).toMatch(
-      /exec unshare --user --map-root-user --mount -- \/bin\/bash -c "\$cmd"$/u,
+      /exec "\$unshare_bin" --user --map-root-user --mount -- \/bin\/bash -c "\$cmd"$/u,
     );
+    // No tool is looked up through PATH inside the init either.
+    expect(LINUX_INIT).not.toMatch(/(^|[;\s(])(ip|mount|unshare) /mu);
     const setup = isolatedArgv({
       isolation: 'linux-namespaces',
       command: 'pnpm i',
       network: true,
+      tools: { ...tools, ip: null },
     });
     expect(setup).not.toContain('--net');
-    expect(setup.at(-1)).toBe('1');
+    expect(setup.slice(-4)).toEqual([
+      '1',
+      '/usr/bin/unshare',
+      '/usr/bin/mount',
+      '',
+    ]);
+    expect(() =>
+      isolatedArgv({
+        isolation: 'linux-namespaces',
+        command: 'x',
+        network: false,
+      }),
+    ).toThrow('verified tool paths');
     const profile = sandboxProfile({
       work: '/w',
       denied: ['/out', '/Users/me/.ssh'],
@@ -405,6 +438,67 @@ describe('controlled environment', () => {
     expect(
       isolatedArgv({ isolation: 'none', command: 'x', network: false }),
     ).toEqual(['/bin/bash', '-c', 'x']);
+  });
+});
+
+describe('isolation tools come only from verified root-owned paths', () => {
+  it('accepts a root-owned system binary and refuses one the user could replace', async () => {
+    expect(trustedSystemBinary(['/bin/sh'])).toBe(realpathSync('/bin/sh'));
+    const dir = await tempDir('agent-ci-tools-');
+    const planted = path.join(dir, 'unshare');
+    await writeFile(planted, '#!/bin/sh\ntouch "$0.ran"\n', { mode: 0o755 });
+    // A link in a user-writable directory resolves to its root-owned target,
+    // which is what gets executed (never the link).
+    await symlink('/bin/sh', path.join(dir, 'sh-link'));
+    if (process.getuid?.() !== 0) {
+      expect(trustedSystemBinary([planted])).toBeUndefined();
+      expect(trustedSystemBinary([planted, '/bin/sh'])).toBe(
+        realpathSync('/bin/sh'),
+      );
+      expect(
+        resolveLinuxTools({
+          unshare: [planted],
+          mount: ['/bin/sh'],
+          ip: [],
+        }),
+      ).toBeUndefined();
+    }
+    expect(trustedSystemBinary([path.join(dir, 'sh-link')])).toBe(
+      realpathSync('/bin/sh'),
+    );
+    expect(trustedSystemBinary([path.join(dir, 'missing')])).toBeUndefined();
+  });
+
+  it('never claims namespaces without verified tools, whatever PATH holds', async () => {
+    const s = await verifyScenario(
+      'version: 1\nchecks:\n  - name: test\n    command: "true"\n',
+    );
+    // A writable directory first on PATH with a planted `unshare`.
+    const planted = await tempDir('agent-ci-planted-');
+    await writeFile(
+      path.join(planted, 'unshare'),
+      `#!/bin/sh\ntouch ${path.join(planted, 'RAN')}\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    const ran = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: s.out,
+        env: { PATH: `${planted}:/usr/bin:/bin` },
+      },
+      // Detection said namespaces, but there are no verified tools (as when
+      // only a planted PATH binary exists): the run records `none`.
+      process.platform === 'linux'
+        ? { isolation: 'linux-namespaces', linuxTools: undefined }
+        : { isolation: 'linux-namespaces' },
+    );
+    expect(ran.ok).toBe(true);
+    if (!ran.ok) return;
+    if (process.platform !== 'linux') {
+      expect(ran.value.evidence.entries[0]?.isolation).toBe('none');
+    }
+    expect(existsSync(path.join(planted, 'RAN'))).toBe(false);
   });
 });
 
