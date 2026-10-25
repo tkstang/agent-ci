@@ -1,11 +1,15 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { extractStructuredResult } from '@agent-ci/contracts/final-answer.js';
+import {
+  extractStructuredResult,
+  parseJsonPayload,
+} from '@agent-ci/contracts/final-answer.js';
 import { finalizeRunResult } from '@agent-ci/contracts/finalize.js';
 import {
   buildFailedRunResult,
   type OutputContract,
+  validateRunResult,
   type ValidatedRunResult,
 } from '@agent-ci/contracts/run-result.js';
 import {
@@ -31,7 +35,11 @@ import {
   seedSkills,
   validateHomeTree,
 } from '@agent-ci/harness/home.js';
-import { type RunHarnessDeps, runHarness } from '@agent-ci/harness/run.js';
+import {
+  type RunHarnessDeps,
+  runHarness,
+  UnsupportedPostureError,
+} from '@agent-ci/harness/run.js';
 import type {
   HarnessOutcome,
   RunMode,
@@ -39,6 +47,7 @@ import type {
 } from '@agent-ci/harness/types.js';
 import { buildChangeSet, CHANGE_SET_FILE } from '@agent-ci/publish/changes.js';
 import {
+  type Failure,
   failure,
   success,
   type ErrorCode,
@@ -102,7 +111,56 @@ export interface RunOptions {
    * to the route's named variable; the transport variable is dropped.
    */
   readonly credentialFromEnv?: boolean;
+  /**
+   * A structured run (PR review passes, the adjudicator): `prompt` is the
+   * complete prompt, the answer is a JSON value checked by `accept`, and the
+   * accepted value is written to `<out>/<outputFile>`. Read-only only.
+   */
+  readonly structured?: StructuredRunOptions;
 }
+
+/**
+ * A run whose answer is one JSON value instead of a RunResult. Harnesses
+ * with native structured output get `schema` (Claude `--json-schema`, Codex
+ * `--output-schema`); the others are told the shape in the prompt and their
+ * final text is parsed. An answer that `accept` rejects gets at most one
+ * repair turn by session resume, on harnesses whose resume is verified.
+ */
+export interface StructuredRunOptions {
+  readonly schema: Record<string, unknown>;
+  /**
+   * Check the untrusted answer and return the value to keep. `final` is
+   * false for the first answer (a failure earns the repair turn when one is
+   * available) and true for the last chance (keep what can be kept; a failure
+   * fails the run).
+   */
+  readonly accept: (candidate: unknown, final: boolean) => Result<unknown>;
+  /** The repair turn's prompt, given the problem `accept` reported. */
+  readonly repairPrompt: (problem: string) => string;
+  /** File name (no directory) written under the output directory. */
+  readonly outputFile: string;
+  /** One-line summary of an accepted value for run-result.json. */
+  readonly describe: (value: unknown) => string;
+  /**
+   * Offer the agent no tools at all. Only harnesses with a verified
+   * tool-free posture (Claude; the fake harness) may run it.
+   */
+  readonly noTools?: boolean;
+}
+
+/** How the structured answer was obtained. */
+export type RepairOutcome =
+  | 'not-needed'
+  | 'repaired'
+  | 'repair-failed'
+  | 'unavailable';
+
+const RESERVED_OUTPUTS = new Set([
+  'run-result.json',
+  'run-log.jsonl',
+  'prompt.md',
+  CHANGE_SET_FILE,
+]);
 
 /** The transport variable for `--credential-from-env`. */
 export const CREDENTIAL_TRANSPORT_ENV = 'AGENT_CI_CREDENTIAL';
@@ -135,6 +193,10 @@ export interface RunSummary {
   readonly homeRoot: string | null;
   /** Present when the run failed: the failure's code and masked message. */
   readonly error?: { readonly code: ErrorCode; readonly message: string };
+  /** A structured run's accepted value file, or null. */
+  readonly structuredPath?: string | null;
+  /** A structured run's repair outcome. */
+  readonly repair?: RepairOutcome;
 }
 
 interface AttemptRecord {
@@ -173,20 +235,30 @@ export async function runAgent(
   if (!resolved.ok) return resolved;
   const { route } = resolved.value;
 
-  const prompt = buildRunPrompt({
-    useCase: options.useCase,
-    targetRepo: options.targetRepo,
-    outputContract: options.outputContract,
-    mode: options.mode,
-    prompt: options.prompt,
-    verdictItems: options.verdictItems,
-    ...(options.targetPaths === undefined
-      ? {}
-      : { targetPaths: options.targetPaths }),
-    ...(options.untrustedContext === undefined
-      ? {}
-      : { untrustedContext: options.untrustedContext }),
-  });
+  const structured = options.structured;
+  if (structured !== undefined) {
+    const refused = checkStructured(structured, options, route);
+    if (refused !== undefined) return refused;
+  }
+  const prompt =
+    structured !== undefined
+      ? options.prompt.trim() === ''
+        ? failure('E_INVALID_INPUT', 'the prompt is empty')
+        : success(options.prompt)
+      : buildRunPrompt({
+          useCase: options.useCase,
+          targetRepo: options.targetRepo,
+          outputContract: options.outputContract,
+          mode: options.mode,
+          prompt: options.prompt,
+          verdictItems: options.verdictItems,
+          ...(options.targetPaths === undefined
+            ? {}
+            : { targetPaths: options.targetPaths }),
+          ...(options.untrustedContext === undefined
+            ? {}
+            : { untrustedContext: options.untrustedContext }),
+        });
   if (!prompt.ok) return prompt;
 
   // The home root holds credentials (seeded or refreshed logins) and
@@ -369,9 +441,14 @@ async function runInHome(
   const resultPath = path.join(outDir, 'run-result.json');
   const logPath = path.join(outDir, 'run-log.jsonl');
   const changesPath = path.join(outDir, CHANGE_SET_FILE);
-  // A change set left by an earlier run in this directory must never be
-  // published with this run's result.
+  // A change set (or structured answer) left by an earlier run in this
+  // directory must never be published with this run's result.
   await rm(changesPath, { force: true });
+  const structuredPath =
+    options.structured === undefined
+      ? undefined
+      : path.join(outDir, options.structured.outputFile);
+  if (structuredPath !== undefined) await rm(structuredPath, { force: true });
   await writeOwnedFile(promptPath, maskSecrets(promptText, secrets), 0o644);
 
   const routeInfo = {
@@ -447,13 +524,14 @@ async function runInHome(
     }
   }
   const adapter = adapterFor(route.harness);
+  const deadlineAtMs = now() + options.timeoutMs;
   const supervised =
     preflight !== undefined
       ? { result: preflight, attempts: 0, stopReason: 'not-retryable' as const }
       : await superviseAttempts<AttemptRecord>({
           maxAttempts,
           retryDelayMs: options.retryDelayMs,
-          deadlineAtMs: now() + options.timeoutMs,
+          deadlineAtMs,
           now,
           ...(deps.sleep === undefined ? {} : { sleep: deps.sleep }),
           run: async (attempt, timeoutMs) => {
@@ -521,6 +599,12 @@ async function runInHome(
                   home: homeRoot,
                   scratchDir,
                   parentEnv: options.env,
+                  ...(options.structured === undefined
+                    ? {}
+                    : {
+                        jsonSchema: options.structured.schema,
+                        noTools: options.structured.noTools === true,
+                      }),
                 },
                 { timeoutMs },
                 deps.harness,
@@ -535,7 +619,9 @@ async function runInHome(
                     ? 'E_CREDENTIAL_LEAK'
                     : err instanceof UnsafeWorkspaceError
                       ? 'E_UNSAFE_WORKSPACE'
-                      : 'E_HARNESS_FAILED',
+                      : err instanceof UnsupportedPostureError
+                        ? 'E_POLICY_HARNESS'
+                        : 'E_HARNESS_FAILED',
                 retryable: false,
                 message: maskSecrets(
                   err instanceof Error ? err.message : String(err),
@@ -641,12 +727,131 @@ async function runInHome(
     guardFailure ??= { code: homeAfter.code, message: homeAfter.message };
     log.withholdFreeText();
   }
-  const outcome = supervised.result.outcome;
+  let outcome = supervised.result.outcome;
   let result: ValidatedRunResult;
   let error: { code: ErrorCode; message: string } | undefined;
   /** Changes detected by git (never the agent's own claims). */
   let detected: readonly string[] = [];
-  if (outcome.ok) {
+  let structuredValue: { value: unknown } | undefined;
+  let repair: RepairOutcome | undefined;
+  if (outcome.ok && options.structured !== undefined) {
+    const structured = options.structured;
+    const first = structuredAnswer(outcome);
+    let accepted = first.ok ? structured.accept(first.value, false) : first;
+    repair = 'not-needed';
+    if (!accepted.ok) {
+      const remaining = deadlineAtMs - now();
+      const sessionId = outcome.sessionId;
+      if (
+        adapter.supportsResume &&
+        sessionId !== undefined &&
+        remaining > 1_000 &&
+        guardFailure === undefined
+      ) {
+        const repaired = await repairTurn({
+          adapter,
+          route,
+          prompt: structured.repairPrompt(accepted.message),
+          sessionId,
+          cwd: options.cwd,
+          mode: options.mode,
+          homeRoot,
+          parentEnv: options.env,
+          schema: structured.schema,
+          noTools: structured.noTools === true,
+          timeoutMs: remaining,
+          ...(deps.harness === undefined ? {} : { harness: deps.harness }),
+        });
+        if (!(await refreshLoginSecrets())) {
+          repaired.outcome = {
+            ok: false,
+            code: 'E_SECRET_GUARD',
+            retryable: false,
+            // refreshLoginSecrets set guardFailure (TS cannot see it).
+            message:
+              (guardFailure as { message: string } | undefined)?.message ??
+              'credential guard incomplete',
+          };
+        }
+        log.add('repair', {
+          harness: route.harness,
+          ok: repaired.outcome.ok,
+          problem: maskSecrets(accepted.message, secrets),
+          ...(repaired.outcome.ok
+            ? {}
+            : {
+                code: repaired.outcome.code,
+                message: maskSecrets(repaired.outcome.message, secrets),
+              }),
+          usage: repaired.outcome.usage ?? null,
+          durationMs: repaired.durationMs ?? null,
+        });
+        outcome = {
+          ...outcome,
+          usage: addUsage(outcome.usage, repaired.outcome.usage ?? null),
+        };
+        const second = repaired.outcome.ok
+          ? structuredAnswer(repaired.outcome)
+          : failure(repaired.outcome.code, repaired.outcome.message);
+        const kept = second.ok ? structured.accept(second.value, true) : second;
+        if (kept.ok) {
+          accepted = kept;
+          repair = 'repaired';
+        } else {
+          // The repair did not help: keep what the first answer allows.
+          repair = 'repair-failed';
+          accepted = first.ok ? structured.accept(first.value, true) : kept;
+        }
+      } else {
+        repair = 'unavailable';
+        accepted = first.ok ? structured.accept(first.value, true) : first;
+      }
+    }
+    if (accepted.ok) {
+      const guarded = assertSecretFree(accepted.value, secrets);
+      if (guarded.ok) {
+        structuredValue = { value: accepted.value };
+        const summary = structured.describe(accepted.value);
+        const validated = validateRunResult(
+          {
+            ok: true,
+            status: 'no-op',
+            useCase: options.useCase.trim() || 'generic-prompt',
+            targetRepo: options.targetRepo.trim() || 'unknown',
+            summary,
+            artifacts: [
+              {
+                label: 'structured-output',
+                path: structured.outputFile,
+                kind: 'file',
+              },
+            ],
+            materializedArtifacts: [],
+            changedFiles: [],
+            errors: [],
+            report: { title: options.useCase, markdown: summary },
+            repair,
+          },
+          { outputContract: 'report' },
+        );
+        if (validated.ok) {
+          result = validated.value;
+        } else {
+          error = { code: validated.code, message: validated.message };
+          result = buildFailedRunResult({ ...options, ...error });
+        }
+      } else {
+        error = { code: guarded.code, message: guarded.message };
+        result = buildFailedRunResult({ ...options, ...error });
+      }
+    } else {
+      error = {
+        code: accepted.code,
+        message: maskSecrets(accepted.message, secrets),
+      };
+      result = buildFailedRunResult({ ...options, ...error });
+    }
+  } else if (outcome.ok) {
     const candidate =
       outcome.structured === undefined
         ? extractStructuredResult(outcome.finalText)
@@ -715,6 +920,8 @@ async function runInHome(
     error = { code: guarded.code, message: guarded.message };
     result = buildFailedRunResult({ ...options, ...error });
   }
+  // A structured answer is written only for a run that ended without error.
+  if (error !== undefined) structuredValue = undefined;
   // An edit run that changed files hands its exact changes to the publisher
   // as changes.json, captured here because only this step holds the
   // credential the contents are guarded against.
@@ -769,6 +976,13 @@ async function runInHome(
   if (changeSet !== undefined) {
     await writeOwnedFile(changesPath, changeSet, 0o644);
   }
+  if (structuredPath !== undefined && structuredValue !== undefined) {
+    await writeOwnedFile(
+      structuredPath,
+      `${JSON.stringify(structuredValue.value, null, 2)}\n`,
+      0o644,
+    );
+  }
   await log.write(logPath);
 
   return success({
@@ -782,7 +996,133 @@ async function runInHome(
     usage: outcome.usage ?? null,
     homeRoot: options.homeRoot === undefined ? null : homeRoot.root,
     ...(error === undefined ? {} : { error }),
+    ...(options.structured === undefined
+      ? {}
+      : {
+          structuredPath:
+            structuredValue === undefined ? null : (structuredPath ?? null),
+          ...(repair === undefined ? {} : { repair }),
+        }),
   });
+}
+
+/** The harness's structured output, else its final text parsed as JSON. */
+function structuredAnswer(
+  from: HarnessOutcome & { ok: true },
+): Result<unknown> {
+  return from.structured === undefined
+    ? parseJsonPayload(from.finalText)
+    : success(from.structured);
+}
+
+/** Refuse a structured run the route or options cannot support. */
+function checkStructured(
+  structured: StructuredRunOptions,
+  options: RunOptions,
+  route: Route,
+): Failure | undefined {
+  if (options.mode !== 'read-only') {
+    return failure('E_INVALID_INPUT', 'a structured run is read-only');
+  }
+  const name = structured.outputFile;
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(name) ||
+    RESERVED_OUTPUTS.has(name)
+  ) {
+    return failure(
+      'E_INVALID_INPUT',
+      `invalid structured output file name ${name}`,
+    );
+  }
+  if (
+    structured.noTools === true &&
+    !adapterFor(route.harness).supportsNoTools
+  ) {
+    return failure(
+      'E_POLICY_HARNESS',
+      `route ${route.id} runs on ${route.harness}, which has no verified tool-free posture`,
+      'Pick a Claude route for a tool-free run (the PR-review adjudicator).',
+    );
+  }
+  return undefined;
+}
+
+/** Sum two usage reports; a counter either side lacks stays unknown. */
+export function addUsage(a: Usage | null, b: Usage | null): Usage | null {
+  if (a === null || b === null) return a ?? b;
+  const keys = [
+    'inputTokens',
+    'outputTokens',
+    'cacheReadTokens',
+    'cacheWriteTokens',
+    'costUsd',
+  ] as const;
+  const sum: Record<string, number> = {};
+  for (const key of keys) {
+    const left = a[key];
+    const right = b[key];
+    if (left !== undefined && right !== undefined) sum[key] = left + right;
+  }
+  return Object.keys(sum).length === 0 ? null : (sum as Usage);
+}
+
+interface RepairInput {
+  readonly adapter: ReturnType<typeof adapterFor>;
+  readonly route: Route;
+  readonly prompt: string;
+  readonly sessionId: string;
+  readonly cwd: string;
+  readonly mode: RunMode;
+  readonly homeRoot: HomeRoot;
+  readonly parentEnv: Readonly<Record<string, string | undefined>>;
+  readonly schema: Record<string, unknown>;
+  readonly noTools: boolean;
+  readonly timeoutMs: number;
+  readonly harness?: RunHarnessDeps;
+}
+
+/** The single repair turn: the same posture, resuming the answer's session. */
+async function repairTurn(
+  input: RepairInput,
+): Promise<{ outcome: HarnessOutcome; durationMs?: number }> {
+  const scratchDir = await mkdtemp(path.join(input.homeRoot.root, 'repair-'));
+  try {
+    const run = await runHarness(
+      input.adapter,
+      {
+        route: input.route,
+        prompt: input.prompt,
+        cwd: input.cwd,
+        mode: input.mode,
+        home: input.homeRoot,
+        scratchDir,
+        parentEnv: input.parentEnv,
+        jsonSchema: input.schema,
+        noTools: input.noTools,
+        resumeSessionId: input.sessionId,
+      },
+      { timeoutMs: input.timeoutMs },
+      input.harness,
+    );
+    return {
+      outcome: run.outcome,
+      ...(run.durationMs === undefined ? {} : { durationMs: run.durationMs }),
+    };
+  } catch (err) {
+    return {
+      outcome: {
+        ok: false,
+        code:
+          err instanceof CredentialLeakError
+            ? 'E_CREDENTIAL_LEAK'
+            : err instanceof UnsupportedPostureError
+              ? 'E_POLICY_HARNESS'
+              : 'E_HARNESS_FAILED',
+        retryable: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
 }
 
 /**
