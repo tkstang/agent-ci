@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -7,6 +7,7 @@ import {
 } from '@agent-ci/harness/adapters/result-envelope.js';
 import { classifyFailure, truncate } from '@agent-ci/harness/classify.js';
 import { buildChildEnv } from '@agent-ci/harness/env.js';
+import { writeOwnedFile } from '@agent-ci/harness/home.js';
 import type {
   HarnessAdapter,
   HarnessOutcome,
@@ -94,7 +95,8 @@ export const opencodeAdapter: HarnessAdapter = {
       throw new Error('home root lacks XDG_CONFIG_HOME');
     const dir = path.join(configHome, 'opencode');
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    await writeFile(
+    // Never follow a link at an agent-ci-owned path.
+    await writeOwnedFile(
       path.join(dir, 'opencode.json'),
       `${JSON.stringify(opencodeConfig(request.mode), null, 2)}\n`,
     );

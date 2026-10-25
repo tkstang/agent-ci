@@ -180,15 +180,19 @@ export async function runAgent(
       'Choose a --home-root outside the repository (for example under the system temp directory).',
     );
   }
-  const home = await createHomeRoot(options.homeRoot);
+  const home = await createHomeRoot(options.homeRoot, {
+    workspaceRoot: boundaryRoot,
+  });
   if (!home.ok) return home;
   const keepHome = options.homeRoot !== undefined;
-  if (!keepHome && !(await homeOutside(home.value.root))) {
-    await rm(home.value.root, { recursive: true, force: true });
+  // Re-check the created root's real path (kept or temp) before anything is
+  // seeded into it.
+  if (!(await homeOutside(home.value.root))) {
+    if (!keepHome) await rm(home.value.root, { recursive: true, force: true });
     return failure(
       'E_HOME_ROOT',
-      `the temp home root falls inside the workspace ${boundaryRoot}`,
-      'Run with TMPDIR outside the repository, or pass --home-root.',
+      `the home root resolves inside the workspace ${boundaryRoot}`,
+      'Run with TMPDIR outside the repository, or pass a --home-root outside it.',
     );
   }
   try {

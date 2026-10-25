@@ -1,8 +1,10 @@
 import { existsSync } from 'node:fs';
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   stat,
   symlink,
   writeFile,
@@ -18,6 +20,7 @@ import {
   type PipeRunner,
   readLoginSecrets,
   seedLogin,
+  writeOwnedFile,
   seedSkills,
 } from '@agent-ci/harness/home.js';
 import { describe, expect, it } from 'vitest';
@@ -244,5 +247,87 @@ describe('seeding the home root', () => {
     });
     expect(fileOnly).toEqual(['synthetic-file-token-0017']);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('kept home root validation', () => {
+  async function keptRoot() {
+    const base = await realpath(await tempDir('agent-ci-kept-validate-'));
+    const root = path.join(base, 'root');
+    const workspace = path.join(base, 'workspace');
+    await mkdir(path.join(root, 'home'), { recursive: true });
+    await mkdir(workspace);
+    return { base, root, workspace };
+  }
+
+  it('refuses a layout directory that links into the workspace and leaves its target untouched', async () => {
+    const { root, workspace } = await keptRoot();
+    const redirected = path.join(workspace, 'redirected-login');
+    await mkdir(redirected);
+    await writeFile(path.join(redirected, 'auth.json'), 'workspace file');
+    await symlink(redirected, path.join(root, 'home', '.codex'));
+    expect(
+      await createHomeRoot(root, { workspaceRoot: workspace }),
+    ).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+    // The old code cleared this "login store" through the link.
+    expect(await readFile(path.join(redirected, 'auth.json'), 'utf8')).toBe(
+      'workspace file',
+    );
+  });
+
+  it('refuses a link anywhere under the root that leaves it (for example to a real login)', async () => {
+    const { base, root } = await keptRoot();
+    await mkdir(path.join(base, 'operator-codex'));
+    await mkdir(path.join(root, 'home', '.cache', 'deep'), { recursive: true });
+    await symlink(
+      path.join(base, 'operator-codex'),
+      path.join(root, 'home', '.cache', 'deep', 'escape'),
+    );
+    expect(await createHomeRoot(root)).toMatchObject({
+      ok: false,
+      code: 'E_HOME_ROOT',
+    });
+  });
+
+  it('accepts links that stay inside the root (provider skill views)', async () => {
+    const { root, workspace } = await keptRoot();
+    await mkdir(path.join(root, 'home', '.agents', 'skills', 'demo'), {
+      recursive: true,
+    });
+    await mkdir(path.join(root, 'home', '.claude', 'skills'), {
+      recursive: true,
+    });
+    await symlink(
+      path.join(root, 'home', '.agents', 'skills', 'demo'),
+      path.join(root, 'home', '.claude', 'skills', 'demo'),
+    );
+    expect((await createHomeRoot(root, { workspaceRoot: workspace })).ok).toBe(
+      true,
+    );
+  });
+
+  it('maps a file in place of a layout directory and a dangling ancestor to E_HOME_ROOT', async () => {
+    const { base, root } = await keptRoot();
+    await writeFile(path.join(root, 'home', '.codex'), 'not a directory');
+    expect(await createHomeRoot(root)).toMatchObject({
+      ok: false,
+      code: 'E_HOME_ROOT',
+    });
+    await symlink(path.join(base, 'missing'), path.join(base, 'dangling'));
+    expect(
+      await createHomeRoot(path.join(base, 'dangling', 'h')),
+    ).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+  });
+
+  it('writes owned files without following a link', async () => {
+    const { base, root } = await keptRoot();
+    const target = path.join(base, 'elsewhere.txt');
+    await writeFile(target, 'original');
+    const file = path.join(root, 'owned.txt');
+    await symlink(target, file);
+    await writeOwnedFile(file, 'agent-ci');
+    expect(await readFile(target, 'utf8')).toBe('original');
+    expect((await lstat(file)).isSymbolicLink()).toBe(false);
+    expect(await readFile(file, 'utf8')).toBe('agent-ci');
   });
 });

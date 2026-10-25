@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import {
   chmod,
   copyFile,
@@ -7,8 +8,11 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
+  realpath,
   rm,
+  writeFile,
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +22,7 @@ import { spawnHarness } from '@agent-ci/harness/spawn.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isCiEnvironment } from '@agent-ci/routing/policy.js';
 import type { HarnessId } from '@agent-ci/routing/schema.js';
+import { isWithin, resolveRealPath } from '@agent-ci/run/workspace.js';
 
 /**
  * One isolated home root per run (locally) or per job (Actions). Every
@@ -56,40 +61,151 @@ export function homeLayout(root: string): HomeRoot {
   };
 }
 
+/** Entries a kept root may hold before validation gives up (fail closed). */
+const MAX_VALIDATED_ENTRIES = 200_000;
+
+export interface CreateHomeRootOptions {
+  /**
+   * Real path of the workspace boundary. No link under the root may resolve
+   * into it (credentials and invocation files must stay out of the checkout).
+   */
+  readonly workspaceRoot?: string;
+}
+
+/**
+ * Walk a kept root WITHOUT following links. Every symlink must resolve inside
+ * the root and outside the workspace: a link such as `home/.codex -> <repo>`
+ * would otherwise route login copies, clears and harness writes into the
+ * checkout, and a link to the operator's real `~/.codex` would hand the run
+ * an unnamed login. Provider skill views (links within the root) stay valid.
+ */
+async function validateKeptRoot(
+  realRoot: string,
+  workspaceRoot: string | undefined,
+): Promise<Result<void>> {
+  const pending = [realRoot];
+  let seen = 0;
+  while (pending.length > 0) {
+    const dir = pending.pop() ?? realRoot;
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      return failure(
+        'E_HOME_ROOT',
+        `cannot inspect the home root at ${dir} (${(err as NodeJS.ErrnoException).code ?? 'error'})`,
+      );
+    }
+    for (const entry of entries) {
+      seen += 1;
+      if (seen > MAX_VALIDATED_ENTRIES) {
+        return failure(
+          'E_HOME_ROOT',
+          `home root ${realRoot} is too large to validate`,
+          'Use a fresh home root.',
+        );
+      }
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(full);
+      } else if (entry.isSymbolicLink()) {
+        let target: string;
+        try {
+          target = await resolveRealPath(full);
+        } catch {
+          return failure(
+            'E_HOME_ROOT',
+            `unresolvable symlink in home root: ${full}`,
+          );
+        }
+        if (
+          !isWithin(realRoot, target) ||
+          (workspaceRoot !== undefined && isWithin(workspaceRoot, target))
+        ) {
+          return failure(
+            'E_HOME_ROOT',
+            `symlink ${full} in the home root points outside it or into the workspace`,
+            'Remove the link or use a fresh home root.',
+          );
+        }
+      }
+    }
+  }
+  return success(undefined);
+}
+
 /**
  * Create (or reuse) a home root. With no `root`, a fresh private temp
- * directory is allocated. A supplied root must be absolute and must not be a
- * symlink.
+ * directory is allocated. A supplied root must be absolute and a real
+ * directory; an existing one is validated (see `validateKeptRoot`) before any
+ * directory is created or login store cleared in it. Filesystem errors are
+ * `E_HOME_ROOT`, never unexpected.
  */
-export async function createHomeRoot(root?: string): Promise<Result<HomeRoot>> {
+export async function createHomeRoot(
+  root?: string,
+  options: CreateHomeRootOptions = {},
+): Promise<Result<HomeRoot>> {
   let resolved: string;
-  if (root === undefined) {
-    resolved = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-home-'));
-  } else {
-    if (!path.isAbsolute(root)) {
-      return failure('E_HOME_ROOT', 'home root must be an absolute path');
+  try {
+    if (root === undefined) {
+      resolved = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-home-'));
+    } else {
+      if (!path.isAbsolute(root)) {
+        return failure('E_HOME_ROOT', 'home root must be an absolute path');
+      }
+      let exists = true;
+      try {
+        const info = await lstat(root);
+        if (info.isSymbolicLink() || !info.isDirectory()) {
+          return failure(
+            'E_HOME_ROOT',
+            'home root must be a real directory, not a symlink or file',
+          );
+        }
+      } catch {
+        exists = false;
+      }
+      if (!exists) await mkdir(root, { recursive: true, mode: 0o700 });
+      resolved = await realpath(root);
+      const valid = await validateKeptRoot(resolved, options.workspaceRoot);
+      if (!valid.ok) return valid;
     }
-    resolved = root;
-    try {
-      const info = await lstat(resolved);
+    const layout = homeLayout(resolved);
+    for (const dir of [...Object.values(layout.env), layout.skillsDir]) {
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      // mkdir -p accepts an existing directory reached through nothing but
+      // real directories here (validated above); re-check the leaf anyway.
+      const info = await lstat(dir);
       if (info.isSymbolicLink() || !info.isDirectory()) {
         return failure(
           'E_HOME_ROOT',
-          'home root must be a real directory, not a symlink or file',
+          `home layout path is not a directory: ${dir}`,
         );
       }
-    } catch {
-      await mkdir(resolved, { recursive: true, mode: 0o700 });
     }
+    // A kept root (--home-root) may hold a login seeded by an earlier run.
+    // Every run starts without one; login routes seed afresh.
+    await clearLoginStores(layout);
+    return success(layout);
+  } catch (err) {
+    return failure(
+      'E_HOME_ROOT',
+      `could not prepare the home root (${(err as NodeJS.ErrnoException).code ?? (err instanceof Error ? err.message : 'error')})`,
+    );
   }
-  const layout = homeLayout(resolved);
-  for (const dir of [...Object.values(layout.env), layout.skillsDir]) {
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-  }
-  // A kept root (--home-root) may hold a login seeded by an earlier run.
-  // Every run starts without one; login routes seed afresh.
-  await clearLoginStores(layout);
-  return success(layout);
+}
+
+/**
+ * Write an agent-ci-owned file without following a link: remove whatever is
+ * at the path (a link is removed, not its target), then create exclusively.
+ */
+export async function writeOwnedFile(
+  file: string,
+  content: string,
+  mode = 0o600,
+): Promise<void> {
+  await rm(file, { force: true });
+  await writeFile(file, content, { flag: 'wx', mode });
 }
 
 /**

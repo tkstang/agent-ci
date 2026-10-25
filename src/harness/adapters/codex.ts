@@ -7,6 +7,7 @@ import {
 } from '@agent-ci/harness/adapters/result-envelope.js';
 import { classifyFailure, truncate } from '@agent-ci/harness/classify.js';
 import { buildChildEnv } from '@agent-ci/harness/env.js';
+import { writeOwnedFile } from '@agent-ci/harness/home.js';
 import type {
   HarnessAdapter,
   HarnessOutcome,
@@ -104,12 +105,10 @@ export const codexAdapter: HarnessAdapter = {
   async prepare(request) {
     const codexHome = request.home.env.CODEX_HOME;
     if (codexHome === undefined) throw new Error('home root lacks CODEX_HOME');
-    await writeFile(
+    // Never follow a link at an agent-ci-owned path.
+    await writeOwnedFile(
       path.join(codexHome, 'config.toml'),
       codexConfigToml(request.route),
-      {
-        mode: 0o600,
-      },
     );
     const lastMessage = path.join(request.scratchDir, LAST_MESSAGE_FILE);
     await rm(lastMessage, { force: true });

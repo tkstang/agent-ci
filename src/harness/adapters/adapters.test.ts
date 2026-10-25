@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { KNOWN_CREDENTIAL_ENV } from '@agent-ci/contracts/secret-guard.js';
@@ -370,6 +370,20 @@ describe('codex argv, provider config and posture', () => {
       '--',
       'Reply with exactly: agent-ci-probe-ok',
     ]);
+  });
+
+  it('replaces a link at config.toml instead of writing through it', async () => {
+    const request = await makeRequest(route);
+    const outside = path.join(request.scratchDir, 'outside.toml');
+    await writeFile(outside, 'untouched');
+    const config = path.join(request.home.env.CODEX_HOME ?? '', 'config.toml');
+    await symlink(outside, config);
+    await replay(codexAdapter, request, {
+      stdout: await fixture('codex-success.jsonl'),
+      writeArgFile: { flag: '-o', content: 'agent-ci-probe-ok' },
+    });
+    expect(await readFile(outside, 'utf8')).toBe('untouched');
+    expect((await lstat(config)).isSymbolicLink()).toBe(false);
   });
 
   it('uses workspace-write for edit runs and an output schema file', async () => {

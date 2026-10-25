@@ -1,4 +1,10 @@
-import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -207,7 +213,10 @@ describe('agent-ci run', () => {
       ],
       context,
     );
-    expect(kept.envelope).toMatchObject({ ok: true, data: { homeRoot } });
+    expect(kept.envelope).toMatchObject({
+      ok: true,
+      data: { homeRoot: await realpath(homeRoot) },
+    });
     expect(await exists(path.join(homeRoot, 'home', '.codex'))).toBe(true);
   });
 

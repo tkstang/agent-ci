@@ -1,6 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -165,7 +172,9 @@ describe('runAgent', () => {
     const observed = JSON.parse(
       await readFile(path.join(opts.cwd, 'observed.json'), 'utf8'),
     );
-    expect(observed.env.XDG_DATA_HOME.startsWith(homeRoot)).toBe(true);
+    expect(
+      observed.env.XDG_DATA_HOME.startsWith(await realpath(homeRoot)),
+    ).toBe(true);
     expect(pipeCalls[0]?.[1].env.XDG_DATA_HOME).toBe(
       observed.env.XDG_DATA_HOME,
     );
@@ -446,6 +455,21 @@ describe('runAgent', () => {
       );
       expect(summary).toMatchObject({ ok: false, code: 'E_WORKSPACE_STATUS' });
       expect(existsSync(homeRoot)).toBe(false);
+    });
+
+    it('refuses an external root whose home/.codex links into the repository, before seeding', async () => {
+      const opts = await gitWorkspace();
+      const homeRoot = `${opts.cwd}-ext-home`;
+      const redirected = path.join(opts.cwd, 'redirected-login');
+      await mkdir(redirected);
+      await mkdir(path.join(homeRoot, 'home'), { recursive: true });
+      await symlink(redirected, path.join(homeRoot, 'home', '.codex'));
+      expect(await runAgent({ ...opts, homeRoot })).toMatchObject({
+        ok: false,
+        code: 'E_HOME_ROOT',
+      });
+      expect(existsSync(path.join(redirected, 'auth.json'))).toBe(false);
+      expect(existsSync(path.join(redirected, 'config.toml'))).toBe(false);
     });
 
     it('refuses a home root that reaches the repository through a symlink', async () => {
