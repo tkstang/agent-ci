@@ -210,6 +210,7 @@ jobs:
           MIN_INLINE: ${{ inputs.min_inline_severity }}
           MAX_INLINE: ${{ inputs.max_inline_comments }}
           PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
         run: >-
           agent-ci review gate --out "$RUNNER_TEMP/review-gate"
           --dispatch-pr "$DISPATCH_PR" --dispatch-command "$DISPATCH_COMMAND"
@@ -217,7 +218,7 @@ jobs:
           --reviewer-model "$REVIEWER_MODEL" --second-reviewer "$SECOND_REVIEWER" --second-reviewer-model "$SECOND_REVIEWER_MODEL"
           --adjudicator "$ADJUDICATOR" --adjudicator-model "$ADJUDICATOR_MODEL" --allowed-models "$ALLOWED_MODELS"
           --fail-on-severity "$FAIL_ON" --min-inline-severity "$MIN_INLINE" --max-inline-comments "$MAX_INLINE"
-          --publisher-login "$PUBLISHER_LOGIN" --github-output
+          --publisher-login "$PUBLISHER_LOGIN" --allow-pool-value "$ALLOW_POOL" --github-output
 
       # A spec failure (stale head, too-large diff, bad guidance) is reported
       # by the publish job as a failure summary from its trusted error code.

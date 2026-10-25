@@ -463,8 +463,11 @@ describe('workflow class sweep', () => {
   });
 
   it('opts into pool routes only through an allow_pool input that defaults to false', async () => {
+    // Every subcommand that resolves a route (see RESOLVING_SUBCOMMANDS in
+    // src/commands/pool-opt-in.test.ts); the review gate was missed once.
     const routing =
-      /agent-ci (?:route|run|review (?:pass|adjudicate)|targets matrix)/u;
+      /agent-ci (?:route|run|doctor|review (?:gate|pass|adjudicate|run)|targets (?:matrix|validate))\b/u;
+    const seenRouting: string[] = [];
     for (const file of await allWorkflowFiles()) {
       const workflow = await load<Workflow>(file);
       const inputs =
@@ -482,6 +485,7 @@ describe('workflow class sweep', () => {
             expect(flag, where).toBe('--allow-pool-value');
           }
           if (!routing.test(run)) continue;
+          seenRouting.push(`${file} ${jobName}/${entry.name ?? ''}`);
           expect(run, where).toContain('--allow-pool-value "$ALLOW_POOL"');
           expect(entry.env?.ALLOW_POOL, where).toBe('${{ inputs.allow_pool }}');
           expect(inputs.allow_pool, where).toMatchObject({
@@ -500,6 +504,18 @@ describe('workflow class sweep', () => {
         }
       }
     }
+    // The gate step is among the steps this sweep covers.
+    expect(seenRouting).toEqual(
+      expect.arrayContaining([
+        '.github/workflows/pr-review.yml gate/Authorize the request',
+        '.github/workflows/pr-review.yml review-primary/Resolve the route',
+        '.github/workflows/pr-review.yml review-primary/Run the primary reviewer',
+        '.github/workflows/pr-review.yml adjudicate/Run the adjudicator',
+        '.github/workflows/run-agent.yml resolve/Resolve the route',
+        '.github/workflows/agent-job.yml agent/Run the agent',
+        '.github/workflows/fan-out.yml targets/Select the target matrix',
+      ]),
+    );
     for (const wrapper of [
       '.github/workflows/docs-update.yml',
       '.github/workflows/instructions-update.yml',

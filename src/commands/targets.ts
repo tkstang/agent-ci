@@ -27,6 +27,7 @@ import { PRESET_NAMES, PRESETS } from '@agent-ci/use-cases/presets.js';
 const USAGE = `agent-ci targets — multi-repository fan-out targets.
 
   agent-ci targets validate [--file targets.yaml] [--root <dir>] [--models <path>]
+                            [--allow-pool | --allow-pool-value <true|false>]
       Check targets.yaml: schema, unique ids and repositories, allowedOwners,
       and that every agent target's model resolves under the routing policy
       for each preset it takes part in.
@@ -135,9 +136,12 @@ async function validate(argv: readonly string[], context: CommandContext) {
       file: { type: 'string' },
       root: { type: 'string' },
       models: { type: 'string' },
+      'allow-pool': { type: 'boolean' },
+      'allow-pool-value': { type: 'string' },
     },
     USAGE,
   );
+  const allowPool = poolOptIn(flags);
   const file = await readTargets(flags, context);
   const table = await models(flags.models, context);
   const presets: Record<string, number> = {};
@@ -152,6 +156,7 @@ async function validate(argv: readonly string[], context: CommandContext) {
     }
     const selected = selectTargets(file, {
       preset,
+      allowPool,
       models: table,
       env: context.env,
     });

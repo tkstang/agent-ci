@@ -527,3 +527,124 @@ describe('agent-ci review stages (one process, fake GitHub, real git)', () => {
     });
   });
 });
+
+describe('review gate pool opt-in (gate 2 H1)', () => {
+  const POOL_MODELS = `${MODELS}  - id: luna-pool
+    model: luna-pool
+    harness: codex
+    family: openai
+    providerModel: gpt-x
+    credentials: [AGENT_CI_PROXY_API_KEY]
+    baseUrl: http://127.0.0.1:8317/v1
+    billing: subscription
+    account: pool
+    structuredOutput: output-schema
+    qualified: null
+  - id: claude-pool
+    model: claude-pool
+    harness: claude
+    family: claude
+    providerModel: claude-x
+    credentials: [ANTHROPIC_AUTH_TOKEN]
+    baseUrl: http://127.0.0.1:8317
+    billing: subscription
+    account: pool
+    structuredOutput: json-schema
+    qualified: null
+`;
+
+  async function gateWith(
+    model: string,
+    allowPool: string,
+    runner: string,
+  ): Promise<{
+    result: Awaited<ReturnType<typeof run>>;
+    outputs: Record<string, string>;
+    replies: string;
+  }> {
+    const t = await setup();
+    const models = path.join(t.root, 'pool-models.yaml');
+    await writeFile(models, POOL_MODELS);
+    const labeled = await event(t.root, {
+      action: 'labeled',
+      label: { name: 'agent-ci:review' },
+      pull_request: { number: 7 },
+      sender: { login: 'maintainer', type: 'User' },
+    });
+    const result = await t.cli(
+      [
+        'gate',
+        '--out',
+        'gate',
+        '--event-name',
+        'pull_request_target',
+        '--event-path',
+        labeled,
+        '--reviewer-model',
+        model,
+        '--allowed-models',
+        `fake-review,luna-pool,claude-pool`,
+        '--models',
+        models,
+        // The workflow passes its allow_pool input unconditionally.
+        '--allow-pool-value',
+        allowPool,
+        '--github-output',
+      ],
+      { RUNNER_ENVIRONMENT: runner },
+    );
+    const replies = JSON.stringify(t.fake.sent('POST'));
+    return { result, outputs: await t.outputs(), replies };
+  }
+
+  it('plans a non-Claude pool review on a self-hosted runner with the opt-in', async () => {
+    const { result, outputs } = await gateWith(
+      'luna-pool',
+      'true',
+      'self-hosted',
+    );
+    expect(result).toMatchObject({
+      exitCode: 0,
+      envelope: { ok: true, data: { shouldRun: true } },
+    });
+    expect(outputs).toMatchObject({
+      should_run: 'true',
+      reviewer_model: 'luna-pool',
+    });
+  });
+
+  it('refuses without the opt-in, on a GitHub-hosted runner, and for a Claude pool model', async () => {
+    for (const [model, allowPool, runner, code] of [
+      ['luna-pool', '', 'self-hosted', 'E_POLICY_POOL'],
+      ['luna-pool', 'false', 'self-hosted', 'E_POLICY_POOL'],
+      ['luna-pool', 'true', 'github-hosted', 'E_POLICY_POOL_CI'],
+      ['claude-pool', 'true', 'self-hosted', 'E_POLICY_POOL_CI'],
+    ] as const) {
+      const { result, outputs } = await gateWith(model, allowPool, runner);
+      const label = `${model} ${allowPool || '(empty)'} ${runner}`;
+      expect(outputs, label).toMatchObject({
+        should_run: 'false',
+        reason: 'configuration-error',
+      });
+      // A workflow-configuration failure naming the policy code.
+      expect(result.envelope, label).toMatchObject({
+        ok: false,
+        code: 'E_REVIEW_REQUEST',
+      });
+      expect(JSON.stringify(result.envelope), label).toContain(`(${code})`);
+    }
+  });
+
+  it('refuses a malformed opt-in value before acknowledging anything', async () => {
+    const { result, replies } = await gateWith(
+      'luna-pool',
+      'yes',
+      'self-hosted',
+    );
+    expect(result.envelope).toMatchObject({
+      ok: false,
+      code: 'E_INVALID_INPUT',
+    });
+    expect(replies).toBe('[]');
+  });
+});

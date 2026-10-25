@@ -213,6 +213,10 @@ const GATE_USAGE = `agent-ci review gate — authorize a review request (GitHub 
   --fail-on-severity, --min-inline-severity, --max-inline-comments
                                  Publication policy (checked here).
   --publisher-login <login>      Account whose replies are recognized.
+  --allow-pool | --allow-pool-value <true|false>
+                                 Let pool models resolve (in CI only on a
+                                 self-hosted runner, never a Claude model);
+                                 the workflow's allow_pool input.
   --models <path>                Routing table.
   --github-output                should_run, pr_number, head_sha, base_ref,
                                  request_sha256 and the pass models.`;
@@ -240,11 +244,16 @@ async function gate(
       'allowed-models': { type: 'string' },
       'publisher-login': { type: 'string' },
       models: { type: 'string' },
+      'allow-pool': { type: 'boolean' },
+      'allow-pool-value': { type: 'string' },
       'github-output': { type: 'boolean' },
       ...POLICY_FLAGS,
     },
     GATE_USAGE,
   );
+  // The same strict opt-in the route and pass commands use; checked before
+  // anything is acknowledged or bound.
+  const allowPool = poolOptIn(flags);
   const { env } = context;
   const out = path.resolve(context.cwd, required(flags.out, '--out'));
   const repository = repoOf(flags.repo, env);
@@ -327,6 +336,7 @@ async function gate(
         ),
         models: models.value,
         env,
+        allowPool,
       });
     } catch (error) {
       if (!isReviewError(error)) throw error;
@@ -498,6 +508,7 @@ async function passStage(
     },
     PASS_USAGE,
   );
+  const allowPool = poolOptIn(flags);
   const { env } = context;
   return await stage(async () => {
     const spec = await loadSpecDir({
@@ -512,7 +523,7 @@ async function passStage(
       outDir: path.resolve(context.cwd, required(flags.out, '--out')),
       routeId: optional(flags.route),
       harness: oneOf(optional(flags.harness), '--harness', HARNESS_IDS),
-      allowPool: poolOptIn(flags),
+      allowPool,
       seedLogin: flags['seed-login'] === true,
       homeRoot:
         flags['home-root'] === undefined
@@ -686,6 +697,7 @@ async function adjudicate(argv: readonly string[], context: CommandContext) {
     },
     ADJUDICATE_USAGE,
   );
+  const allowPool = poolOptIn(flags);
   const { env } = context;
   return await stage(async () => {
     const spec = await loadSpecDir({
@@ -715,7 +727,7 @@ async function adjudicate(argv: readonly string[], context: CommandContext) {
       ),
       outDir: out,
       routeId: optional(flags.route),
-      allowPool: poolOptIn(flags),
+      allowPool,
       homeRoot:
         flags['home-root'] === undefined
           ? undefined
@@ -968,7 +980,10 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
   --second-model <model>       Turn the second reviewer on.
   --adjudicator-model <model>  Turn the adjudicator on (Claude only).
   --instruction <text>         Request instruction.
-  --allow-pool / --seed-login  Local-only routes.
+  --allow-pool | --allow-pool-value <true|false>
+                               Let pool models resolve (in CI only on a
+                               self-hosted runner, never a Claude model).
+  --seed-login                 Login routes (local only).
   --publish                    Post the inline review and summary as the
                                token's user (default: gate only, no posting).
   --scope <scope>              Marker scope (default local).
@@ -994,6 +1009,7 @@ async function runLocal(
       'adjudicator-model': { type: 'string' },
       instruction: { type: 'string' },
       'allow-pool': { type: 'boolean' },
+      'allow-pool-value': { type: 'string' },
       'seed-login': { type: 'boolean' },
       publish: { type: 'boolean' },
       scope: { type: 'string' },
@@ -1004,6 +1020,7 @@ async function runLocal(
     },
     RUN_USAGE,
   );
+  const allowPool = poolOptIn(flags);
   const { env } = context;
   const scope = optional(flags.scope) ?? 'local';
   if (!SCOPE.test(scope))
@@ -1017,7 +1034,7 @@ async function runLocal(
     secondModel: optional(flags['second-model']),
     adjudicatorModel: optional(flags['adjudicator-model']),
     instruction: optional(flags.instruction),
-    allowPool: flags['allow-pool'] === true,
+    allowPool,
     seedLogin: flags['seed-login'] === true,
     publish: flags.publish === true,
     scope,

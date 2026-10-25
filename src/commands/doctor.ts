@@ -1,7 +1,7 @@
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { parseFlags } from '@agent-ci/commands/flags.js';
+import { parseFlags, poolOptIn } from '@agent-ci/commands/flags.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { KNOWN_CREDENTIAL_ENV } from '@agent-ci/contracts/secret-guard.js';
 import { CliError } from '@agent-ci/errors.js';
@@ -20,7 +20,8 @@ absent by variable name only.
 
 Flags:
   --models <path>   Routing table (default: the packaged models.yaml).
-  --allow-pool      Evaluate pool routes as if --allow-pool were passed.
+  --allow-pool      Evaluate pool routes as if --allow-pool were passed
+                    (--allow-pool-value <true|false> is the same as a value).
   --seed-login      Evaluate login routes as if --seed-login were passed.`;
 
 export interface VersionProbe {
@@ -68,6 +69,7 @@ export function createDoctorCommand(probe: VersionProbe): CommandSpec {
         {
           models: { type: 'string' },
           'allow-pool': { type: 'boolean' },
+          'allow-pool-value': { type: 'string' },
           'seed-login': { type: 'boolean' },
         },
         USAGE,
@@ -89,7 +91,7 @@ export function createDoctorCommand(probe: VersionProbe): CommandSpec {
       );
       const routes = loaded.value.routes.map((route) => {
         const eligible = checkEligibility(route, {
-          allowPool: flags['allow-pool'] === true,
+          allowPool: poolOptIn(flags),
           seedLogin: flags['seed-login'] === true,
           env: context.env,
         });
