@@ -333,4 +333,20 @@ describe('kept home root validation', () => {
     expect((await lstat(file)).isSymbolicLink()).toBe(false);
     expect(await readFile(file, 'utf8')).toBe('agent-ci');
   });
+
+  it('fails the guard instead of reading an oversized login store', async () => {
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    await writeFile(
+      path.join(created.value.env.CODEX_HOME ?? '', 'auth.json'),
+      `{"pad":"${'x'.repeat(1024 * 1024)}"}`,
+    );
+    expect(
+      await readLoginSecrets(created.value, {
+        harness: 'codex',
+        parentEnv: {},
+        includeOpencodeStore: false,
+      }),
+    ).toMatchObject({ ok: false, code: 'E_SECRET_GUARD' });
+  });
 });

@@ -432,6 +432,9 @@ export async function seedLogin(
   }
 }
 
+/** Login stores are small JSON files; anything larger is not read. */
+const MAX_LOGIN_STORE_BYTES = 1024 * 1024;
+
 /** Runs a credential-export command; output stays in memory. */
 export type ExportRunner = (
   command: string,
@@ -491,6 +494,12 @@ export async function readLoginSecrets(
       return failure(
         'E_SECRET_GUARD',
         `credential guard incomplete: ${file} is not a regular file`,
+      );
+    }
+    if (info.size > MAX_LOGIN_STORE_BYTES) {
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: ${file} is larger than a login store should be`,
       );
     }
     let text: string;
