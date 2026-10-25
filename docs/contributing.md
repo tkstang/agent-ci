@@ -39,8 +39,10 @@ configured content tree and keep the authored entrypoint unchanged.
 
 ## Information architecture
 
-The accepted structure is recorded in the repository decision record
-DR-261025-organize-the-docs-as-one-flat: one flat `docs/` directory and one `index.md` whose `## Contents` map groups
+The structure is recorded in the repository decision record
+DR-261025-organize-the-docs-as-one-flat, status `proposed`: the operator's
+sign-off is pending, and the approved project brief's section list stood in
+for it when the tree was written. It describes one flat `docs/` directory and one `index.md` whose `## Contents` map groups
 the reader pages under `###` headings (Start, Use, Set up, Concepts,
 Contributing).
 
@@ -49,7 +51,8 @@ Contributing).
   boundaries and residual risk in `security-model.md`. Other pages link to
   the owner instead of restating it.
 - **Source wins.** Workflow inputs, CLI flags and error codes are canonical
-  in the workflow files and `agent-ci <command> --help`; pages summarize them
+  in the workflow files and `agent-ci <command> --help` (or
+  `agent-ci <command> <subcommand> --help`); pages summarize them
   and name the file. When a page and the code disagree, fix the page, or
   record the code defect, rather than describing behavior the code does not
   have.
@@ -62,7 +65,7 @@ Contributing).
 
 ## Preset selection
 
-Accepted selection supplied to init: flat-small; anticipated reader pages: 7. Reader structure is collapsed into grouped root headings. Contributor, template and toolchain pages are outside this reader-page estimate.
+Selection supplied to init: flat-small; anticipated reader pages: 7. Reader structure is collapsed into grouped root headings. Contributor, template and toolchain pages are outside this reader-page estimate.
 
 | Location                   | Reader group | Entry principle                                                    |
 | -------------------------- | ------------ | ------------------------------------------------------------------ |
@@ -73,4 +76,4 @@ Accepted selection supplied to init: flat-small; anticipated reader pages: 7. Re
 
 Readers enter by their immediate goal, using one grouped index instead of navigating a hierarchy before choosing a task.
 
-Use contributing/templates/ as non-reader drafting assets. Screen specs are conditional on several journeys sharing a screen; no screen page or per-track AGENTS file is created automatically. Preserve canonical facts and paired links. This selection is not a persisted IA decision: complete the existing explicit approval/adoption and record-ia flow before claiming an authored IA record or config mirror. It does not initialize project management. Existing surfaces route to analyze and individually approved apply; init never restructures them.
+Use contributing/templates/ as non-reader drafting assets. Screen specs are conditional on several journeys sharing a screen; no screen page or per-track AGENTS file is created automatically. Preserve canonical facts and paired links.

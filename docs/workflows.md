@@ -45,20 +45,20 @@ them empty so the helpers always match the pinned workflow. Because agent-ci is 
 `AGENT_CI_SOURCE_TOKEN` for the helper checkout.
 
 > [!NOTE]
-> The consumer templates show `@v0.1.0` or `@main`. No release tag exists
-> yet, so pin a commit SHA until one does.
+> No release tag exists yet. The consumer templates pin `@main` with a
+> comment; replace it with an agent-ci commit SHA when you copy one.
 
 ## run-agent.yml
 
 Runs one prompt through the routed harness, then publishes. Its jobs hold
 separate authority:
 
-| Job                                 | Runs repository code | Holds                                                                                                            | Does                                                                                                                                                                                                |
-| ----------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resolve`                           | no                   | `GITHUB_TOKEN`; `AGENT_CI_TARGET_TOKEN` for another repository                                                   | Resolves the target repository, the one commit every job checks out, the publish base and the pull request to comment on (`agent-ci targets resolve`), and the route (`agent-ci route`).            |
-| `setup` (only with `setup_command`) | yes                  | no secret; the read-only target token for a private other repository                                             | Runs `setup_command` in the target checkout and uploads the working tree without `.git`.                                                                                                            |
-| `agent` (`agent-job.yml`)           | the agent            | the one model credential the route names, `AGENT_CI_SOURCE_TOKEN`, the read-only target token                    | Restores the setup tree (`agent-ci workspace restore`), installs the harness and skills, runs `agent-ci run`, and uploads `run-result.json`, `run-log.jsonl` and `changes.json` with their digest.  |
-| `publish`                           | no                   | `contents: write` and `pull-requests: write` (`GITHUB_TOKEN`, or `AGENT_CI_TARGET_TOKEN` for another repository) | Downloads the agent's artifact by ID, checks its digest, publishes the static-branch pull request and the PR comment (`agent-ci publish`), and sends the optional notification (`agent-ci notify`). |
+| Job                                 | Runs repository code | Holds                                                                                                                                                       | Does                                                                                                                                                                                                |
+| ----------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolve`                           | no                   | `GITHUB_TOKEN`, `AGENT_CI_SOURCE_TOKEN` (helper checkout); for another repository `AGENT_CI_TARGET_TOKEN` and `AGENT_CI_TARGET_READ_TOKEN`, which it checks | Resolves the target repository, the one commit every job checks out, the publish base and the pull request to comment on (`agent-ci targets resolve`), and the route (`agent-ci route`).            |
+| `setup` (only with `setup_command`) | yes                  | no secret; the read-only target token for a private other repository                                                                                        | Runs `setup_command` in the target checkout and uploads the working tree without `.git`.                                                                                                            |
+| `agent` (`agent-job.yml`)           | the agent            | the one model credential the route names, `AGENT_CI_SOURCE_TOKEN`, the read-only target token                                                               | Restores the setup tree (`agent-ci workspace restore`), installs the harness and skills, runs `agent-ci run`, and uploads `run-result.json`, `run-log.jsonl` and `changes.json` with their digest.  |
+| `publish`                           | no                   | `contents: write` and `pull-requests: write` (`GITHUB_TOKEN`, or `AGENT_CI_TARGET_TOKEN` for another repository)                                            | Downloads the agent's artifact by ID, checks its digest, publishes the static-branch pull request and the PR comment (`agent-ci publish`), and sends the optional notification (`agent-ci notify`). |
 
 Key inputs (all optional; see the file for every input):
 

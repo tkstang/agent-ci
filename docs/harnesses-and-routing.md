@@ -81,7 +81,10 @@ The table loads only if every route passes these checks, else
 
 - A Claude-family route, or a model or provider ID that looks like Claude
   (`claude`, `anthropic`, `sonnet`, `opus`, `haiku`), must use the `claude`
-  harness, and the `claude` harness serves only the `claude` family.
+  harness, and the `claude` harness serves only the `claude` family. The
+  `family` field is the primary guard; the name check misses
+  separator-less IDs such as `sonnet4.5` (see
+  [Security model](security-model.md#residual-risk)).
 - `family: fake`, `harness: fake` and `billing: none` go together.
 - A `subscription` route may not name a paid API key (`ANTHROPIC_API_KEY`,
   `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_OPENAI_API_KEY`).

@@ -82,9 +82,13 @@ model secrets than it needs gives every reviewer job all of them (see
 | Labels `agent-ci:review` and `agent-ci:verify-review` | Reviewed repository                                                                                    | For label-triggered PR review.                                                                           |
 
 Pull requests and pushes made with `GITHUB_TOKEN` do not start that
-repository's workflows: agent-ci's pull requests get no CI until someone
-pushes to them, unless publishing uses a GitHub App token (set
-`publisher_login` to the App's bot login). A pull request opened by
+repository's workflows. agent-ci always publishes to the calling repository
+with `GITHUB_TOKEN`, so its pull requests there get no CI until someone
+pushes to them; no input accepts another token for the calling repository.
+Only another repository's target can publish with a different token: pass
+it as `AGENT_CI_TARGET_TOKEN` (for example a GitHub App token) and set
+`publisher_login` to the identity it acts as, such as `my-app[bot]`. A pull
+request opened by
 `github-actions[bot]` was observed to produce a `pull_request` run held in
 `action_required` state, waiting for approval, rather than no run.
 
@@ -106,7 +110,22 @@ because a pool route's `baseUrl` is the loopback address
    `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8317/`: any
    HTTP status means the proxy is reachable; a connection error means it is
    not.
-3. Give the runner a label and pass it as `runs_on`, with
+3. On a Linux host, let Codex create its sandbox. The only pool route CI can
+   run, `gpt-5.6-luna-pool`, uses Codex, whose Linux sandbox (bubblewrap)
+   needs unprivileged user namespaces. The workflows lift Ubuntu's AppArmor
+   restriction only on GitHub-hosted runners, never on a self-hosted one,
+   and then always run `agent-ci harness smoke --harness codex`, which fails
+   the job ("Check the Codex sandbox") when the sandbox does not work. On
+   Ubuntu 23.10 or later the restriction is on by default. Check it on the
+   host with `sysctl kernel.apparmor_restrict_unprivileged_userns` (`1`
+   blocks the sandbox), and either set it to `0`
+   (`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, plus a
+   file under `/etc/sysctl.d/` to keep it after a reboot) or give `bwrap` an
+   AppArmor profile that allows user namespaces. Then confirm, as the runner
+   user, with `agent-ci harness smoke --harness codex` from an agent-ci
+   checkout. A macOS host is not affected: Codex uses the macOS sandbox
+   there.
+4. Give the runner a label and pass it as `runs_on`, with
    `allow_pool: true`, the `AGENT_CI_PROXY_API_KEY` secret, and a pool model
    such as `gpt-5.6-luna`.
 

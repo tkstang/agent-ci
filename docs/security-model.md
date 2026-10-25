@@ -23,20 +23,26 @@ rationale in the project's deferred findings.
 - **No write token next to the agent.** Jobs that publish hold no model
   credential and run no repository code; jobs that run the agent hold no
   write-capable token.
-- **Pull-request code never runs next to a model credential.** PR review
-  reads the pull request; the only job that executes pull-request code
-  (verify-review) holds no secret.
+- **agent-ci never runs repository or pull-request code next to a model
+  credential.** It runs no setup command, repository skill or check in a
+  job that holds one; in PR review the only job that runs pull-request code
+  (the verify-review `verify` job) holds no model credential and no helper
+  token. The harness itself is a separate matter: a Codex or Cursor
+  reviewer's own shell can still run files from the pull-request checkout
+  while the credential is in its environment (see
+  [Residual risk](#residual-risk)). A Claude or OpenCode reviewer has no
+  shell.
 
 ## Trust boundaries by job
 
 ### run-agent.yml
 
-| Job                       | Repository code       | Model credential                            | GitHub write                | Other tokens                                                   |
-| ------------------------- | --------------------- | ------------------------------------------- | --------------------------- | -------------------------------------------------------------- |
-| `resolve`                 | none                  | none                                        | none                        | `GITHUB_TOKEN`; `AGENT_CI_TARGET_TOKEN` for another repository |
-| `setup`                   | runs `setup_command`  | none                                        | none                        | read-only target token for a private other repository          |
-| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)     | `AGENT_CI_SOURCE_TOKEN`, read-only target token                |
-| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests` | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`                      |
+| Job                       | Repository code       | Model credential                            | GitHub write                | Other tokens                                                                                                                          |
+| ------------------------- | --------------------- | ------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolve`                 | none                  | none                                        | none                        | `GITHUB_TOKEN`, `AGENT_CI_SOURCE_TOKEN`; for another repository `AGENT_CI_TARGET_TOKEN` and the read-only target token (checked here) |
+| `setup`                   | runs `setup_command`  | none                                        | none                        | read-only target token for a private other repository                                                                                 |
+| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)     | `AGENT_CI_SOURCE_TOKEN`, read-only target token                                                                                       |
+| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests` | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`                                                                                             |
 
 The agent job sits behind its own `workflow_call` boundary
 (`agent-job.yml`), which declares only three secrets: the selected model
@@ -53,20 +59,26 @@ digest matches the one the agent job recorded.
 
 ### pr-review.yml
 
-| Job                               | Pull-request code                                          | Model credential                             | GitHub write                  |
-| --------------------------------- | ---------------------------------------------------------- | -------------------------------------------- | ----------------------------- |
-| `gate`                            | no checkout                                                | none                                         | label, reaction and one reply |
-| `verify` (verify-review only)     | runs the configured checks on it                           | none, and no helper token                    | none (`contents: read`)       |
-| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills | the route's credential, pass step only       | none                          |
-| `adjudicate`                      | no checkout; sources come from the git database API        | the route's credential, tool-free Claude run | none                          |
-| `findings`                        | no checkout                                                | none                                         | none (read-only token)        |
-| `publish`                         | no checkout                                                | none                                         | review and summary comment    |
+| Job                               | Pull-request code                                                       | Model credential                                                                               | GitHub write                  |
+| --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------- |
+| `gate`                            | no checkout                                                             | none                                                                                           | label, reaction and one reply |
+| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none, and no helper token; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain | none (`contents: read`)       |
+| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | every model secret the caller passes is on the runner; only the route's reaches the pass step  | none                          |
+| `adjudicate`                      | no checkout; sources come from the git database API                     | the route's credential, tool-free Claude run                                                   | none                          |
+| `findings`                        | no checkout                                                             | none                                                                                           | none (read-only token)        |
+| `publish`                         | no checkout                                                             | none                                                                                           | review and summary comment    |
+
+Every job except `verify` also checks out the agent-ci helpers with
+`AGENT_CI_SOURCE_TOKEN`.
 
 ### fan-out.yml and tools-update.yml
 
 `fan-out.yml` calls `run-agent.yml` or `tools-update.yml` once per target,
 so the same job boundaries apply per target. `tools-update.yml` never runs a
-model and declares no model credential; its run job holds no secret.
+model and declares no model credential. Its run job runs the pinned OAT CLI
+from npm (npm code) and holds `AGENT_CI_SOURCE_TOKEN` and, for a private
+target in another repository, `AGENT_CI_TARGET_READ_TOKEN`; it holds no
+write token. Its resolve and publish jobs match `run-agent.yml`'s.
 
 ## Token scoping
 
@@ -84,7 +96,9 @@ model and declares no model credential; its run job holds no secret.
   out another repository with `AGENT_CI_TARGET_READ_TOKEN`, which the
   resolve job refuses when it is the write token, a classic token with any
   scope, or able to write contents.
-- **Checkouts do not persist credentials** (`persist-credentials: false`).
+- **Checkouts do not persist credentials** (`persist-credentials: false`),
+  except the publish jobs' target checkout: `agent-ci publish` pushes with
+  that checkout's token, and the publish job runs no repository code.
 - **The verify job gets no helper token.** agent-ci reaches it as a bundle
   the gate job uploads, checked against its sha256.
 - **Pool routes** need an explicit opt-in, run in CI only on a self-hosted
@@ -156,11 +170,20 @@ credential over the network.
 
 ## Verify-review
 
-- In Actions, checks run only in the verify job: no secret of any kind, a
-  GitHub-hosted runner unless `verify_on_self_hosted` (ephemeral runners
-  only), and never with `allow_pool`.
+- In Actions, checks run only in the verify job: no model credential and no
+  helper token, a GitHub-hosted runner unless `verify_on_self_hosted`
+  (ephemeral runners only), and never with `allow_pool`. The job's read-only
+  `GITHUB_TOKEN` and Actions runtime token remain (see
+  [Residual risk](#residual-risk)).
 - The checks list comes from the default branch head or the caller's
-  `verify_config_ref`, never from the pull request or its base.
+  `verify_config_ref`, never from the pull request. Do not set
+  `verify_config_ref` to the pull request's base branch
+  (`github.base_ref`): its author can retarget the pull request to a branch
+  they pushed.
+- The optional `setup` command runs pull-request-controlled code (install
+  scripts, lockfile resolution) with the network open. Only the checks lose
+  the network, and only where isolation is available (a loopback-only
+  network namespace on Linux).
 - Each check runs with an environment allowlist that strips tokens, a
   `PATH` without checkout entries, a fresh copy of the tree, a deadline and
   a process-group kill, plus Linux namespaces where available.
@@ -177,11 +200,15 @@ These risks are accepted, with the conditions that would change that.
   can read its credential and could exfiltrate it through the network or an
   encoded output. The output guard catches only exact values. The job
   boundary limits the damage to that one credential.
-- **Non-Claude reviewers can read process files.** Codex read-only mode
-  keeps a read-only shell (it can read `/proc/self/environ`), OpenCode's
-  read tool outside the workspace was not probed, and Cursor's ask mode runs
-  shell commands its classifier treats as read-only. A prompt injection in a
-  pull request could try to publish an encoded credential in a finding.
+- **Non-Claude reviewers can read process files and run checkout files.**
+  Codex read-only mode keeps a shell that cannot write but can run commands,
+  including scripts from the pull-request checkout, and read
+  `/proc/self/environ`. Cursor's ask mode runs shell commands its classifier
+  treats as read-only, in reviews and in read-only `run-agent` runs alike.
+  OpenCode's read tool outside the workspace was not probed. A prompt
+  injection in a pull request could make such a reviewer run pull-request
+  code with the model credential in its environment, or try to publish an
+  encoded credential in a finding.
   Claude's read-only posture refuses reads outside the workspace, and a pull
   request with links out of the checkout is refused. Requester and author
   write access is the trust boundary; prefer a Claude reviewer for
@@ -199,8 +226,9 @@ These risks are accepted, with the conditions that would change that.
 
 - **Review jobs hold every model secret the caller passes.** The reviewer
   and adjudicator steps select one credential, but each of those runners
-  receives every model secret the caller passes to `pr-review.yml`. Pass
-  only the secrets your review models use.
+  receives every model secret the caller passes to `pr-review.yml`. The
+  shipped caller template passes two (`CLAUDE_CODE_OAUTH_TOKEN` and
+  `OPENCODE_API_KEY`). Pass only the secrets your review models use.
 - **One read token per fleet.** An agent on one target could read every
   private target the fleet's read token can read. The token's permissions
   beyond writing contents cannot be checked through the API, so a token with
@@ -213,6 +241,10 @@ These risks are accepted, with the conditions that would change that.
 
 **Verify-review**
 
+- **The verify `setup` command has the network.** It runs the pull
+  request's install scripts and lockfile with network access in the verify
+  job, which is what makes the runtime-token and cache exposure below an
+  exfiltration path.
 - **Local verify has no credential boundary.** On macOS a check can read
   other processes' environments and the Keychain, and a lingering process
   could read a later harness's credential. On Linux, host service sockets
@@ -228,6 +260,17 @@ These risks are accepted, with the conditions that would change that.
   verify job and can make its own checks report anything; the gate only
   ensures citations match what the job recorded.
 
+**Policy gaps**
+
+- **Claude-only name check.** The Claude-only rule relies on each route's
+  `family`. The defense-in-depth name check misses separator-less IDs such
+  as `sonnet4.5`, and a Cursor `auto` route could select a Claude model.
+  No such route exists in `models.yaml`; closing the gap is tracked in the
+  project backlog, due before such a route is added.
+- **Non-Claude skills access in edit mode.** Whether Codex, OpenCode and
+  Cursor edit runs can write the installed skills was not probed. Any change
+  to them fails the run through the skills fingerprint check.
+
 **Supply chain and coverage**
 
 - **Harness installs.** npm-installed harnesses pin only their top-level
@@ -239,5 +282,7 @@ These risks are accepted, with the conditions that would change that.
 - **Not exercised live yet:** a model-backed Actions run (no model secret
   is stored in `tkstang/agent-ci`), the default-branch review triggers,
   cross-repository fan-out with real target tokens, and a pool route on a
-  self-hosted runner. These paths are covered by unit and workflow
+  self-hosted runner, including the Codex sandbox prerequisite on a
+  self-hosted Linux host (see
+  [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy)). These paths are covered by unit and workflow
   structure tests.

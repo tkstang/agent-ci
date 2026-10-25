@@ -90,7 +90,9 @@ flowchart LR
    object in their final text. A pass whose answer fails validation gets one
    repair turn by resuming the session (Claude, Codex and OpenCode; not
    Cursor). Reviewer runs never execute a setup command or install
-   repository skills.
+   repository skills, but a Codex or Cursor reviewer's own shell can still
+   run commands in the checkout (see
+   [Security model](security-model.md#residual-risk)).
 3. **Adjudicator** (`review sources`, then `review adjudicate`), when
    `adjudicator` is on: a Claude route with every tool removed reads the
    candidate findings and their cited source, fetched without a checkout,
@@ -153,8 +155,9 @@ agent-ci review run --pr 42 --cwd /path/to/clone --model claude-haiku-4-5 --publ
   artifacts.
 
 The individual stages (`gate`, `prepare`, `verify`, `pass`, `sources`,
-`adjudicate`, `findings`, `publish`) are the steps `pr-review.yml` runs. Their
-flags are listed in `src/commands/review.ts`.
+`adjudicate`, `findings`, `publish`) are the steps `pr-review.yml` runs.
+`agent-ci review <stage> --help` prints a stage's flags, and
+`agent-ci review run --help` prints every flag of the local run.
 
 ## Verify-review
 
@@ -183,21 +186,29 @@ is off unless the caller sets `verify: true`.
    command of at most 2 KiB, a timeout of 1-30 minutes (default 10), a
    one-line description of at most 200 characters, and a 64 KiB file. The
    file is read from the head of the default branch, or of the branch the
-   caller names in `verify_config_ref`, never from the pull request or its
-   base, so a pull request cannot add or change a check.
+   caller names in `verify_config_ref`, never from the pull request, so a
+   pull request cannot add or change a check. Do not set
+   `verify_config_ref` to the pull request's base branch
+   (`github.base_ref`): its author can retarget the pull request to a
+   branch they pushed. (This repository's own self-test does so only
+   because its workflows exist only on the project branch before merge.)
 
 2. **Request it** with `/agent-ci-verify-review` or the
    `agent-ci:verify-review` label.
 3. **The verify job runs the checks** on the pull request head before any
-   reviewer starts. It holds no secret: no model credential and no
+   reviewer starts. It holds no model credential and no
    `AGENT_CI_SOURCE_TOKEN` (agent-ci arrives as a digest-pinned bundle from
-   the gate job). It runs on a GitHub-hosted runner unless
+   the gate job); the job's read-only `GITHUB_TOKEN` and Actions runtime
+   token remain. It runs on a GitHub-hosted runner unless
    `verify_on_self_hosted: true` (ephemeral runners only), and it is refused
-   in CI with `allow_pool: true`. Each check runs in a fresh copy of the
+   in CI with `allow_pool: true`. The optional `setup` command runs first,
+   in the pull request head, with the network open: it executes the pull
+   request's install scripts and lockfile. Each check runs in a fresh copy of the
    prepared tree, with an environment allowlist that strips tokens, a `PATH`
    without checkout entries, its timeout and a process-group kill, a 1 MiB
    output capture with a masked 16 KiB tail, and, on Linux, isolated user,
-   pid, mount and network namespaces where the host allows them. Results go
+   pid, mount and loopback-only network namespaces where the host allows
+   them. Results go
    to `checks.json`; each has an evidence ID hashed from the check name,
    command, head commit, exit code and output digest.
 4. **Reviewers read the results** through the `run_check` tool, an MCP
