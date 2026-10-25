@@ -411,6 +411,28 @@ describe('workflow class sweep', () => {
     }
   });
 
+  it('leaves no checkout credentials in .git/config except where the publisher pushes with them', async () => {
+    // agent-ci publish runs `git push` in this checkout and authenticates
+    // with the token actions/checkout persisted there.
+    const pushesWithCheckoutToken = [
+      '.github/workflows/run-agent.yml publish/Check out the target repository',
+      '.github/workflows/tools-update.yml publish/Check out the target repository',
+    ];
+    const persisted: string[] = [];
+    for (const file of await allWorkflowFiles()) {
+      const workflow = await load<Workflow>(file);
+      for (const [jobName, job] of Object.entries(workflow.jobs)) {
+        for (const entry of job.steps ?? []) {
+          if (!(entry.uses ?? '').startsWith('actions/checkout@')) continue;
+          if (entry.with?.['persist-credentials'] !== false) {
+            persisted.push(`${file} ${jobName}/${entry.name ?? entry.uses}`);
+          }
+        }
+      }
+    }
+    expect(persisted).toEqual(pushesWithCheckoutToken);
+  });
+
   it('never looks a secret up dynamically (the runner would receive every secret the workflow holds)', async () => {
     for (const file of await allWorkflowFiles()) {
       const workflow = await load<Workflow>(file);
