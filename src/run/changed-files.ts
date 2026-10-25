@@ -4,7 +4,11 @@ import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { failure, success, type Result } from '@agent-ci/result.js';
-import { findWorkspaceRoot, resolveRealPath } from '@agent-ci/run/workspace.js';
+import {
+  findWorkspaceRoot,
+  isWithin,
+  resolveRealPath,
+} from '@agent-ci/run/workspace.js';
 
 interface WorkspaceChanges {
   /** Real path all returned paths are relative to (the git top level). */
@@ -31,13 +35,11 @@ async function listChanges(
   if (!workspace.value.git) return success({ root, files: [] });
   const excluded: string[] = [];
   for (const dir of excludeDirs) {
-    const relative = path.relative(root, await resolveRealPath(dir));
-    if (
-      relative !== '' &&
-      !relative.startsWith('..') &&
-      !path.isAbsolute(relative)
-    )
-      excluded.push(`${relative.split(path.sep).join('/')}/`);
+    const real = await resolveRealPath(dir);
+    // Only a directory strictly inside the repository can be excluded.
+    if (real !== root && isWithin(root, real)) {
+      excluded.push(`${path.relative(root, real).split(path.sep).join('/')}/`);
+    }
   }
   return new Promise((resolve) => {
     const child = execFile(

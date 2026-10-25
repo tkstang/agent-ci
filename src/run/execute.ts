@@ -158,12 +158,18 @@ export async function runAgent(
   // The home root holds credentials (seeded or refreshed logins) and
   // invocation files: it must never be the workspace or inside it, where it
   // could be reported as a change, published or committed.
+  // An unknown boundary is never replaced by the workspace path: that would
+  // let a subdirectory run place credentials elsewhere in the repository.
   const boundary = await findWorkspaceRoot(options.cwd, deps.git);
-  const boundaryRoot = boundary.ok
-    ? boundary.value.root
-    : await resolveRealPath(options.cwd);
-  const homeOutside = async (root: string): Promise<boolean> =>
-    !isWithin(boundaryRoot, await resolveRealPath(root));
+  if (!boundary.ok) return boundary;
+  const boundaryRoot = boundary.value.root;
+  const homeOutside = async (root: string): Promise<boolean> => {
+    try {
+      return !isWithin(boundaryRoot, await resolveRealPath(root));
+    } catch {
+      return false; // unresolvable (symlink loop): fail closed
+    }
+  };
   if (
     options.homeRoot !== undefined &&
     !(await homeOutside(options.homeRoot))

@@ -134,4 +134,17 @@ describe('detectChangedFiles', () => {
       value: ['sub/a.txt'],
     });
   });
+
+  it('excludes an output directory whose name starts with two dots', async () => {
+    const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-git-dd-'));
+    git(repo, 'init', '-q');
+    const out = path.join(repo, '..output');
+    await mkdir(out);
+    await writeFile(path.join(out, 'run-result.json'), '{}');
+    await writeFile(path.join(repo, 'work.txt'), 'w');
+    expect(await detectChangedFiles(repo, [out])).toEqual({
+      ok: true,
+      value: ['work.txt'],
+    });
+  });
 });

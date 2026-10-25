@@ -232,30 +232,24 @@ describe('runAgent', () => {
   });
 
   describe('workspace status and in-attempt errors', () => {
-    it('fails an edit run before the harness when changes cannot be detected', async () => {
-      const opts = await options({ model: 'fake-echo', mode: 'edit' });
-      const summary = await runAgent(opts, { git: await brokenGit(opts.cwd) });
-      expect(summary.ok).toBe(true);
-      if (!summary.ok) return;
-      expect(summary.value.error?.code).toBe('E_WORKSPACE_STATUS');
-      expect(summary.value.attempts).toBe(0);
-      const result = JSON.parse(
-        await readFile(summary.value.resultPath, 'utf8'),
-      );
-      expect(result).toMatchObject({ ok: false, status: 'failed' });
-      const log = await readFile(summary.value.logPath, 'utf8');
-      expect(log).toContain('"event":"workspace.status"');
-      expect(log).not.toContain('"event":"attempt"');
-    });
-
-    it('records the git failure but completes a read-only run', async () => {
-      const opts = await options({ model: 'fake-echo' });
-      const summary = await runAgent(opts, { git: await brokenGit(opts.cwd) });
-      expect(summary.ok && summary.value.result.ok).toBe(true);
-      if (!summary.ok) return;
-      const log = await readFile(summary.value.logPath, 'utf8');
-      expect(log).toContain('"event":"workspace.status"');
-      expect(log).toContain('dubious ownership');
+    it('stops read-only and edit runs before any home when the repository boundary is unknown', async () => {
+      for (const mode of ['read-only', 'edit'] as const) {
+        const homeRoot = await mkdtemp(
+          path.join(os.tmpdir(), 'agent-ci-unknown-boundary-home-'),
+        );
+        const opts = await options({ model: 'fake-echo', mode, homeRoot });
+        const summary = await runAgent(opts, {
+          git: await brokenGit(opts.cwd),
+        });
+        expect(summary, mode).toMatchObject({
+          ok: false,
+          code: 'E_WORKSPACE_STATUS',
+          message: expect.stringContaining('dubious ownership'),
+        });
+        // Nothing created: no layout in the home root, no artifacts.
+        expect(existsSync(path.join(homeRoot, 'home'))).toBe(false);
+        expect(existsSync(opts.outDir)).toBe(false);
+      }
     });
 
     it('turns a leak-guard throw into a written, failed result', async () => {
@@ -419,6 +413,39 @@ describe('runAgent', () => {
       expect(existsSync(path.join(opts.cwd, '.agent-home'))).toBe(false);
       expect(existsSync(path.join(opts.cwd, 'home'))).toBe(false);
       expect(existsSync(path.join(opts.cwd, 'sub', 'deeper'))).toBe(false);
+    });
+
+    it('refuses a home whose name starts with two dots inside the repository', async () => {
+      const opts = await gitWorkspace();
+      const homeRoot = path.join(opts.cwd, '..agent-home');
+      expect(await runAgent({ ...opts, homeRoot })).toMatchObject({
+        ok: false,
+        code: 'E_HOME_ROOT',
+      });
+      expect(existsSync(homeRoot)).toBe(false);
+    });
+
+    it('refuses a home behind a dangling symlink that points into the repository', async () => {
+      const opts = await gitWorkspace();
+      const link = `${opts.cwd}-dangling`;
+      await symlink(path.join(opts.cwd, '.not-yet'), link);
+      expect(
+        await runAgent({ ...opts, homeRoot: path.join(link, 'h') }),
+      ).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+      expect(existsSync(path.join(opts.cwd, '.not-yet'))).toBe(false);
+    });
+
+    it('refuses to place a home when git cannot establish the repository boundary', async () => {
+      const opts = await gitWorkspace();
+      const sub = path.join(opts.cwd, 'sub');
+      await mkdir(sub);
+      const homeRoot = path.join(opts.cwd, '.agent-home');
+      const summary = await runAgent(
+        { ...opts, cwd: sub, homeRoot },
+        { git: path.join(opts.cwd, 'missing-git') },
+      );
+      expect(summary).toMatchObject({ ok: false, code: 'E_WORKSPACE_STATUS' });
+      expect(existsSync(homeRoot)).toBe(false);
     });
 
     it('refuses a home root that reaches the repository through a symlink', async () => {
