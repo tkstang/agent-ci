@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
-import { SAFE_GIT_ENV, safeGitArgs } from '@agent-ci/git/safe-git.js';
+import {
+  filterDriverOverrides,
+  SAFE_GIT_ENV,
+  safeGitArgs,
+} from '@agent-ci/git/safe-git.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import {
   findWorkspaceRoot,
@@ -50,10 +54,26 @@ async function listChanges(
       excluded.push(`${path.relative(root, real).split(path.sep).join('/')}/`);
     }
   }
+  // A configured filter driver would run when status compares content.
+  let filters: string[];
+  try {
+    filters = await filterDriverOverrides(root, git);
+  } catch (err) {
+    return failure(
+      'E_WORKSPACE_STATUS',
+      `could not read the repository's filter configuration: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   return new Promise((resolve) => {
     const child = execFile(
       git,
-      safeGitArgs(['status', '--porcelain', '-z', '--untracked-files=all']),
+      safeGitArgs([
+        ...filters,
+        'status',
+        '--porcelain',
+        '-z',
+        '--untracked-files=all',
+      ]),
       {
         cwd: root,
         env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },

@@ -1,10 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { safeGitArgs } from '@agent-ci/git/safe-git.js';
+import { overridesFor, safeGitArgs } from '@agent-ci/git/safe-git.js';
 import { createGit } from '@agent-ci/publish/git.js';
 import {
   detectChangedFiles,
@@ -81,6 +88,78 @@ describe('agent-ci never runs repository-configured git code', () => {
     await rm(path.dirname(repo), { recursive: true, force: true });
   });
 
+  for (const source of ['.gitattributes', '.git/info/attributes']) {
+    it(`a configured filter driver assigned in ${source} never runs (review r3 L3)`, async () => {
+      const base = await realpath(
+        await mkdtemp(path.join(os.tmpdir(), 'agent-ci-filter-')),
+      );
+      const repo = path.join(base, 'repo');
+      await mkdir(repo);
+      const git = (...args: string[]) =>
+        execFileSync(
+          'git',
+          ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args],
+          { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] },
+        );
+      git('init', '-q');
+      await writeFile(path.join(repo, 'a.txt'), 'a\n');
+      git('add', '.');
+      git('commit', '-qm', 'init');
+      const marker = path.join(base, 'filter-ran');
+      const filter = path.join(base, 'filter.sh');
+      await writeFile(filter, `#!/bin/sh\ntouch "${marker}"\ncat\n`, {
+        mode: 0o755,
+      });
+      git('config', 'filter.evil.clean', filter);
+      git('config', 'filter.evil.required', 'true');
+      await mkdir(path.join(repo, '.git', 'info'), { recursive: true });
+      await writeFile(path.join(repo, source), '*.txt filter=evil\n');
+      // Same size, newer mtime: status must compare content (clean filter).
+      const touchLater = async (content: string, seconds: number) => {
+        await writeFile(path.join(repo, 'a.txt'), content);
+        const when = new Date(Date.now() + seconds * 1000);
+        await utimes(path.join(repo, 'a.txt'), when, when);
+      };
+      await touchLater('b\n', 5);
+      execFileSync('git', ['status', '--porcelain'], {
+        cwd: repo,
+        stdio: 'ignore',
+      });
+      expect(existsSync(marker)).toBe(true); // control: plain git runs it
+      await rm(marker);
+      await touchLater('c\n', 10);
+      const changed = await detectChangedFiles(repo);
+      expect(changed.ok && changed.value).toContain('a.txt');
+      expect((await snapshotWorkspace(repo)).ok).toBe(true);
+      expect(existsSync(marker)).toBe(false);
+    });
+  }
+
+  it('builds one override set per configured filter driver, dotted names included', () => {
+    expect(
+      overridesFor(
+        'filter.x.clean\n/bin/x\0filter.my.dotted.process\n/bin/y\0core.bare\nfalse\0',
+      ),
+    ).toEqual([
+      '-c',
+      'filter.my.dotted.clean=',
+      '-c',
+      'filter.my.dotted.smudge=',
+      '-c',
+      'filter.my.dotted.process=',
+      '-c',
+      'filter.my.dotted.required=false',
+      '-c',
+      'filter.x.clean=',
+      '-c',
+      'filter.x.smudge=',
+      '-c',
+      'filter.x.process=',
+      '-c',
+      'filter.x.required=false',
+    ]);
+  });
+
   it('puts the neutralizing settings before the command and blocks transports for local calls', () => {
     expect(safeGitArgs(['status'])).toEqual([
       '-c',
@@ -89,6 +168,8 @@ describe('agent-ci never runs repository-configured git code', () => {
       'core.hooksPath=/dev/null',
       '-c',
       'core.untrackedCache=false',
+      '-c',
+      'core.attributesFile=/dev/null',
       '-c',
       'protocol.allow=never',
       'status',
