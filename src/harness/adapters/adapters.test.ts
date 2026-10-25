@@ -16,6 +16,7 @@ import { codexAdapter } from '@agent-ci/harness/adapters/codex.js';
 import { cursorAdapter } from '@agent-ci/harness/adapters/cursor.js';
 import { opencodeAdapter } from '@agent-ci/harness/adapters/opencode.js';
 import { UnsafeWorkspaceError } from '@agent-ci/harness/env.js';
+import { DEFAULT_MAX_OUTPUT_BYTES } from '@agent-ci/harness/spawn.js';
 import {
   alive,
   envNames,
@@ -533,6 +534,19 @@ describe('tool bridge (verify-review run_check)', () => {
   });
 });
 
+/** Codex JSON events ending in one agent message carrying `text`. */
+const codexEvents = (text: string) =>
+  [
+    { type: 'thread.started', thread_id: 't' },
+    {
+      type: 'item.completed',
+      item: { id: 'item_0', type: 'agent_message', text },
+    },
+    { type: 'turn.completed', usage: { input_tokens: 1 } },
+  ]
+    .map((event) => JSON.stringify(event))
+    .join('\n');
+
 describe('codex argv, provider config and posture', () => {
   const route = cases[1]?.route as Route;
 
@@ -656,6 +670,75 @@ describe('codex argv, provider config and posture', () => {
     expect(!run.outcome.ok && run.outcome.message).toContain(
       'ModelProtocolUnsupported',
     );
+  });
+
+  it('bounds the -o final-answer file by the output limit (final M1)', async () => {
+    // A small valid stdout, so only the file can exceed the limit.
+    const stdout = await fixture('codex-success.jsonl');
+    const fileCases = [
+      { bytes: 512, maxOutputBytes: 1024, ok: true },
+      { bytes: 1024, maxOutputBytes: 1024, ok: true },
+      { bytes: 1025, maxOutputBytes: 1024, ok: false },
+      { bytes: 2 * 1024 * 1024, maxOutputBytes: 1024, ok: false },
+      // The default limit applies when none is configured.
+      { bytes: DEFAULT_MAX_OUTPUT_BYTES, maxOutputBytes: undefined, ok: true },
+      {
+        bytes: DEFAULT_MAX_OUTPUT_BYTES + 1,
+        maxOutputBytes: undefined,
+        ok: false,
+      },
+    ];
+    for (const { bytes, maxOutputBytes, ok } of fileCases) {
+      const request = await makeRequest(route);
+      const { run } = await replay(
+        codexAdapter,
+        request,
+        { stdout, writeArgFile: { flag: '-o', content: 'x'.repeat(bytes) } },
+        maxOutputBytes === undefined ? {} : { maxOutputBytes },
+      );
+      if (ok) {
+        expect(run.outcome.ok && run.outcome.finalText.length).toBe(bytes);
+      } else {
+        expect(run.outcome).toMatchObject({
+          ok: false,
+          code: 'E_HARNESS_OUTPUT_LIMIT',
+          retryable: false,
+        });
+      }
+    }
+  });
+
+  it('refuses a link at the -o path instead of reading through it', async () => {
+    const request = await makeRequest(route);
+    const outside = path.join(request.scratchDir, 'outside.txt');
+    await writeFile(outside, 'not the answer');
+    const { run } = await replay(codexAdapter, request, {
+      stdout: await fixture('codex-success.jsonl'),
+      linkArgFile: { flag: '-o', target: outside },
+    });
+    expect(run.outcome).toMatchObject({ ok: false, code: 'E_HARNESS_FAILED' });
+  });
+
+  it('bounds the fallback agent_message by the stream limit', async () => {
+    const small = await replay(
+      codexAdapter,
+      await makeRequest(route),
+      { stdout: codexEvents('y'.repeat(512)) },
+      { maxOutputBytes: 4096 },
+    );
+    expect(small.run.outcome.ok && small.run.outcome.finalText).toBe(
+      'y'.repeat(512),
+    );
+    const large = await replay(
+      codexAdapter,
+      await makeRequest(route),
+      { stdout: codexEvents('y'.repeat(8192)) },
+      { maxOutputBytes: 4096 },
+    );
+    expect(large.run.outcome).toMatchObject({
+      ok: false,
+      code: 'E_HARNESS_OUTPUT_LIMIT',
+    });
   });
 
   it('falls back to the last agent_message when the -o file is missing', async () => {

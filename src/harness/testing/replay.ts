@@ -41,6 +41,8 @@ export interface ReplayControl {
   readonly stderr?: string;
   readonly exitCode?: number;
   readonly writeArgFile?: { readonly flag: string; readonly content: string };
+  /** Create a symlink to `target` at the path that follows `flag`. */
+  readonly linkArgFile?: { readonly flag: string; readonly target: string };
 }
 
 export interface Observed {

@@ -10,8 +10,15 @@ import { spawn } from 'node:child_process';
 //   { "observedPath": string,
 //     "mode": "replay" | "hang" | "flood",
 //     "stdout": string, "stderr": string, "exitCode": number,
-//     "writeArgFile": { "flag": "-o", "content": string } }
-import { fstatSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+//     "writeArgFile": { "flag": "-o", "content": string },
+//     "linkArgFile": { "flag": "-o", "target": string } }
+import {
+  fstatSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import process from 'node:process';
 
 const [controlPath, ...argv] = process.argv.slice(2);
@@ -38,6 +45,13 @@ if (control.writeArgFile) {
   const index = argv.indexOf(control.writeArgFile.flag);
   if (index !== -1 && argv[index + 1]) {
     writeFileSync(argv[index + 1], control.writeArgFile.content);
+  }
+}
+
+if (control.linkArgFile) {
+  const index = argv.indexOf(control.linkArgFile.flag);
+  if (index !== -1 && argv[index + 1]) {
+    symlinkSync(control.linkArgFile.target, argv[index + 1]);
   }
 }
 

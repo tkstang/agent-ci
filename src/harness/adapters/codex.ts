@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -8,6 +8,7 @@ import {
 import { classifyFailure, truncate } from '@agent-ci/harness/classify.js';
 import { buildChildEnv } from '@agent-ci/harness/env.js';
 import { writeOwnedFile } from '@agent-ci/harness/home.js';
+import { readOutputFile } from '@agent-ci/harness/output-file.js';
 import type {
   HarnessAdapter,
   HarnessOutcome,
@@ -188,7 +189,7 @@ export const codexAdapter: HarnessAdapter = {
       }),
     };
   },
-  async interpret(output, request): Promise<HarnessOutcome> {
+  async interpret(output, request, limits): Promise<HarnessOutcome> {
     const parsed = events(output.stdout);
     const thread = parsed.find((event) => event.type === 'thread.started');
     const session =
@@ -238,13 +239,38 @@ export const codexAdapter: HarnessAdapter = {
         ),
       };
     }
+    // The final-answer file is written after the streams were capped, so
+    // it gets its own bounded read under the same budget. Only a missing
+    // file falls back to the last agent message event, which came through
+    // the capped stdout.
     let finalText: string | undefined;
-    try {
-      finalText = await readFile(
-        path.join(request.scratchDir, LAST_MESSAGE_FILE),
-        'utf8',
-      );
-    } catch {
+    const file = await readOutputFile(
+      path.join(request.scratchDir, LAST_MESSAGE_FILE),
+      limits.maxOutputBytes,
+    );
+    if (file.kind === 'too-large') {
+      return {
+        ok: false,
+        code: 'E_HARNESS_OUTPUT_LIMIT',
+        retryable: false,
+        usage,
+        ...session,
+        message: `codex's final message file (${file.size} bytes) exceeds the ${limits.maxOutputBytes}-byte output limit`,
+      };
+    }
+    if (file.kind === 'invalid') {
+      return {
+        ok: false,
+        code: 'E_HARNESS_FAILED',
+        retryable: false,
+        usage,
+        ...session,
+        message: `codex's final message file is unusable: ${file.reason}`,
+      };
+    }
+    if (file.kind === 'ok') {
+      finalText = file.text;
+    } else {
       finalText = parsed.findLast(
         (event) => event.item?.type === 'agent_message',
       )?.item?.text;

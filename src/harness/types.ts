@@ -119,6 +119,15 @@ export type HarnessOutcome =
       readonly sessionId?: string;
     };
 
+/**
+ * The run's limits as interpretation sees them: anything an adapter reads
+ * after the process exited (an output file) stays within the same output
+ * budget the streams had.
+ */
+export interface InterpretLimits {
+  readonly maxOutputBytes: number;
+}
+
 /** One harness CLI behind the common interface. */
 export interface HarnessAdapter {
   readonly id: HarnessId;
@@ -148,5 +157,6 @@ export interface HarnessAdapter {
   interpret(
     output: ProcessOutput,
     request: HarnessRequest,
+    limits: InterpretLimits,
   ): Promise<HarnessOutcome>;
 }

@@ -1,11 +1,12 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { writeOwnedFile } from '@agent-ci/files.js';
 import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
+import { readOutputFileHead } from '@agent-ci/harness/output-file.js';
 import type { ToolBridge, Usage } from '@agent-ci/harness/types.js';
 import { failure, type Result, success } from '@agent-ci/result.js';
 import {
@@ -483,14 +484,16 @@ export async function runReviewPass(
   }
 }
 
+/**
+ * The calls log grows with every tool call the agent makes; only the names
+ * of its first lines are used, so only its head is read.
+ */
+const MAX_CALLS_LOG_BYTES = 64 * 1024;
+
 /** Check names from the bridge's calls log (diagnostic; bounded). */
 async function readServedNames(file: string): Promise<string[]> {
-  let text: string;
-  try {
-    text = await readFile(file, 'utf8');
-  } catch {
-    return [];
-  }
+  const text = await readOutputFileHead(file, MAX_CALLS_LOG_BYTES);
+  if (text === undefined) return [];
   const names: string[] = [];
   for (const line of text.split('\n').slice(0, 200)) {
     try {

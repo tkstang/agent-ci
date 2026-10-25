@@ -120,7 +120,9 @@ Every harness process:
   configuration that could run commands or widen permissions (hooks, rules,
   custom agents and commands) before the harness starts;
 - has stdin closed, a deadline enforced with a process-group kill (2-second
-  grace) and a 4 MiB output cap;
+  grace) and a 4 MiB output cap on stdout and stderr; an output file read
+  after the process exits (Codex's `-o` final answer) is held to the same
+  cap and is never read through a link;
 - uses the read-only or edit posture listed in
   [Harnesses and routing](harnesses-and-routing.md#harnesses).
 

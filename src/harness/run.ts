@@ -1,6 +1,7 @@
 import { secretValuesFromEnv } from '@agent-ci/contracts/secret-guard.js';
 import { CredentialLeakError } from '@agent-ci/harness/env.js';
 import {
+  DEFAULT_MAX_OUTPUT_BYTES,
   type SpawnResult,
   spawnHarness,
   type SpawnSpec,
@@ -175,6 +176,9 @@ export async function runHarness(
   return {
     invocation,
     durationMs: result.durationMs,
-    outcome: await adapter.interpret(result, request),
+    // The same budget bounds anything read after the process exited.
+    outcome: await adapter.interpret(result, request, {
+      maxOutputBytes: limits.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
+    }),
   };
 }
