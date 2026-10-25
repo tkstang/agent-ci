@@ -36,7 +36,7 @@ export async function fixture(name: string): Promise<string> {
 }
 
 export interface ReplayControl {
-  readonly mode?: 'replay' | 'hang' | 'flood';
+  readonly mode?: 'replay' | 'flood';
   readonly stdout?: string;
   readonly stderr?: string;
   readonly exitCode?: number;
@@ -50,7 +50,6 @@ export interface Observed {
   readonly env: Record<string, string>;
   readonly cwd: string;
   readonly stdinDevNull: boolean;
-  readonly grandchildPid?: number;
 }
 
 export async function makeRequest(
@@ -114,13 +113,4 @@ export function envNames(observed: Observed): string[] {
   return Object.keys(observed.env)
     .filter((name) => name !== '__CF_USER_TEXT_ENCODING')
     .toSorted();
-}
-
-export function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }

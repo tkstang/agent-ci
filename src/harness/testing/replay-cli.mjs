@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
 // Test-only stand-in for a harness CLI. It replays recorded probe output and
 // records what the adapter gave it (argv, environment, stdin, cwd) so suites
 // can assert the invocation contract without a model or a credential.
@@ -8,7 +7,7 @@ import { spawn } from 'node:child_process';
 //
 // control.json:
 //   { "observedPath": string,
-//     "mode": "replay" | "hang" | "flood",
+//     "mode": "replay" | "flood",
 //     "stdout": string, "stderr": string, "exitCode": number,
 //     "writeArgFile": { "flag": "-o", "content": string },
 //     "linkArgFile": { "flag": "-o", "target": string } }
@@ -55,14 +54,7 @@ if (control.linkArgFile) {
   }
 }
 
-if (control.mode === 'hang') {
-  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-    stdio: 'ignore',
-  });
-  observed.grandchildPid = child.pid;
-  writeFileSync(control.observedPath, JSON.stringify(observed));
-  setInterval(() => {}, 1000);
-} else if (control.mode === 'flood') {
+if (control.mode === 'flood') {
   writeFileSync(control.observedPath, JSON.stringify(observed));
   setInterval(() => process.stdout.write('x'.repeat(65536)), 1);
 } else {

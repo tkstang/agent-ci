@@ -18,7 +18,6 @@ import { opencodeAdapter } from '@agent-ci/harness/adapters/opencode.js';
 import { UnsafeWorkspaceError } from '@agent-ci/harness/env.js';
 import { DEFAULT_MAX_OUTPUT_BYTES } from '@agent-ci/harness/spawn.js';
 import {
-  alive,
   envNames,
   fixture,
   makeRequest,
@@ -259,19 +258,6 @@ describe.each(cases)('$adapter.id adapter', (c) => {
       code: 'E_HARNESS_FAILED',
       retryable: true,
     });
-  });
-
-  it('kills the harness process group at the deadline', async () => {
-    const request = await makeRequest(c.route);
-    const { run, observed } = await replay(
-      c.adapter,
-      request,
-      { mode: 'hang' },
-      { timeoutMs: 800 },
-    );
-    expect(run.outcome).toMatchObject({ ok: false, code: 'E_HARNESS_TIMEOUT' });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(alive(observed.grandchildPid ?? 0)).toBe(false);
   });
 
   it('stops the harness at the output cap', async () => {

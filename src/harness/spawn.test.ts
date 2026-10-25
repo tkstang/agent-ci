@@ -21,13 +21,17 @@ const escaped = (after: string) => `
   ${after}
 `;
 
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+/** Wait until `pid` is gone (killed with its group, then reaped), up to 3 s. */
+async function gone(pid: number): Promise<boolean> {
+  for (let tries = 0; tries < 60; tries += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  return false;
 }
 
 describe('spawnHarness', () => {
@@ -80,8 +84,7 @@ describe('spawnHarness', () => {
     expect(result.timedOut).toBe(true);
     const grandchild = Number(result.stdout.trim());
     expect(grandchild).toBeGreaterThan(0);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(alive(grandchild)).toBe(false);
+    expect(await gone(grandchild)).toBe(true);
   });
 
   it('stops a child that exceeds the output cap', async () => {
