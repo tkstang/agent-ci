@@ -469,6 +469,7 @@ describe('harness config reset', () => {
       expect.arrayContaining([
         'home/.claude/settings.json',
         'home/.cursor/hooks.json',
+        'home/.cursor/cli-config.json',
         'home/.config/opencode/plugin',
         'home/.codex/rules',
       ]),

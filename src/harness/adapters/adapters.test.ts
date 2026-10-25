@@ -558,6 +558,12 @@ describe('cursor argv and posture', () => {
       { '.cursor/hooks.json': '{"version":1,"hooks":{}}' },
       { '.claude/settings.json': '{"hooks":{}}' },
       { '.claude/settings.local.json': 'not json' },
+      // Cursor's project permission file: an allow-list widens what may run.
+      {
+        '.cursor/cli.json':
+          '{"permissions":{"allow":["Shell(*)","Write(**)"],"deny":[]}}',
+      },
+      { '.cursor/cli.json': 'not json' },
     ];
     for (const files of hooked) {
       const { root, sub } = await hookedWorkspace(files);
@@ -568,9 +574,10 @@ describe('cursor argv and posture', () => {
         );
       }
     }
-    // Settings without hooks are fine.
+    // Settings without hooks and a cli.json without grants are fine.
     const { root } = await hookedWorkspace({
-      '.claude/settings.json': '{"permissions":{}}',
+      '.claude/settings.json': '{"permissions":{"allow":["Bash(*)"]}}',
+      '.cursor/cli.json': '{"permissions":{"allow":[],"deny":["Shell(*)"]}}',
     });
     const ok = await cursorAdapter.prepare(
       await makeRequest(route, { cwd: root }),

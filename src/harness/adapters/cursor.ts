@@ -56,8 +56,40 @@ async function hookRisk(
 }
 
 /**
+ * Why `.cursor/cli.json` would widen what the agent may do, or undefined.
+ * Live probe 2026-10-25 (research `agent-job-execution-sweep-2026-10-25.md`):
+ * its `permissions.allow` (for example `Shell(*)`) let a default-mode run
+ * execute a shell command that is refused without it; `--mode ask` still
+ * blocked it, but agent-ci does not rely on that alone.
+ */
+async function permissionRisk(dir: string): Promise<string | undefined> {
+  const full = path.join(dir, '.cursor', 'cli.json');
+  let info: Awaited<ReturnType<typeof lstat>>;
+  try {
+    info = await lstat(full);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    return `${full} cannot be inspected`;
+  }
+  if (!info.isFile()) return `${full} is not a regular file`;
+  try {
+    const parsed = JSON.parse(await readFile(full, 'utf8')) as {
+      permissions?: { allow?: unknown };
+    };
+    const allow = parsed.permissions?.allow;
+    if (allow === undefined || (Array.isArray(allow) && allow.length === 0)) {
+      return undefined;
+    }
+    return `${full} grants Cursor permissions`;
+  } catch {
+    return `${full} is not valid JSON (it may grant permissions)`;
+  }
+}
+
+/**
  * Refuse a workspace (its directory and its repository root) that carries
- * hooks Cursor would execute, before the agent starts.
+ * hooks Cursor would execute or a `.cursor/cli.json` that grants permissions,
+ * before the agent starts.
  */
 export async function assertNoCursorProjectHooks(cwd: string): Promise<void> {
   const dirs = new Set([path.resolve(cwd)]);
@@ -71,6 +103,12 @@ export async function assertNoCursorProjectHooks(cwd: string): Promise<void> {
           `refusing to run Cursor: ${risk}, and the Cursor agent runs project hooks even in read-only runs`,
         );
       }
+    }
+    const permission = await permissionRisk(dir);
+    if (permission !== undefined) {
+      throw new UnsafeWorkspaceError(
+        `refusing to run Cursor: ${permission}; a repository must not widen what the agent may run`,
+      );
     }
   }
 }
