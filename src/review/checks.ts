@@ -157,10 +157,7 @@ export function parseChecksConfig(text: string): ChecksConfig {
 /** Build the spec's verify section from the file text and where it came from. */
 export function verifySpecFromText(
   text: string,
-  source: { ref: string; commit: string } = {
-    ref: 'main',
-    commit: '0'.repeat(40),
-  },
+  source: { ref: string; commit: string },
 ): VerifySpec {
   return {
     config_path: CHECKS_CONFIG_PATH,

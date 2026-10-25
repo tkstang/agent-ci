@@ -18,6 +18,9 @@ import { gitSourceReader } from '@agent-ci/review/sources.js';
 import { runVerify } from '@agent-ci/review/verify.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
+/** Test provenance for a checks config (prepare records the real one). */
+const TEST_SOURCE = { ref: 'main', commit: 'c'.repeat(40) };
+
 /**
  * verify-review end to end with the credential-free fake harness: the
  * verify stage records real checks, the reviewer pass serves them through
@@ -119,7 +122,7 @@ async function scenario(model = 'fake-verify-review') {
     },
     changed_files: ['src/cache.ts'],
     pr: { title: 'Add load', body: '' },
-    verify: verifySpecFromText(CONFIG),
+    verify: verifySpecFromText(CONFIG, TEST_SOURCE),
   };
   const specDir = path.join(root, 'spec');
   await mkdir(specDir);

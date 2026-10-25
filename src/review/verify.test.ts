@@ -39,6 +39,9 @@ import {
 } from '@agent-ci/review/verify.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
+/** Test provenance for a checks config (prepare records the real one). */
+const TEST_SOURCE = { ref: 'main', commit: 'c'.repeat(40) };
+
 const REPO = 'tkstang/app';
 const dirs: string[] = [];
 afterEach(async () => {
@@ -180,7 +183,7 @@ describe('check evidence', () => {
   const expected = {
     repository: REPO,
     head_sha: HEAD,
-    verify: verifySpecFromText(CONFIG_TEXT),
+    verify: verifySpecFromText(CONFIG_TEXT, TEST_SOURCE),
   };
 
   it('derives the evidence id from name, command, head, exit code and output digest', () => {
@@ -664,7 +667,7 @@ async function verifyScenario(configText: string) {
     },
     changed_files: [],
     pr: { title: 't', body: '' },
-    verify: verifySpecFromText(configText),
+    verify: verifySpecFromText(configText, TEST_SOURCE),
   };
   const loaded: LoadedSpec = { spec, diffText: '' };
   return { root, repo, head, spec: loaded, out: path.join(root, 'out') };
