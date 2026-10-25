@@ -1,7 +1,7 @@
 ---
 id: BL-261025-live-verify-opencode-read-only
 title: Live-verify OpenCode read-only deny rules
-status: open
+status: closed
 priority: medium
 scope: task
 scope_estimate: S
@@ -10,7 +10,7 @@ labels:
   - security
 assignee: null
 created: 2026-10-25T05:50:36.487Z
-updated: 2026-10-25T05:50:36.487Z
+updated: '2026-10-25T06:26:14Z'
 associated_issues: []
 external_plans: []
 ---
@@ -21,5 +21,5 @@ The opencode adapter writes `permission: {edit: deny, bash: deny, webfetch: deny
 
 ## Acceptance Criteria
 
-- {Outcome 1}
-- {Outcome 2}
+- A cheap read-only `opencode run` (isolated home, stdin closed, `--standalone`) asked to write a file and run a shell command produces neither, while a control run without deny rules does
+- The adapter's read-only deny keys match OpenCode v2 (deny both `bash` and `shell` if accepted) and the result is recorded in project research

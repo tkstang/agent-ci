@@ -20,5 +20,6 @@ Project agent-ci-v1 phase p04. A `run_check` tool bridge so the reviewer can run
 
 ## Acceptance Criteria
 
-- {Outcome 1}
-- {Outcome 2}
+- A `run_check` tool bridge runs repository checks with an env allowlist that strips tokens and a PATH that excludes the checkout, and records evidence IDs that findings cite
+- Bridge and controlled-environment tests pass
+- One live verify-review run on a test PR in `tkstang/agent-ci` is recorded in the journal

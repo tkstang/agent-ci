@@ -21,7 +21,6 @@ bullet lines over rewriting whole sections, and reference backlog records by ID
 - **BL-261025-verify-review-run-check-tool: Verify-review run_check tool bridge** — controlled repository checks for the reviewer. Project: agent-ci-v1 (p04)
 - **BL-261025-use-case-wrappers-and-multi: Use-case wrappers and multi-repo fan-out** — docs, instructions and tools updates; `targets.yaml`. Project: agent-ci-v1 (p05)
 - **BL-261025-documentation-tree-and-docs: Documentation tree and docs check** — `docs/` and `pnpm docs:check`. Project: agent-ci-v1 (p06)
-- **BL-261025-live-verify-opencode-read-only: Live-verify OpenCode read-only deny rules** — prove edits and shell are denied.
 - **BL-261025-qualify-the-ci-routes-live: Qualify the CI routes live** — routes still marked `qualified: null`.
 
 ## Later (Directional Intent)

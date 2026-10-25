@@ -20,5 +20,6 @@ Project agent-ci-v1 phase p06. `docs/` Markdown tree via OAT docs bootstrap conv
 
 ## Acceptance Criteria
 
-- {Outcome 1}
-- {Outcome 2}
+- A `docs/` Markdown tree created through the OAT docs bootstrap conventions covers getting started, harnesses and routing, workflows, PR review, configuration and the security model
+- `pnpm docs:check` (docs index and internal links) passes
+- README and `pjm/current-state.md` reflect shipped capability

@@ -20,5 +20,6 @@ Project agent-ci-v1 phase p05. Docs-update, instructions-update and tools-update
 
 ## Acceptance Criteria
 
-- {Outcome 1}
-- {Outcome 2}
+- Docs-update, instructions-update and tools-update workflows exist as thin callers of `run-agent.yml`
+- A multi-repository fan-out is driven by `targets.yaml`
+- Wrapper and fan-out workflow tests and `actionlint` pass

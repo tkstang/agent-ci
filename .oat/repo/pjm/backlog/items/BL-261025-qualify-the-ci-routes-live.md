@@ -20,5 +20,5 @@ models.yaml marks `claude-haiku-4-5-personal` (CLAUDE_CODE_OAUTH_TOKEN), `grok-4
 
 ## Acceptance Criteria
 
-- {Outcome 1}
-- {Outcome 2}
+- Each route marked `qualified: null` in `models.yaml` (`claude-haiku-4-5-personal`, `grok-4.7-opencode`, `claude-haiku-5-5-pool`, `glm-5.3-flash-opencode-login`) gets one cheap live `agent-ci run` producing a validated `run-result.json`, or is removed
+- `qualified` holds the date of that run, and the journal records the auth source and account used

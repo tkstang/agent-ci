@@ -22,5 +22,7 @@ Project agent-ci-v1 phase p02. Add the reusable `run-agent.yml` (workflow_call):
 
 ## Acceptance Criteria
 
-- {Outcome 1}
-- {Outcome 2}
+- `run-agent.yml` (workflow_call) has a read-only agent job, harness install for all four CLIs, per-job HOME skills install and artifacts, and a separate publish job (static-branch PR create/update, PR comment, optional notification); `runs-on` is an input everywhere and the model credential is scoped to the agent step only
+- Workflow structure tests, publisher unit tests and `actionlint` pass
+- A live Actions run in `tkstang/agent-ci` with the `fake` harness, from a test PR based on the project branch, runs the agent and publish jobs and the credential-free checks (CLI `--version` for all four harnesses, Codex sandbox smoke check, skills install listing)
+- A local `agent-ci run` plus `agent-ci publish` creates or updates a static-branch PR and comment in `tkstang/agent-ci` with a cheap model; edit-mode retries no longer reuse a workspace a failed attempt changed (or the limitation is documented)
