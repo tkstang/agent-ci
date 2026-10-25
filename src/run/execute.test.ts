@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -384,6 +385,92 @@ describe('runAgent', () => {
       const text = await writtenOutputs(summary);
       expect(text).not.toContain(fresh);
       expect(text).toContain('log record redacted');
+    });
+  });
+
+  describe('home root placement', () => {
+    async function gitWorkspace(): Promise<RunOptions> {
+      const opts = await options({ model: 'codex-login', seedLogin: true });
+      execFileSync('git', ['init', '-q'], { cwd: opts.cwd, stdio: 'ignore' });
+      const operatorHome = `${opts.cwd}-operator`;
+      await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
+      await writeFile(
+        path.join(operatorHome, '.codex', 'auth.json'),
+        JSON.stringify({
+          tokens: { access_token: 'synthetic-placement-0019' },
+        }),
+      );
+      return { ...opts, env: { PATH: process.env.PATH, HOME: operatorHome } };
+    }
+
+    it('refuses a home root inside the repository before creating or seeding it', async () => {
+      const opts = await gitWorkspace();
+      await mkdir(path.join(opts.cwd, 'sub'));
+      for (const homeRoot of [
+        path.join(opts.cwd, '.agent-home'),
+        opts.cwd,
+        path.join(opts.cwd, 'sub', 'deeper', 'home'),
+      ]) {
+        const summary = await runAgent({ ...opts, homeRoot });
+        expect(summary, homeRoot).toMatchObject({
+          ok: false,
+          code: 'E_HOME_ROOT',
+        });
+      }
+      expect(existsSync(path.join(opts.cwd, '.agent-home'))).toBe(false);
+      expect(existsSync(path.join(opts.cwd, 'home'))).toBe(false);
+      expect(existsSync(path.join(opts.cwd, 'sub', 'deeper'))).toBe(false);
+    });
+
+    it('refuses a home root that reaches the repository through a symlink', async () => {
+      const opts = await gitWorkspace();
+      const link = `${opts.cwd}-link`;
+      await symlink(opts.cwd, link);
+      const summary = await runAgent({
+        ...opts,
+        homeRoot: path.join(link, 'h'),
+      });
+      expect(summary).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+      expect(existsSync(path.join(opts.cwd, 'h'))).toBe(false);
+    });
+
+    it('accepts an external home and keeps login and invocation files out of changes', async () => {
+      const opts = await gitWorkspace();
+      const homeRoot = `${opts.cwd}-home`;
+      const summary = await runAgent(
+        { ...opts, homeRoot },
+        {
+          harness: {
+            spawn: async (spec) => {
+              await writeFile(
+                spec.args[spec.args.indexOf('-o') + 1] ?? '',
+                JSON.stringify({
+                  summary: 'ok',
+                  report: { title: 'T', markdown: 'M' },
+                }),
+              );
+              return {
+                started: true,
+                exitCode: 0,
+                signal: null,
+                stdout: `${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`,
+                stderr: '',
+                timedOut: false,
+                outputLimitExceeded: false,
+                durationMs: 1,
+              };
+            },
+          },
+        },
+      );
+      expect(summary.ok && summary.value.result).toMatchObject({
+        ok: true,
+        status: 'no-op',
+        changedFiles: [],
+      });
+      expect(
+        existsSync(path.join(homeRoot, 'home', '.codex', 'auth.json')),
+      ).toBe(true);
     });
   });
 });

@@ -31,7 +31,12 @@ import type {
   RunMode,
   Usage,
 } from '@agent-ci/harness/types.js';
-import { success, type ErrorCode, type Result } from '@agent-ci/result.js';
+import {
+  failure,
+  success,
+  type ErrorCode,
+  type Result,
+} from '@agent-ci/result.js';
 import {
   loadModelsFile,
   resolveRoute,
@@ -45,6 +50,11 @@ import {
 import { buildRunPrompt } from '@agent-ci/run/prompt.js';
 import { RunLog } from '@agent-ci/run/run-log.js';
 import { superviseAttempts } from '@agent-ci/run/supervisor.js';
+import {
+  findWorkspaceRoot,
+  isWithin,
+  resolveRealPath,
+} from '@agent-ci/run/workspace.js';
 
 export interface RunOptions {
   readonly model?: string | undefined;
@@ -145,9 +155,36 @@ export async function runAgent(
   });
   if (!prompt.ok) return prompt;
 
+  // The home root holds credentials (seeded or refreshed logins) and
+  // invocation files: it must never be the workspace or inside it, where it
+  // could be reported as a change, published or committed.
+  const boundary = await findWorkspaceRoot(options.cwd, deps.git);
+  const boundaryRoot = boundary.ok
+    ? boundary.value.root
+    : await resolveRealPath(options.cwd);
+  const homeOutside = async (root: string): Promise<boolean> =>
+    !isWithin(boundaryRoot, await resolveRealPath(root));
+  if (
+    options.homeRoot !== undefined &&
+    !(await homeOutside(options.homeRoot))
+  ) {
+    return failure(
+      'E_HOME_ROOT',
+      `home root ${options.homeRoot} is inside the workspace ${boundaryRoot}`,
+      'Choose a --home-root outside the repository (for example under the system temp directory).',
+    );
+  }
   const home = await createHomeRoot(options.homeRoot);
   if (!home.ok) return home;
   const keepHome = options.homeRoot !== undefined;
+  if (!keepHome && !(await homeOutside(home.value.root))) {
+    await rm(home.value.root, { recursive: true, force: true });
+    return failure(
+      'E_HOME_ROOT',
+      `the temp home root falls inside the workspace ${boundaryRoot}`,
+      'Run with TMPDIR outside the repository, or pass --home-root.',
+    );
+  }
   try {
     return await runInHome(
       options,

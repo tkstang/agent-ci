@@ -191,7 +191,8 @@ describe('agent-ci run', () => {
 
   it('keeps an explicit --home-root and removes a temp root', async () => {
     const { dir, models, context } = await workspace();
-    const homeRoot = path.join(dir, 'home-root');
+    // Outside the workspace: a home root inside it is refused (next test).
+    const homeRoot = path.join(`${dir}-home`, 'home-root');
     const kept = await run(
       [
         'run',
@@ -208,6 +209,29 @@ describe('agent-ci run', () => {
     );
     expect(kept.envelope).toMatchObject({ ok: true, data: { homeRoot } });
     expect(await exists(path.join(homeRoot, 'home', '.codex'))).toBe(true);
+  });
+
+  it('refuses a --home-root inside the workspace and creates nothing there', async () => {
+    const { dir, models, context } = await workspace();
+    const homeRoot = path.join(dir, '.agent-home');
+    const { envelope, exitCode } = await run(
+      [
+        'run',
+        '--model',
+        'fake-echo',
+        '--prompt',
+        'x',
+        '--models',
+        models,
+        '--home-root',
+        homeRoot,
+      ],
+      context,
+    );
+    expect(exitCode).toBe(1);
+    expect(envelope).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+    expect(await exists(homeRoot)).toBe(false);
+    expect(await exists(path.join(dir, '.agent-ci'))).toBe(false);
   });
 
   it('rejects bad flags with E_INVALID_INPUT', async () => {
