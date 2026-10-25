@@ -19,7 +19,9 @@
 # workflows reference only in their resolve and publish jobs (no repository
 # code, no agent). Jobs that run repository code or the agent check other
 # targets out with the read-only AGENT_CI_TARGET_READ_TOKEN (needed for
-# private targets; refused when it can write). A missing token stops that
+# private targets; grant it contents: read only: it is refused when it can
+# write contents or is a scoped classic token, and other permissions cannot
+# be checked). A missing token stops that
 # target's run. One read token serves every target, so an agent on one
 # target could read any private target that token reads; split fleets of
 # different trust.

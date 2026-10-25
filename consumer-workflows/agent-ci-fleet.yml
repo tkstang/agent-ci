@@ -12,9 +12,12 @@
 #   GITHUB_TOKEN instead.
 # - AGENT_CI_TARGET_READ_TOKEN: contents read on private targets, for the
 #   checkouts in the jobs that run repository code or the agent. Public
-#   targets need none. It must be read-only: each run refuses it when it is
-#   the write token, a classic token with a write scope, or able to write
-#   (dry-run check). One read token covers the whole fleet, so an agent
+#   targets need none. Grant it contents: read and nothing else (a
+#   fine-grained or GitHub App token). Each run refuses it when it is the
+#   write token, a classic token with any scope, or able to write repository
+#   contents (dry-run check); other write permissions (pull requests,
+#   Actions, secrets, administration) cannot be checked, so do not grant
+#   them. One read token covers the whole fleet, so an agent
 #   working on one target could read every private target the token can
 #   read; give fleets with different trust their own fleet repository and
 #   tokens (a secret cannot be chosen per target without a dynamic lookup).

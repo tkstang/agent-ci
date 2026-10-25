@@ -50,8 +50,10 @@ const USAGE = `agent-ci targets — multi-repository fan-out targets.
       every job checks out, the publish base and the PR to comment on.
       The calling repository is read with GITHUB_TOKEN; another repository
       only with AGENT_CI_TARGET_TOKEN (refused when missing), and its
-      checkout needs AGENT_CI_TARGET_READ_TOKEN unless it is public (checked
-      here). Event values (--event-*) apply only to the calling repository.
+      checkout needs AGENT_CI_TARGET_READ_TOKEN unless it is public; that
+      token is refused when it is the write token, a scoped classic token or
+      can write repository contents (its other permissions cannot be
+      checked). Event values (--event-*) apply only to the calling repository.
       --github-output writes repository, cross, sha, base, comment_pr and
       default_branch.
 

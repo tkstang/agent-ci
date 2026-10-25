@@ -22,7 +22,11 @@ import { isRepository } from '@agent-ci/targets/schema.js';
  * run repository code check another repository out with the optional,
  * read-only `AGENT_CI_TARGET_READ_TOKEN` (else `GITHUB_TOKEN`, which reads
  * public repositories only); a private target without it, and a read token
- * that can write, are refused here, before any job runs its code.
+ * that is the write token, is a scoped classic token or can write repository
+ * contents, are refused here, before any job runs its code. Other write
+ * permissions of a fine-grained or App token (pull requests, Actions,
+ * secrets, administration) cannot be introspected and are not detected: the
+ * operator must grant `contents: read` and nothing else.
  * Event-derived defaults (the triggering PR, its head commit, its head
  * branch) describe the calling repository, so they are never applied to
  * another repository.
@@ -81,21 +85,25 @@ function notReadOnly(why: string): Result<never> {
   return failure(
     'E_TARGET_TOKEN',
     `AGENT_CI_TARGET_READ_TOKEN ${why}`,
-    'It reaches the jobs that run repository code and the agent: use a token with contents: read only (a fine-grained token or GitHub App token), never the write token.',
+    'It reaches the jobs that run repository code and the agent: use a fine-grained or GitHub App token granted contents: read and nothing else. agent-ci checks that it is not the write token, not a scoped classic token, and cannot write repository contents; other permissions cannot be checked.',
   );
 }
-
-/** Classic-token scopes that can write to a repository. */
-const WRITE_SCOPES = new Set(['repo', 'public_repo', 'workflow']);
 
 /**
  * Another repository's checkout runs with the read-only token: it must read
  * the repository, a private repository needs one (GITHUB_TOKEN cannot), and
- * it must not be able to write: it may not be the write token, a classic
- * token may not carry a write scope, and a dry-run ref creation (an all-zero
- * SHA, which GitHub rejects without creating anything: 422 when the token
- * may write, 403/404 when it may not) must be refused for lack of
- * permission. Anything else fails closed.
+ * what can be checked through the API must show it cannot write contents:
+ * - it may not be the write token;
+ * - it may not be a classic token reporting any scope (`X-OAuth-Scopes`): a
+ *   classic token reads a private repository only with the writable `repo`
+ *   scope, and a public target needs no read token, so a scoped classic
+ *   read token is never needed;
+ * - a dry-run ref creation (an all-zero SHA, which GitHub rejects without
+ *   creating anything: 422 when the token may write contents, 403/404 when
+ *   it may not) must be refused for lack of permission.
+ * Anything else fails closed. Pull-request, Actions, secrets and
+ * administration permissions of fine-grained or App tokens cannot be
+ * introspected (recorded residual).
  */
 async function checkoutAccess(
   repo: unknown,
@@ -139,9 +147,10 @@ async function checkoutAccess(
       `AGENT_CI_TARGET_READ_TOKEN cannot read ${repository}`,
     );
   }
-  const writeScope = scopes.find((scope) => WRITE_SCOPES.has(scope));
-  if (writeScope !== undefined) {
-    return notReadOnly(`is a classic token with the ${writeScope} scope`);
+  if (scopes.length > 0) {
+    return notReadOnly(
+      `is a classic token with scopes (${scopes.join(', ')}); a classic token needs the writable repo scope to read a private repository`,
+    );
   }
   try {
     const probe = await reader.send(
@@ -156,10 +165,12 @@ async function checkoutAccess(
       [403, 404, 422],
     );
     if (probe.status === 422) {
-      return notReadOnly(`can write to ${repository}`);
+      return notReadOnly(`can write the contents of ${repository}`);
     }
   } catch {
-    return notReadOnly(`could not be verified as read-only on ${repository}`);
+    return notReadOnly(
+      `could not be verified unable to write the contents of ${repository}`,
+    );
   }
   return success(undefined);
 }

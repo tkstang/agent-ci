@@ -22,7 +22,9 @@
 # references. The setup and agent jobs check another repository out with the
 # optional read-only AGENT_CI_TARGET_READ_TOKEN (else GITHUB_TOKEN, which
 # reads public repositories only; resolve refuses a private target without
-# it, and a read token that can push or equals the write token). The token
+# it, and a read token that equals the write token, is a scoped classic
+# token or can write repository contents; grant it contents: read only,
+# since its other permissions cannot be checked). The token
 # boundary depends on static secret references only: no job may use a
 # dynamic secrets[...] lookup, because the runner would then receive every
 # secret the workflow holds. GitHub validates the publish job's

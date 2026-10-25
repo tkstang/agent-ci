@@ -500,14 +500,14 @@ describe('resolveTarget', () => {
     expect(calls[2]?.url).toMatch(/\/repos\/octo\/secret\/git\/refs$/u);
   });
 
-  it('refuses a read token that is the write token, carries a write scope, or can write', async () => {
+  it('refuses a read token that is the write token, a scoped classic token, or can write contents', async () => {
     const { impl } = fakeFetch(
       REPOS,
       { main: SHA_B, trunk: SHA_A },
       undefined,
       {
         writers: ['writer'],
-        scopes: { classic: 'read:org, repo', reader: 'read:org' },
+        scopes: { classic: 'read:org, repo', reader: 'read:org', blank: '' },
       },
     );
     const base = {
@@ -516,14 +516,17 @@ describe('resolveTarget', () => {
       targetToken: 'target-token',
       fetch: impl,
     };
-    for (const readToken of ['target-token', 'classic', 'writer']) {
+    // Any scoped classic token is refused, even read-only scopes.
+    for (const readToken of ['target-token', 'classic', 'reader', 'writer']) {
       const refused = await resolveTarget({ ...base, readToken });
       expect(code(refused), readToken).toBe('E_TARGET_TOKEN');
     }
-    // A classic token with read-only scopes that cannot write passes.
-    expect(code(await resolveTarget({ ...base, readToken: 'reader' }))).toBe(
-      'ok',
-    );
+    // A token reporting no scopes (fine-grained, App) that cannot write passes.
+    for (const readToken of ['fine-grained', 'blank']) {
+      expect(code(await resolveTarget({ ...base, readToken })), readToken).toBe(
+        'ok',
+      );
+    }
     // A public target without a read token needs none of these checks.
     expect(
       code(
