@@ -1,3 +1,4 @@
 # False positives: synthetic test placeholders, never real credentials.
 # Fingerprint format: <commit>:<file>:<rule>:<line> (gitleaks detect over history).
 af8fda06d291dc9b026fb73c6171114cabdb814c:src/run/execute.test.ts:generic-api-key:400
+4f49183ec28588802cc36b92f1dae7e5913fdf2c:src/run/execute.test.ts:generic-api-key:926

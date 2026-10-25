@@ -923,7 +923,9 @@ describe('runAgent', () => {
           return {
             fromExit: 0,
             toExit: 0,
-            transferred: JSON.stringify([{ access: 'synthetic-stray-0029' }]),
+            transferred: JSON.stringify([
+              { placeholder: 'synthetic-stray-0029' },
+            ]),
           };
         },
         loginExport: async () => ({ exitCode: 0, stdout: '[]' }),
