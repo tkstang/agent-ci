@@ -15,6 +15,7 @@ import {
   secretValuesFromEnv,
 } from '@agent-ci/contracts/secret-guard.js';
 import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
+import { CredentialLeakError } from '@agent-ci/harness/env.js';
 import {
   createHomeRoot,
   type HomeRoot,
@@ -74,6 +75,8 @@ export interface RunDeps {
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly pipe?: PipeRunner;
+  /** git executable used for change detection (test seam). */
+  readonly git?: string;
 }
 
 export interface RunSummary {
@@ -197,7 +200,7 @@ async function runInHome(
   const promptPath = path.join(outDir, 'prompt.md');
   const resultPath = path.join(outDir, 'run-result.json');
   const logPath = path.join(outDir, 'run-log.jsonl');
-  await writeFile(promptPath, promptText);
+  await writeFile(promptPath, maskSecrets(promptText, secrets));
 
   const routeInfo = {
     id: route.id,
@@ -216,55 +219,98 @@ async function runInHome(
   });
 
   // Only changes made during the run count; pre-existing dirt does not.
-  const baseline = await snapshotWorkspace(options.cwd, [outDir]);
+  const baseline = await snapshotWorkspace(options.cwd, [outDir], deps.git);
+  if (!baseline.ok) {
+    log.add('workspace.status', {
+      phase: 'baseline',
+      code: baseline.code,
+      message: baseline.message,
+    });
+  }
+  // An edit run whose changes cannot be detected would publish nothing; stop
+  // before spending a model call.
+  const preflight: AttemptRecord | undefined =
+    !baseline.ok && options.mode === 'edit'
+      ? {
+          ok: false,
+          retryable: false,
+          outcome: {
+            ok: false,
+            code: 'E_HARNESS_FAILED',
+            retryable: false,
+            message: baseline.message,
+          },
+        }
+      : undefined;
   const adapter = adapterFor(route.harness);
-  const supervised = await superviseAttempts<AttemptRecord>({
-    maxAttempts: options.maxAttempts,
-    retryDelayMs: options.retryDelayMs,
-    deadlineAtMs: now() + options.timeoutMs,
-    now,
-    ...(deps.sleep === undefined ? {} : { sleep: deps.sleep }),
-    run: async (attempt, timeoutMs) => {
-      const scratchDir = await mkdtemp(
-        path.join(homeRoot.root, `attempt-${attempt}-`),
-      );
-      const run = await runHarness(
-        adapter,
-        {
-          route,
-          prompt: promptText,
-          cwd: options.cwd,
-          mode: options.mode,
-          home: homeRoot,
-          scratchDir,
-          parentEnv: options.env,
-        },
-        { timeoutMs },
-        deps.harness,
-      );
-      const outcome = run.outcome;
-      log.add('attempt', {
-        attempt,
-        harness: route.harness,
-        ok: outcome.ok,
-        ...(outcome.ok
-          ? {}
-          : {
-              code: outcome.code,
-              retryable: outcome.retryable,
-              message: maskSecrets(outcome.message, secrets),
-            }),
-        usage: outcome.usage ?? null,
-        sessionId: outcome.sessionId ?? null,
-        durationMs: run.durationMs ?? null,
-      });
-      return {
-        ok: outcome.ok,
-        retryable: outcome.ok ? false : outcome.retryable,
-        outcome,
-      };
-    },
-  });
+  const supervised =
+    preflight !== undefined
+      ? { result: preflight, attempts: 0, stopReason: 'not-retryable' as const }
+      : await superviseAttempts<AttemptRecord>({
+          maxAttempts: options.maxAttempts,
+          retryDelayMs: options.retryDelayMs,
+          deadlineAtMs: now() + options.timeoutMs,
+          now,
+          ...(deps.sleep === undefined ? {} : { sleep: deps.sleep }),
+          run: async (attempt, timeoutMs) => {
+            const scratchDir = await mkdtemp(
+              path.join(homeRoot.root, `attempt-${attempt}-`),
+            );
+            let run: Awaited<ReturnType<typeof runHarness>> | undefined;
+            let outcome: HarnessOutcome;
+            try {
+              run = await runHarness(
+                adapter,
+                {
+                  route,
+                  prompt: promptText,
+                  cwd: options.cwd,
+                  mode: options.mode,
+                  home: homeRoot,
+                  scratchDir,
+                  parentEnv: options.env,
+                },
+                { timeoutMs },
+                deps.harness,
+              );
+              outcome = run.outcome;
+            } catch (err) {
+              // A leak guard or an adapter I/O error: still a recorded, failed run.
+              outcome = {
+                ok: false,
+                code:
+                  err instanceof CredentialLeakError
+                    ? 'E_CREDENTIAL_LEAK'
+                    : 'E_HARNESS_FAILED',
+                retryable: false,
+                message: maskSecrets(
+                  err instanceof Error ? err.message : String(err),
+                  secrets,
+                ),
+              };
+            }
+            log.add('attempt', {
+              attempt,
+              harness: route.harness,
+              ok: outcome.ok,
+              ...(outcome.ok
+                ? {}
+                : {
+                    code: outcome.code,
+                    retryable: outcome.retryable,
+                    message: maskSecrets(outcome.message, secrets),
+                  }),
+              usage: outcome.usage ?? null,
+              sessionId: outcome.sessionId ?? null,
+              durationMs: run?.durationMs ?? null,
+            });
+            return {
+              ok: outcome.ok,
+              retryable: outcome.ok ? false : outcome.retryable,
+              outcome,
+            };
+          },
+        });
 
   const outcome = supervised.result.outcome;
   let result: ValidatedRunResult;
@@ -274,18 +320,28 @@ async function runInHome(
       outcome.structured === undefined
         ? extractStructuredResult(outcome.finalText)
         : success(outcome.structured);
-    const finalized = candidate.ok
-      ? finalizeRunResult(candidate.value, {
-          useCase: options.useCase,
-          targetRepo: options.targetRepo,
-          outputContract: options.outputContract,
-          verdictItems: options.verdictItems,
-          detectedChangedFiles: await changedSince(options.cwd, baseline, [
-            outDir,
-          ]),
-          secrets,
-        })
-      : candidate;
+    const changed = baseline.ok
+      ? await changedSince(options.cwd, baseline.value, [outDir], deps.git)
+      : baseline;
+    if (!changed.ok && baseline.ok) {
+      log.add('workspace.status', {
+        phase: 'after',
+        code: changed.code,
+        message: changed.message,
+      });
+    }
+    const finalized = !candidate.ok
+      ? candidate
+      : !changed.ok && options.mode === 'edit'
+        ? changed
+        : finalizeRunResult(candidate.value, {
+            useCase: options.useCase,
+            targetRepo: options.targetRepo,
+            outputContract: options.outputContract,
+            verdictItems: options.verdictItems,
+            detectedChangedFiles: changed.ok ? changed.value : [],
+            secrets,
+          });
     if (finalized.ok) {
       result = finalized.value;
     } else {
@@ -297,7 +353,7 @@ async function runInHome(
     }
   } else {
     error = {
-      code: outcome.code,
+      code: preflight !== undefined ? 'E_WORKSPACE_STATUS' : outcome.code,
       message: maskSecrets(outcome.message, secrets),
     };
     result = buildFailedRunResult({ ...options, ...error });

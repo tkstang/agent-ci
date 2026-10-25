@@ -60,7 +60,8 @@ export type HarnessFailureCode =
   | 'E_HARNESS_AUTH'
   | 'E_HARNESS_FAILED'
   | 'E_HARNESS_TIMEOUT'
-  | 'E_HARNESS_OUTPUT_LIMIT';
+  | 'E_HARNESS_OUTPUT_LIMIT'
+  | 'E_CREDENTIAL_LEAK';
 
 export type HarnessOutcome =
   | {

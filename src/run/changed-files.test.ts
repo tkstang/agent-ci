@@ -41,12 +41,16 @@ describe('detectChangedFiles', () => {
     const files = await detectChangedFiles(repo, [
       path.join(repo, '.agent-ci'),
     ]);
-    expect(files.toSorted()).toEqual(['a.txt', 'new file.txt', 'renamed.txt']);
+    expect(files.ok && files.value.toSorted()).toEqual([
+      'a.txt',
+      'new file.txt',
+      'renamed.txt',
+    ]);
   });
 
   it('returns nothing outside a git repository', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-nogit-'));
-    expect(await detectChangedFiles(dir)).toEqual([]);
+    expect(await detectChangedFiles(dir)).toEqual({ ok: true, value: [] });
   });
 
   it('reports only changes made after the baseline snapshot', async () => {
@@ -58,20 +62,44 @@ describe('detectChangedFiles', () => {
     // Pre-existing dirt: an untracked file and a modified tracked file.
     await writeFile(path.join(repo, 'stray.log'), 'pre-existing');
     await writeFile(path.join(repo, 'tracked.txt'), 'dirty before');
-    const baseline = await snapshotWorkspace(repo);
-    expect(await changedSince(repo, baseline)).toEqual([]);
+    const snapshot = await snapshotWorkspace(repo);
+    if (!snapshot.ok) throw new Error(snapshot.message);
+    const baseline = snapshot.value;
+    expect(await changedSince(repo, baseline)).toEqual({ ok: true, value: [] });
     // The run edits the dirty file again and creates a new one.
     await writeFile(path.join(repo, 'tracked.txt'), 'edited by run');
     await writeFile(path.join(repo, 'made-by-run.txt'), 'n');
-    expect(await changedSince(repo, baseline)).toEqual([
-      'made-by-run.txt',
-      'tracked.txt',
-    ]);
+    expect(await changedSince(repo, baseline)).toEqual({
+      ok: true,
+      value: ['made-by-run.txt', 'tracked.txt'],
+    });
     // Restoring a dirty file to its committed content is also a change.
     git(repo, 'checkout', '--', 'tracked.txt');
-    expect(await changedSince(repo, baseline)).toEqual([
-      'made-by-run.txt',
-      'tracked.txt',
-    ]);
+    expect(await changedSince(repo, baseline)).toEqual({
+      ok: true,
+      value: ['made-by-run.txt', 'tracked.txt'],
+    });
+  });
+
+  it('reports a git failure as E_WORKSPACE_STATUS instead of no changes', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-badgit-'));
+    const fakeGit = path.join(dir, 'git');
+    await writeFile(
+      fakeGit,
+      "#!/bin/sh\necho 'fatal: detected dubious ownership in repository' >&2\nexit 128\n",
+      { mode: 0o755 },
+    );
+    expect(await detectChangedFiles(dir, [], fakeGit)).toMatchObject({
+      ok: false,
+      code: 'E_WORKSPACE_STATUS',
+      message: expect.stringContaining('dubious ownership'),
+    });
+    expect(
+      await detectChangedFiles(dir, [], path.join(dir, 'missing-git')),
+    ).toMatchObject({
+      ok: false,
+      code: 'E_WORKSPACE_STATUS',
+      message: expect.stringContaining('git is not installed'),
+    });
   });
 });

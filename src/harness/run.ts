@@ -1,4 +1,5 @@
 import { secretValuesFromEnv } from '@agent-ci/contracts/secret-guard.js';
+import { CredentialLeakError } from '@agent-ci/harness/env.js';
 import {
   type SpawnResult,
   spawnHarness,
@@ -51,7 +52,9 @@ function assertNoCredentialInArgs(
       secrets.some((secret) => arg.includes(secret)),
     )
   ) {
-    throw new Error('a credential value appeared in harness argv');
+    throw new CredentialLeakError(
+      'a credential value appeared in harness argv',
+    );
   }
 }
 

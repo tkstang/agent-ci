@@ -3,27 +3,46 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
+import { failure, success, type Result } from '@agent-ci/result.js';
+
 /**
- * Workspace changes since the run started, from `git status --porcelain -z`.
- * Paths under `excludeDirs` (agent-ci's own output) are ignored. Returns an
- * empty list outside a git repository.
+ * Workspace changes from `git status --porcelain -z`. Paths under
+ * `excludeDirs` (agent-ci's own output) are ignored. Outside a git repository
+ * the list is empty; any other git failure (missing git, a `safe.directory`
+ * refusal) is an `E_WORKSPACE_STATUS` failure, never a silent "no changes".
  */
 export function detectChangedFiles(
   cwd: string,
   excludeDirs: readonly string[] = [],
-): Promise<string[]> {
+  git = 'git',
+): Promise<Result<string[]>> {
   return new Promise((resolve) => {
     const child = execFile(
-      'git',
+      git,
       ['status', '--porcelain', '-z', '--untracked-files=all'],
       {
         cwd,
         env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
         maxBuffer: 16 * 1024 * 1024,
       },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
         if (error !== null) {
-          resolve([]);
+          const text = String(stderr);
+          if (/not a git repository/iu.test(text)) {
+            resolve(success([]));
+            return;
+          }
+          const reason =
+            (error as NodeJS.ErrnoException).code === 'ENOENT'
+              ? 'git is not installed'
+              : text.trim().split('\n')[0] || error.message;
+          resolve(
+            failure(
+              'E_WORKSPACE_STATUS',
+              `could not read workspace changes: ${reason}`,
+              'Fix git access to the workspace (for example safe.directory) so changes can be detected.',
+            ),
+          );
           return;
         }
         const excluded = excludeDirs
@@ -41,8 +60,10 @@ export function detectChangedFiles(
           if (status.includes('R') || status.includes('C')) index += 1;
         }
         resolve(
-          files.filter(
-            (file) => !excluded.some((prefix) => file.startsWith(prefix)),
+          success(
+            files.filter(
+              (file) => !excluded.some((prefix) => file.startsWith(prefix)),
+            ),
           ),
         );
       },
@@ -71,12 +92,15 @@ async function fingerprint(file: string): Promise<string> {
 export async function snapshotWorkspace(
   cwd: string,
   excludeDirs: readonly string[] = [],
-): Promise<WorkspaceSnapshot> {
+  git = 'git',
+): Promise<Result<WorkspaceSnapshot>> {
+  const files = await detectChangedFiles(cwd, excludeDirs, git);
+  if (!files.ok) return files;
   const entries = new Map<string, string>();
-  for (const file of await detectChangedFiles(cwd, excludeDirs)) {
+  for (const file of files.value) {
     entries.set(file, await fingerprint(path.join(cwd, file)));
   }
-  return entries;
+  return success(entries);
 }
 
 /**
@@ -88,14 +112,16 @@ export async function changedSince(
   cwd: string,
   before: WorkspaceSnapshot,
   excludeDirs: readonly string[] = [],
-): Promise<string[]> {
-  const after = await snapshotWorkspace(cwd, excludeDirs);
+  git = 'git',
+): Promise<Result<string[]>> {
+  const after = await snapshotWorkspace(cwd, excludeDirs, git);
+  if (!after.ok) return after;
   const changed = new Set<string>();
-  for (const [file, print] of after) {
+  for (const [file, print] of after.value) {
     if (before.get(file) !== print) changed.add(file);
   }
   for (const file of before.keys()) {
-    if (!after.has(file)) changed.add(file);
+    if (!after.value.has(file)) changed.add(file);
   }
-  return [...changed].toSorted();
+  return success([...changed].toSorted());
 }

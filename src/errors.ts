@@ -6,6 +6,7 @@ const SYSTEM_CODES: ReadonlySet<string> = new Set([
   'E_HARNESS_FAILED',
   'E_HARNESS_TIMEOUT',
   'E_HARNESS_OUTPUT_LIMIT',
+  'E_CREDENTIAL_LEAK',
 ]);
 
 /** Exit code for a code: 1 = user-actionable, 2 = system/unexpected. */

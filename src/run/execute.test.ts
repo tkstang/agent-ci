@@ -14,6 +14,16 @@ const REPLAY_CLI = fileURLToPath(
 
 const MODELS = `version: 1
 routes:
+  - id: fake-echo-keyed
+    model: fake-echo-keyed
+    harness: fake
+    family: fake
+    providerModel: echo
+    credentials: [CURSOR_API_KEY]
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: null
   - id: fake-echo
     model: fake-echo
     harness: fake
@@ -67,6 +77,16 @@ async function options(
     env: { PATH: process.env.PATH },
     ...overrides,
   };
+}
+
+async function brokenGit(dir: string): Promise<string> {
+  const fakeGit = path.join(dir, 'broken-git');
+  await writeFile(
+    fakeGit,
+    "#!/bin/sh\necho 'fatal: detected dubious ownership in repository' >&2\nexit 128\n",
+    { mode: 0o755 },
+  );
+  return fakeGit;
 }
 
 describe('runAgent', () => {
@@ -188,5 +208,54 @@ describe('runAgent', () => {
       (await readFile(summary.value.logPath, 'utf8'));
     expect(written).not.toContain(token);
     expect(JSON.stringify(summary.value)).not.toContain(token);
+  });
+
+  describe('workspace status and in-attempt errors', () => {
+    it('fails an edit run before the harness when changes cannot be detected', async () => {
+      const opts = await options({ model: 'fake-echo', mode: 'edit' });
+      const summary = await runAgent(opts, { git: await brokenGit(opts.cwd) });
+      expect(summary.ok).toBe(true);
+      if (!summary.ok) return;
+      expect(summary.value.error?.code).toBe('E_WORKSPACE_STATUS');
+      expect(summary.value.attempts).toBe(0);
+      const result = JSON.parse(
+        await readFile(summary.value.resultPath, 'utf8'),
+      );
+      expect(result).toMatchObject({ ok: false, status: 'failed' });
+      const log = await readFile(summary.value.logPath, 'utf8');
+      expect(log).toContain('"event":"workspace.status"');
+      expect(log).not.toContain('"event":"attempt"');
+    });
+
+    it('records the git failure but completes a read-only run', async () => {
+      const opts = await options({ model: 'fake-echo' });
+      const summary = await runAgent(opts, { git: await brokenGit(opts.cwd) });
+      expect(summary.ok && summary.value.result.ok).toBe(true);
+      if (!summary.ok) return;
+      const log = await readFile(summary.value.logPath, 'utf8');
+      expect(log).toContain('"event":"workspace.status"');
+      expect(log).toContain('dubious ownership');
+    });
+
+    it('turns a leak-guard throw into a written, failed result', async () => {
+      const value = 'synthetic-cursor-credential-0042';
+      const opts = await options({
+        model: 'fake-echo-keyed',
+        prompt: `Please use ${value}`,
+        env: { PATH: process.env.PATH, CURSOR_API_KEY: value },
+      });
+      const summary = await runAgent(opts);
+      expect(summary.ok).toBe(true);
+      if (!summary.ok) return;
+      expect(summary.value.error?.code).toBe('E_CREDENTIAL_LEAK');
+      const written =
+        (await readFile(summary.value.resultPath, 'utf8')) +
+        (await readFile(summary.value.logPath, 'utf8'));
+      expect(written).toContain('E_CREDENTIAL_LEAK');
+      expect(written).not.toContain(value);
+      expect(await readFile(summary.value.promptPath, 'utf8')).not.toContain(
+        value,
+      );
+    });
   });
 });
