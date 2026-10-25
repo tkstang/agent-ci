@@ -30,6 +30,7 @@ import {
   detectIsolation,
   execCommand,
   isolatedArgv,
+  isSecretEnvName,
   brokerDirectories,
   chooseWorkParent,
   LINUX_INIT,
@@ -307,6 +308,46 @@ describe('controlled environment', () => {
       ].toSorted(),
     );
     expect(env.HOME).toBe('/work/home');
+  });
+
+  it('classifies credential and runner-control variable names as secret', () => {
+    const secret = [
+      'GITHUB_TOKEN',
+      'GH_TOKEN',
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'AGENT_CI_CREDENTIAL',
+      'AWS_SECRET_ACCESS_KEY',
+      'AWS_ACCESS_KEY_ID',
+      'DEPLOY_PRIVATE_KEY',
+      'DB_PASSWORD',
+      'MYSQL_PASSWD',
+      'npm_config__auth',
+      'BASIC_AUTH',
+      'client_secret',
+      'ACTIONS_RUNTIME_URL',
+      'ACTIONS_CACHE_URL',
+      'RUNNER_TEMP',
+      'GITHUB_ENV',
+      'GITHUB_PATH',
+      'GITHUB_OUTPUT',
+      'GITHUB_STATE',
+      'GITHUB_STEP_SUMMARY',
+    ];
+    const plain = [
+      'CI',
+      'GITHUB_ACTIONS',
+      'GITHUB_SHA',
+      'GITHUB_REPOSITORY',
+      'LANG',
+      'NODE_ENV',
+      'PATH',
+      'HOME',
+      'TZ',
+      'SSL_CERT_FILE',
+    ];
+    expect(secret.filter((name) => !isSecretEnvName(name))).toEqual([]);
+    expect(plain.filter((name) => isSecretEnvName(name))).toEqual([]);
   });
 
   it('drops PATH entries inside the checkout or the copies, and relative ones', () => {

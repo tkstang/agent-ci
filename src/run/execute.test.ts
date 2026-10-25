@@ -958,6 +958,37 @@ describe('runAgent', () => {
       });
     });
 
+    it('never persists a credential the agent spelled into a home path a guard failure quotes', async () => {
+      const secret = 'synthetic-final-guard-0031';
+      const opts = await options({
+        model: 'fake-echo-keyed',
+        env: { PATH: process.env.PATH, CURSOR_API_KEY: secret },
+      });
+      const summary = await runAgent(opts, {
+        harness: {
+          spawn: async (spec) => {
+            // The home check quotes this link's path in its failure message.
+            await symlink(
+              opts.cwd,
+              path.join(spec.env.HOME ?? '', `cache-${secret}`),
+            );
+            return okProcess(
+              `${JSON.stringify({
+                type: 'result',
+                is_error: false,
+                result: JSON.stringify({
+                  summary: 's',
+                  report: { title: 'T', markdown: 'M' },
+                }),
+              })}\n`,
+            );
+          },
+        },
+      });
+      expect(summary.ok && summary.value.error?.code).toBe('E_SECRET_COPY');
+      expect(await writtenOutputs(summary)).not.toContain(secret);
+    });
+
     it('reports a store that seeding wrote into the workspace instead of treating it as earlier dirt', async () => {
       const opts = await options({ model: 'grok-4.7', seedLogin: true });
       execFileSync('git', ['init', '-q'], { cwd: opts.cwd, stdio: 'ignore' });
