@@ -14,7 +14,7 @@ A p04 bridge probe on 2026-10-25 showed that headless Cursor agent -p runs on th
 
 ## Decision
 
-The operator accepted the risk on 2026-10-25 (agent-ci-v1). Cursor routes stay available for runs and reviews on private-repository pull requests. Public repositories never open the tool to untrusted outsiders. No code change was made.
+The operator accepted the risk on 2026-10-25 (agent-ci-v1). Cursor routes stay available for runs and reviews on private-repository pull requests. The operator does not run Cursor routes for untrusted outsiders on public repositories; agent-ci does not enforce this, and the write-access gate is the only control. No code change was made.
 
 ## Consequences
 

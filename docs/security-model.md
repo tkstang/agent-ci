@@ -120,9 +120,9 @@ Every harness process:
   configuration that could run commands or widen permissions (hooks, rules,
   custom agents and commands) before the harness starts;
 - has stdin closed, a deadline enforced with a process-group kill (2-second
-  grace) and a 4 MiB output cap on stdout and stderr; an output file read
-  after the process exits (Codex's `-o` final answer) is held to the same
-  cap and is never read through a link;
+  grace) and a 4 MiB output cap on stdout and stderr together; an output file
+  read after the process exits (Codex's `-o` final answer) is held to the
+  same cap, and a link at its path is refused;
 - uses the read-only or edit posture listed in
   [Harnesses and routing](harnesses-and-routing.md#harnesses).
 
@@ -152,8 +152,8 @@ credential over the network.
 - The use-case presets publish only paths their policy allows (for example,
   docs-update refuses `.github/`, provider directories, MCP configuration
   and package manifests). The policy is checked against the change set and
-  against the whole resulting pull request diff, so a deletion or revert the
-  new tree would cause is refused too. `agent-ci preset list` prints every
+  against the whole resulting pull request diff, so a deletion or revert
+  outside the policy that the new tree would cause is refused too. `agent-ci preset list` prints every
   rule.
 - A change set built on an older base than the static branch already
   publishes is refused (`E_PUBLISH_STALE_BASE`), so a delayed or re-run job

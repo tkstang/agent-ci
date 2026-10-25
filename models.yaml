@@ -15,7 +15,7 @@
 #   allowed only on a self-hosted runner (RUNNER_ENVIRONMENT=self-hosted, its
 #   host runs the proxy) and never for a Claude model: Claude pool routes stay
 #   local only (CI_POOL_ALLOWS_CLAUDE in src/routing/policy.ts; operator
-#   decision pending, DR-261025-use-the-local-proxy-pool amendment 2026-10-25).
+#   decision DR-261025-keep-claude-pool-routes).
 #   Workflows pass only AGENT_CI_PROXY_API_KEY for pool routes, never
 #   ANTHROPIC_AUTH_TOKEN.
 # - `login: true` routes use a harness login seeded into the isolated home with

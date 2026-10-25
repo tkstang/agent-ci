@@ -43,3 +43,4 @@ Enabling them needs every one of these:
 
 The other way is a Claude pool route that names a credential already in that list. No behavior changes here; the decision stays with the operator, including whether to key the rule to billing instead of model family.
 
+> Note (2026-10-25, later): the pending Claude-in-CI question was decided in DR-261025-keep-claude-pool-routes — Claude pool routes stay refused in CI.

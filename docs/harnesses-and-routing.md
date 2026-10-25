@@ -169,8 +169,9 @@ the workflows never pass `ANTHROPIC_AUTH_TOKEN`. Running a Claude pool route in
 Actions would need both a policy change (`CI_POOL_ALLOWS_CLAUDE`) and
 credential wiring: `ANTHROPIC_AUTH_TOKEN` is not among the credentials
 `agent-ci route --github-output` accepts (it refuses the Claude pool routes
-with `E_ROUTE_CONFIG`) and is in no workflow's credential chain. That
-decision is pending with the operator. Runner setup is in
+with `E_ROUTE_CONFIG`) and is in no workflow's credential chain. The operator
+decided to keep Claude pool routes refused in CI
+(DR-261025-keep-claude-pool-routes). Runner setup is in
 [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy).
 
 ## Current routes
