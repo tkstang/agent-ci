@@ -69,7 +69,12 @@ describe('run-agent.yml', () => {
   it('is a reusable workflow whose jobs run on the runs_on input', async () => {
     const workflow = await runAgent();
     expect(Object.keys(workflow.on)).toEqual(['workflow_call']);
-    expect(Object.keys(workflow.jobs)).toEqual(['setup', 'agent', 'publish']);
+    expect(Object.keys(workflow.jobs)).toEqual([
+      'resolve',
+      'setup',
+      'agent',
+      'publish',
+    ]);
     for (const job of Object.values(workflow.jobs)) {
       expect(job['runs-on']).toBe('${{ inputs.runs_on }}');
     }
@@ -83,7 +88,7 @@ describe('run-agent.yml', () => {
       contents: 'write',
       'pull-requests': 'write',
     });
-    expect(jobs.publish?.needs).toBe('agent');
+    expect(jobs.publish?.needs).toEqual(['resolve', 'agent']);
     // The agent job's checkout never persists a token for the agent to read.
     const target = step(jobs.agent ?? {}, 'Check out the target repository');
     expect(target.with?.['persist-credentials']).toBe(false);
@@ -157,11 +162,24 @@ describe('run-agent.yml', () => {
 
   it('builds and publishes against the same ref', async () => {
     const { jobs } = await runAgent();
-    const ref =
-      "${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}";
-    for (const job of Object.values(jobs)) {
-      expect(step(job, 'Check out the target repository').with?.ref).toBe(ref);
+    // One commit, resolved by a trusted job without any checkout.
+    const resolve = jobs.resolve ?? {};
+    expect(resolve.permissions).toEqual({ contents: 'read' });
+    expect(secretRefs(resolve)).toEqual([]);
+    expect(JSON.stringify(resolve)).not.toContain('actions/checkout');
+    const resolveStep = step(resolve, 'Resolve the target ref to a commit');
+    expect(resolveStep.env?.REF).toBe(
+      '${{ inputs.target_ref || github.event.pull_request.head.sha || github.sha }}',
+    );
+    expect(resolveStep.run).toContain('^[0-9a-f]{40}$');
+    for (const name of ['setup', 'agent', 'publish']) {
+      const job = jobs[name] ?? {};
+      expect(step(job, 'Check out the target repository').with?.ref).toBe(
+        '${{ needs.resolve.outputs.sha }}',
+      );
+      expect(JSON.stringify(job.needs)).toContain('resolve');
     }
+    expect(jobs.agent?.if).toContain("needs.resolve.result == 'success'");
     expect(step(jobs.publish ?? {}, 'Publish').env?.BASE).toBe(
       "${{ inputs.publish_base || github.head_ref || (github.ref_type == 'branch' && github.ref_name) || github.event.repository.default_branch }}",
     );

@@ -45,7 +45,8 @@ on:
       target_ref:
         description: >-
           Commit or branch of this repository to run on. Empty means the pull request
-          head for pull-request events, else the triggering ref.
+          head for pull-request events, else the triggering commit. Resolved once to a
+          commit SHA that every job checks out.
         type: string
         default: ''
       runs_on:
@@ -158,12 +159,35 @@ permissions:
   contents: read
 
 jobs:
+  # One immutable commit for every job, resolved by a trusted job (no
+  # checkout, no repository code): a branch that moves mid-run cannot pair an
+  # older prepared tree with a newer checkout.
+  resolve:
+    name: Resolve the target commit
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - name: Resolve the target ref to a commit
+        id: sha
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.target_ref || github.event.pull_request.head.sha || github.sha }}
+        run: |
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REF" --jq .sha)"
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then echo "::error::cannot resolve $REF to a commit"; exit 1; fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
   # The setup command runs repository code, so it gets its own job: no
   # process, $GITHUB_ENV/$GITHUB_PATH entry, toolcache change or git config it
   # creates can reach the job that holds the model credential. Only the
   # prepared working tree (without .git) is handed over.
   setup:
     name: Prepare workspace (no secrets)
+    needs: resolve
     if: inputs.setup_command != ''
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
@@ -179,7 +203,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: target
-          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}
+          ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
 
       - name: Set up Node
@@ -214,8 +238,8 @@ jobs:
 
   agent:
     name: Run agent
-    needs: setup
-    if: ${{ !cancelled() && (needs.setup.result == 'skipped' || (needs.setup.result == 'success' && needs.setup.outputs.prepared_artifact_id != '')) }}
+    needs: [resolve, setup]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.setup.result == 'skipped' || (needs.setup.result == 'success' && needs.setup.outputs.prepared_artifact_id != '')) }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
@@ -239,7 +263,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: target
-          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}
+          ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
 
       - name: Check out the agent-ci helpers
@@ -363,7 +387,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: agent
+    needs: [resolve, agent]
     if: ${{ !cancelled() && needs.agent.outputs.result_artifact_id != '' }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
@@ -379,7 +403,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: target
-          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Check out the agent-ci helpers
         uses: actions/checkout@v5
