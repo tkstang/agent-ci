@@ -638,7 +638,12 @@ export function secretValues(
       Object.entries(env)
         .filter(
           ([name, value]) =>
-            value !== undefined && value.length >= 8 && isSecretEnvName(name),
+            value !== undefined &&
+            value.length >= 8 &&
+            // Secret-like names only: RUNNER_* and ACTIONS_* are excluded
+            // from the command environment but hold paths and URLs, and
+            // masking those garbles the output (RUNNER_TEMP, live run).
+            SECRET_NAME.test(name),
         )
         .map(([, value]) => value as string),
     ),
