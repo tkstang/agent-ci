@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rm,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -12,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { PipeRunner } from '@agent-ci/harness/home.js';
+import type { ExportRunner, PipeRunner } from '@agent-ci/harness/home.js';
 import type { RunHarnessDeps } from '@agent-ci/harness/run.js';
 import { type RunOptions, runAgent } from '@agent-ci/run/execute.js';
 import { describe, expect, it } from 'vitest';
@@ -117,6 +118,28 @@ async function writtenOutputs(summary: Awaited<ReturnType<typeof runAgent>>) {
   );
 }
 
+const okProcess = (stdout: string) => ({
+  started: true as const,
+  exitCode: 0,
+  signal: null,
+  stdout,
+  stderr: '',
+  timedOut: false,
+  outputLimitExceeded: false,
+  durationMs: 1,
+});
+
+const opencodeAnswer = (text: string) =>
+  `${JSON.stringify({
+    type: 'text',
+    part: {
+      text: JSON.stringify({
+        summary: text,
+        report: { title: 'T', markdown: text },
+      }),
+    },
+  })}\n`;
+
 describe('runAgent', () => {
   it('times out a hanging harness and still writes a failed result', async () => {
     const opts = await options({ model: 'fake-hang', timeoutMs: 1_000 });
@@ -136,7 +159,11 @@ describe('runAgent', () => {
     const pipeCalls: Parameters<PipeRunner>[] = [];
     const pipe: PipeRunner = async (...args) => {
       pipeCalls.push(args);
-      return { fromExit: 0, toExit: 0, transferred: '' };
+      return {
+        fromExit: 0,
+        toExit: 0,
+        transferred: JSON.stringify([{ placeholder: 'synthetic-seed-0022' }]),
+      };
     };
     const homeRoot = await mkdtemp(
       path.join(os.tmpdir(), 'agent-ci-kept-home-'),
@@ -521,6 +548,150 @@ describe('runAgent', () => {
       expect(
         existsSync(path.join(homeRoot, 'home', '.codex', 'auth.json')),
       ).toBe(true);
+    });
+  });
+
+  describe('fail closed when the credential guard cannot be established', () => {
+    const seed = 'synthetic-guard-seed-0022';
+    const fresh = 'synthetic-guard-refreshed-0022';
+    const seedPipe: PipeRunner = async () => ({
+      fromExit: 0,
+      toExit: 0,
+      transferred: JSON.stringify([{ access: seed }]),
+    });
+
+    async function opencodeRun(loginExport: ExportRunner, answer: string) {
+      const opts = await options({ model: 'grok-4.7', seedLogin: true });
+      return runAgent(opts, {
+        pipe: seedPipe,
+        loginExport,
+        harness: { spawn: async () => okProcess(opencodeAnswer(answer)) },
+      });
+    }
+
+    it('refuses the answer when the OpenCode export fails, and writes no token anywhere', async () => {
+      const failures: ExportRunner[] = [
+        async () => ({ exitCode: 1, stdout: '' }),
+        async () => ({ exitCode: null, stdout: '' }),
+        async () => {
+          throw new Error('spawn opencode ENOENT');
+        },
+        async () => ({ exitCode: 0, stdout: 'not json' }),
+      ];
+      for (const loginExport of failures) {
+        const summary = await opencodeRun(loginExport, `leak ${fresh}`);
+        expect(summary.ok && summary.value.error?.code).toBe('E_SECRET_GUARD');
+        const text = await writtenOutputs(summary);
+        expect(text).not.toContain(fresh);
+        expect(text).not.toContain(seed);
+        expect(summary.ok && summary.value.result).toMatchObject({
+          ok: false,
+          status: 'failed',
+        });
+      }
+    });
+
+    it('keeps the controls: a working export rejects an echoed token and accepts a clean answer', async () => {
+      const working: ExportRunner = async () => ({
+        exitCode: 0,
+        stdout: JSON.stringify([{ access: fresh }]),
+      });
+      const echoed = await opencodeRun(working, `leak ${fresh}`);
+      expect(echoed.ok && echoed.value.error?.code).toBe('E_SECRET_COPY');
+      const clean = await opencodeRun(working, 'A clean report.');
+      expect(clean.ok && clean.value.result.ok).toBe(true);
+    });
+
+    it('withholds earlier free-text log fields once the guard fails', async () => {
+      const opts = await options({
+        model: 'grok-4.7',
+        seedLogin: true,
+        maxAttempts: 2,
+      });
+      let call = 0;
+      const summary = await runAgent(opts, {
+        pipe: seedPipe,
+        sleep: async () => undefined,
+        loginExport: async () => {
+          call += 1;
+          return call === 1
+            ? { exitCode: 0, stdout: '[]' }
+            : { exitCode: 1, stdout: '' };
+        },
+        harness: {
+          spawn: async () =>
+            call === 0
+              ? {
+                  ...okProcess(''),
+                  exitCode: 1,
+                  stderr: `503 overloaded near ${fresh}`,
+                }
+              : okProcess(opencodeAnswer('clean')),
+        },
+      });
+      expect(summary.ok && summary.value.error?.code).toBe('E_SECRET_GUARD');
+      const text = await writtenOutputs(summary);
+      expect(text).not.toContain(fresh);
+      expect(text).toContain('[withheld: credential guard incomplete]');
+    });
+
+    it('fails closed when a Codex login store becomes unreadable or unparseable mid-run', async () => {
+      const codexOptions = async () => {
+        const opts = await options({ model: 'codex-login', seedLogin: true });
+        const operatorHome = `${opts.cwd}-operator`;
+        await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
+        await writeFile(
+          path.join(operatorHome, '.codex', 'auth.json'),
+          JSON.stringify({ tokens: { placeholder: seed } }),
+        );
+        return { ...opts, env: { PATH: process.env.PATH, HOME: operatorHome } };
+      };
+      const damage: ((file: string) => Promise<void>)[] = [
+        async (file) => writeFile(file, '{ not json'),
+        async (file) => {
+          await rm(file);
+          await mkdir(file);
+        },
+      ];
+      for (const harm of damage) {
+        const summary = await runAgent(await codexOptions(), {
+          harness: {
+            spawn: async (spec) => {
+              await harm(path.join(spec.env.CODEX_HOME ?? '', 'auth.json'));
+              await writeFile(
+                spec.args[spec.args.indexOf('-o') + 1] ?? '',
+                JSON.stringify({
+                  summary: `leak ${fresh}`,
+                  report: { title: 'T', markdown: 'M' },
+                }),
+              );
+              return okProcess(
+                `${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`,
+              );
+            },
+          },
+        });
+        expect(summary.ok && summary.value.error?.code).toBe('E_SECRET_GUARD');
+        expect(await writtenOutputs(summary)).not.toContain(fresh);
+      }
+    });
+
+    it('refuses to seed login material it cannot parse or that holds no credential', async () => {
+      for (const content of ['{ not json', JSON.stringify({ tokens: {} })]) {
+        const opts = await options({ model: 'codex-login', seedLogin: true });
+        const operatorHome = `${opts.cwd}-operator`;
+        await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
+        await writeFile(
+          path.join(operatorHome, '.codex', 'auth.json'),
+          content,
+        );
+        const summary = await runAgent({
+          ...opts,
+          env: { PATH: process.env.PATH, HOME: operatorHome },
+        });
+        expect(summary).toMatchObject({ ok: false, code: 'E_SECRET_GUARD' });
+        expect(existsSync(opts.outDir)).toBe(false);
+      }
     });
   });
 });

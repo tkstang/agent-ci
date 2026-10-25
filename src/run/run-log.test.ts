@@ -46,4 +46,25 @@ describe('RunLog', () => {
     expect(JSON.stringify(log.records)).not.toContain(later);
     expect(log.records[0]).toMatchObject({ code: 'E_SECRET_COPY' });
   });
+
+  it('withholds free-text messages, past and future, once the guard is incomplete', () => {
+    const log = new RunLog([], () => new Date('2026-10-25T00:00:00Z'));
+    log.add('attempt', { message: 'stderr text', code: 'E_HARNESS_FAILED' });
+    log.withholdFreeText();
+    log.add('run.result', { message: 'later', ok: false });
+    expect(log.records).toEqual([
+      {
+        at: '2026-10-25T00:00:00.000Z',
+        event: 'attempt',
+        message: '[withheld: credential guard incomplete]',
+        code: 'E_HARNESS_FAILED',
+      },
+      {
+        at: '2026-10-25T00:00:00.000Z',
+        event: 'run.result',
+        message: '[withheld: credential guard incomplete]',
+        ok: false,
+      },
+    ]);
+  });
 });

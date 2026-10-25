@@ -61,7 +61,8 @@ export type HarnessFailureCode =
   | 'E_HARNESS_FAILED'
   | 'E_HARNESS_TIMEOUT'
   | 'E_HARNESS_OUTPUT_LIMIT'
-  | 'E_CREDENTIAL_LEAK';
+  | 'E_CREDENTIAL_LEAK'
+  | 'E_SECRET_GUARD';
 
 export type HarnessOutcome =
   | {

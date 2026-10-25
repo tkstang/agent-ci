@@ -16,6 +16,7 @@ export class RunLog {
   readonly #records: Record<string, unknown>[] = [];
   readonly #secrets: Set<string>;
   readonly #now: () => Date;
+  #withhold = false;
 
   constructor(secrets: readonly string[], now: () => Date = () => new Date()) {
     this.#secrets = new Set(secrets.filter((secret) => secret !== ''));
@@ -27,11 +28,24 @@ export class RunLog {
     for (const value of values) if (value !== '') this.#secrets.add(value);
   }
 
+  /**
+   * The secret set can no longer be trusted to be complete (the credential
+   * guard failed): withhold every free-text `message` field from now on,
+   * including in records already added.
+   */
+  withholdFreeText(): void {
+    this.#withhold = true;
+  }
+
   add(event: string, fields: Record<string, unknown> = {}): void {
     this.#records.push({ at: this.#now().toISOString(), event, ...fields });
   }
 
-  #guard(record: Record<string, unknown>): Record<string, unknown> {
+  #guard(input: Record<string, unknown>): Record<string, unknown> {
+    const record =
+      this.#withhold && typeof input.message === 'string'
+        ? { ...input, message: '[withheld: credential guard incomplete]' }
+        : input;
     return containsSecret(record, [...this.#secrets])
       ? {
           at: record.at,

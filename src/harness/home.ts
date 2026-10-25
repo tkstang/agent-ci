@@ -17,7 +17,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
-import { secretLeaves } from '@agent-ci/contracts/secret-guard.js';
+import { parseSecretMaterial } from '@agent-ci/contracts/secret-guard.js';
 import { spawnHarness } from '@agent-ci/harness/spawn.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isCiEnvironment } from '@agent-ci/routing/policy.js';
@@ -329,10 +329,16 @@ async function copyPrivate(
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await copyFile(source, target, constants.COPYFILE_EXCL);
     await chmod(target, 0o600);
-    return success({
-      location: target,
-      secrets: secretLeaves(await readFile(target, 'utf8')),
-    });
+    const values = parseSecretMaterial(
+      await readFile(target, 'utf8'),
+      `the seeded ${harness} login`,
+      { requireValues: true },
+    );
+    if (!values.ok) {
+      await rm(target, { force: true });
+      return values;
+    }
+    return success({ location: target, secrets: values.value });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'EEXIST') {
@@ -412,15 +418,22 @@ export async function seedLogin(
           env: { PATH: basePath, ...layout.env },
         },
       );
-      return fromExit === 0 && toExit === 0
-        ? success({
-            location: path.join(layout.env.XDG_DATA_HOME ?? '', 'opencode'),
-            secrets: secretLeaves(transferred),
-          })
-        : failure(
-            'E_SEED_UNSUPPORTED',
-            `opencode login export/import failed (export ${fromExit}, import ${toExit})`,
-          );
+      if (fromExit !== 0 || toExit !== 0) {
+        return failure(
+          'E_SEED_UNSUPPORTED',
+          `opencode login export/import failed (export ${fromExit}, import ${toExit})`,
+        );
+      }
+      const values = parseSecretMaterial(
+        transferred,
+        'the exported opencode login',
+        { requireValues: true },
+      );
+      if (!values.ok) return values;
+      return success({
+        location: path.join(layout.env.XDG_DATA_HOME ?? '', 'opencode'),
+        secrets: values.value,
+      });
     }
     case 'cursor':
     case 'fake':
@@ -447,7 +460,9 @@ const defaultExport: ExportRunner = async (command, args, env) => {
     timeoutMs: 30_000,
     maxOutputBytes: 1024 * 1024,
   });
-  return result.started
+  // A missing executable, a timeout or truncated output is not a complete
+  // read of the store: report it as a failed run so the guard fails closed.
+  return result.started && !result.timedOut && !result.outputLimitExceeded
     ? { exitCode: result.exitCode, stdout: result.stdout }
     : { exitCode: null, stdout: '' };
 };
@@ -470,26 +485,77 @@ export interface LoginSecretsOptions {
 export async function readLoginSecrets(
   layout: HomeRoot,
   options: LoginSecretsOptions,
-): Promise<string[]> {
+): Promise<Result<string[]>> {
   const found = new Set<string>();
   for (const file of loginStorePaths(layout)) {
     if (!file.endsWith('.json')) continue;
+    let info;
     try {
-      for (const value of secretLeaves(await readFile(file, 'utf8')))
-        found.add(value);
+      info = await lstat(file);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: cannot inspect ${file}`,
+      );
+    }
+    if (!info.isFile()) {
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: ${file} is not a regular file`,
+      );
+    }
+    let text: string;
+    try {
+      text = await readFile(file, 'utf8');
     } catch {
-      // store absent
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: cannot read ${file}`,
+      );
     }
+    const values = parseSecretMaterial(text, file, { requireValues: false });
+    if (!values.ok) return values;
+    for (const value of values.value) found.add(value);
   }
-  if (options.harness === 'opencode' && options.includeOpencodeStore) {
+  const opencodeDb = path.join(
+    layout.env.XDG_DATA_HOME ?? path.join(layout.home, '.local', 'share'),
+    'opencode',
+    'opencode.db',
+  );
+  const storeExists = await lstat(opencodeDb).then(
+    () => true,
+    () => false,
+  );
+  if (
+    options.harness === 'opencode' &&
+    (options.includeOpencodeStore || storeExists)
+  ) {
     const run = options.exportRunner ?? defaultExport;
-    const exported = await run('opencode', ['auth', 'export', '--standalone'], {
-      PATH: options.parentEnv.PATH ?? '/usr/bin:/bin',
-      ...layout.env,
-    });
-    if (exported.exitCode === 0) {
-      for (const value of secretLeaves(exported.stdout)) found.add(value);
+    let exported: { exitCode: number | null; stdout: string };
+    try {
+      exported = await run('opencode', ['auth', 'export', '--standalone'], {
+        PATH: options.parentEnv.PATH ?? '/usr/bin:/bin',
+        ...layout.env,
+      });
+    } catch {
+      exported = { exitCode: null, stdout: '' };
     }
+    if (exported.exitCode !== 0) {
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: opencode auth export ${
+          exported.exitCode === null
+            ? 'did not run to completion'
+            : `exited ${exported.exitCode}`
+        }`,
+      );
+    }
+    const values = parseSecretMaterial(exported.stdout, 'the opencode export', {
+      requireValues: false,
+    });
+    if (!values.ok) return values;
+    for (const value of values.value) found.add(value);
   }
-  return [...found];
+  return success([...found]);
 }

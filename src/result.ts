@@ -39,6 +39,7 @@ export const ERROR_CODES = [
   // Results
   'E_INVALID_RUN_RESULT',
   'E_SECRET_COPY',
+  'E_SECRET_GUARD',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

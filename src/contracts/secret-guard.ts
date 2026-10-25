@@ -66,6 +66,35 @@ export function secretLeaves(material: string): string[] {
   return [...found];
 }
 
+/**
+ * Strict form of `secretLeaves` for login material the output guard depends
+ * on: the material must be JSON (an unparseable store means the guard cannot
+ * know what to protect), and seeded material must yield at least one value.
+ * Failures are `E_SECRET_GUARD` with a value-free message.
+ */
+export function parseSecretMaterial(
+  material: string,
+  source: string,
+  options: { readonly requireValues: boolean },
+): Result<string[]> {
+  try {
+    JSON.parse(material);
+  } catch {
+    return failure(
+      'E_SECRET_GUARD',
+      `credential guard incomplete: ${source} is not valid JSON`,
+    );
+  }
+  const values = secretLeaves(material);
+  if (options.requireValues && values.length === 0) {
+    return failure(
+      'E_SECRET_GUARD',
+      `credential guard incomplete: no credential values found in ${source}`,
+    );
+  }
+  return success(values);
+}
+
 /** Collect secret values for the named variables that are present. */
 export function secretValuesFromEnv(
   env: Readonly<Record<string, string | undefined>>,

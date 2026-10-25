@@ -248,19 +248,37 @@ async function runInHome(
   const log = new RunLog(secrets);
   // A harness may refresh its login mid-run: re-read the isolated stores and
   // guard every newly observed token value (outputs, earlier log records).
-  const refreshLoginSecrets = async (): Promise<void> => {
-    const observed = await readLoginSecrets(homeRoot, {
-      harness: route.harness,
-      parentEnv: options.env,
-      includeOpencodeStore: route.login,
-      ...(deps.loginExport === undefined
-        ? {}
-        : { exportRunner: deps.loginExport }),
-    });
-    for (const value of observed) {
+  // Fail closed: if the stores cannot be fully read, the run must not trust,
+  // persist or emit anything the agent produced.
+  let guardFailure: { code: ErrorCode; message: string } | undefined;
+  const refreshLoginSecrets = async (): Promise<boolean> => {
+    let observed: Result<string[]>;
+    try {
+      observed = await readLoginSecrets(homeRoot, {
+        harness: route.harness,
+        parentEnv: options.env,
+        includeOpencodeStore: route.login,
+        ...(deps.loginExport === undefined
+          ? {}
+          : { exportRunner: deps.loginExport }),
+      });
+    } catch {
+      observed = {
+        ok: false,
+        code: 'E_SECRET_GUARD',
+        message: 'credential guard incomplete: login stores could not be read',
+      };
+    }
+    if (!observed.ok) {
+      guardFailure ??= { code: observed.code, message: observed.message };
+      log.withholdFreeText();
+      return false;
+    }
+    for (const value of observed.value) {
       if (!secrets.includes(value)) secrets.push(value);
     }
-    log.addSecrets(observed);
+    log.addSecrets(observed.value);
+    return true;
   };
   const outDir = path.resolve(options.cwd, options.outDir);
   await mkdir(outDir, { recursive: true });
@@ -356,7 +374,15 @@ async function runInHome(
                 ),
               };
             }
-            await refreshLoginSecrets();
+            if (!(await refreshLoginSecrets())) {
+              // Discard the attempt's output: its secrets are unknown.
+              outcome = {
+                ok: false,
+                code: 'E_SECRET_GUARD',
+                retryable: false,
+                message: guardFailure?.message ?? 'credential guard incomplete',
+              };
+            }
             log.add('attempt', {
               attempt,
               harness: route.harness,
@@ -424,6 +450,12 @@ async function runInHome(
       code: preflight !== undefined ? 'E_WORKSPACE_STATUS' : outcome.code,
       message: maskSecrets(outcome.message, secrets),
     };
+    result = buildFailedRunResult({ ...options, ...error });
+  }
+
+  // Defensive: an incomplete guard always wins, whatever the outcome says.
+  if (guardFailure !== undefined) {
+    error = guardFailure;
     result = buildFailedRunResult({ ...options, ...error });
   }
 

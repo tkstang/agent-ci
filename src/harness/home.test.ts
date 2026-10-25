@@ -168,7 +168,7 @@ describe('seeding the home root', () => {
     await mkdir(path.join(realHome, '.codex'));
     await writeFile(
       path.join(realHome, '.codex', 'auth.json'),
-      '{"placeholder":"synthetic"}',
+      '{"placeholder":"synthetic-kept-root-0020"}',
     );
     const root = await tempDir('agent-ci-kept-root-');
     const parentEnv = { HOME: realHome, PATH: '/usr/bin:/bin' };
@@ -232,7 +232,7 @@ describe('seeding the home root', () => {
       includeOpencodeStore: true,
       exportRunner,
     });
-    expect(withStore.toSorted()).toEqual([
+    expect(withStore.ok && withStore.value.toSorted()).toEqual([
       'synthetic-export-token-0017',
       'synthetic-file-token-0017',
     ]);
@@ -245,7 +245,10 @@ describe('seeding the home root', () => {
       includeOpencodeStore: false,
       exportRunner,
     });
-    expect(fileOnly).toEqual(['synthetic-file-token-0017']);
+    expect(fileOnly).toEqual({
+      ok: true,
+      value: ['synthetic-file-token-0017'],
+    });
     expect(calls).toHaveLength(1);
   });
 });
