@@ -1,0 +1,1 @@
+p05 fan-out self-test trigger (temporary; closed after recording).
