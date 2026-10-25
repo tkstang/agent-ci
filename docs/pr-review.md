@@ -55,11 +55,24 @@ requests get an `eyes` reaction.
 ### Triggers
 
 Consumers trigger on `pull_request_target` (labeled), `issue_comment`
-(created) and `workflow_dispatch`. GitHub runs these from the default
-branch, so a pull request cannot change the caller file, the allowed models,
-the review policy or the agent-ci pin it is reviewed under. Changes to the
-caller take effect once merged. The gate also accepts `pull_request`
-(labeled), only for this repository's pre-merge self-test.
+(created) and `workflow_dispatch`.
+
+- **Label and comment requests** (`pull_request_target`, `issue_comment`)
+  always run the caller file from the default branch, so a pull request
+  cannot change the caller file, the allowed models, the review policy or
+  the agent-ci pin it is reviewed under. Changes to the caller take effect
+  once merged.
+- **Manual dispatch** (`workflow_dispatch`) runs the caller file at the ref
+  the dispatcher selects (the branch picker in the Actions tab, or
+  `gh workflow run --ref`). The workflow must exist on the default branch to
+  be dispatched, but the run uses the selected ref's caller file, which can
+  carry different models, policy or agent-ci pin. The gate does not check
+  that ref; it applies the same requester, pull request and author checks
+  to every request. Dispatch only from the default branch or another ref
+  you trust.
+
+The gate also accepts `pull_request` (labeled), only for this repository's
+pre-merge self-test.
 
 ## What a review does
 

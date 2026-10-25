@@ -28,3 +28,7 @@ Two statements above stopped being true when verify-review shipped (DR-261025-ru
 - "No job runs pull-request code that could use" the read-write cache access of `workflow_dispatch` is no longer true. A dispatched verify-review runs PR code in the default branch's Actions scope. That code can write caches that other default-branch workflows may restore, and it can upload artifacts.
 
 Reviewer passes, the gate, the adjudicator, the findings gate and publishing still never execute pull-request code. Codex and Cursor reviewers keep the residual shell access their read-only modes allow, which `docs/security-model.md` describes.
+
+## Amendment 2026-10-25: manual dispatch runs the selected ref (p06 gate)
+
+The Consequences above say the consumer file, allowed models, review policy and agent-ci pin "come from the default branch". That holds for `pull_request_target` and `issue_comment`. It does not hold for `workflow_dispatch`, which runs the caller file at the ref the dispatcher selects. That file can carry different models, policy or pin, and the gate does not check the ref (`src/review/trigger.ts`, the PR-scoped dispatch path). A dispatcher still needs write, maintain or admin access, and the pull request and author checks still apply. This amendment records the behavior without changing it: dispatch only from the default branch or another trusted ref (`docs/pr-review.md`, Triggers).

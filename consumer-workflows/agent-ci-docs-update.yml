@@ -6,8 +6,9 @@
 # Secrets: AGENT_CI_SOURCE_TOKEN (contents read on tkstang/agent-ci; it is
 # private) and the credential your model's route names (here
 # CLAUDE_CODE_OAUTH_TOKEN). The agent gets only that credential; publishing
-# uses GITHUB_TOKEN in a separate job, so the resulting pull request does
-# not trigger this repository's workflows.
+# uses GITHUB_TOKEN in a separate job, so the resulting pull request's
+# pull_request runs wait for approval by a user with write access, and its
+# pushes start no runs.
 name: OAT docs update (agent-ci)
 
 on:

@@ -24,8 +24,10 @@
 # - One model credential for the routes your targets use (for example
 #   CLAUDE_CODE_OAUTH_TOKEN). tools-update needs none.
 #
-# Pull requests and pushes made with GITHUB_TOKEN do not trigger workflows in
-# this repository; a target token or GitHub App token may.
+# Targets in this repository are published with GITHUB_TOKEN: their
+# pull_request runs wait for approval and their pushes start no runs. Other
+# targets are published with AGENT_CI_TARGET_TOKEN, whose events start
+# workflows normally (for example a GitHub App token).
 name: agent-ci fleet
 
 on:

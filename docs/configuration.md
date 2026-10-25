@@ -81,16 +81,23 @@ model secrets than it needs gives every reviewer job all of them (see
 | Allow GitHub Actions to create pull requests          | Calling repository: Settings, Actions, General, Workflow permissions                                   | When the caller publishes pull requests with `GITHUB_TOKEN` (`publish_pr: true`, the wrappers, fan-out). |
 | Labels `agent-ci:review` and `agent-ci:verify-review` | Reviewed repository                                                                                    | For label-triggered PR review.                                                                           |
 
-Pull requests and pushes made with `GITHUB_TOKEN` do not start that
-repository's workflows. agent-ci always publishes to the calling repository
-with `GITHUB_TOKEN`, so its pull requests there get no CI until someone
-pushes to them; no input accepts another token for the calling repository.
-Only another repository's target can publish with a different token: pass
-it as `AGENT_CI_TARGET_TOKEN` (for example a GitHub App token) and set
-`publisher_login` to the identity it acts as, such as `my-app[bot]`. A pull
-request opened by
-`github-actions[bot]` was observed to produce a `pull_request` run held in
-`action_required` state, waiting for approval, rather than no run.
+agent-ci always publishes to the calling repository with `GITHUB_TOKEN`; no
+input accepts another token for the calling repository. GitHub treats events
+made with `GITHUB_TOKEN` specially:
+
+- **Pull request events** (`opened`, `synchronize`, `reopened`) on a pull
+  request agent-ci opened or updated create `pull_request` runs that wait
+  for approval (`action_required`). A user with write access starts them
+  with **Approve workflows to run** on the pull request; no push is needed.
+  This repository observed such a held run for a pull request opened by
+  `github-actions[bot]`.
+- **Push events** from agent-ci's commits to its static branch start no
+  workflow run.
+
+To get CI without approval, publish with a token other than `GITHUB_TOKEN`,
+for example a GitHub App token. That is possible only for another
+repository's target: pass the token as `AGENT_CI_TARGET_TOKEN` and set
+`publisher_login` to the identity it acts as, such as `my-app[bot]`.
 
 ## Self-hosted runners and the proxy
 

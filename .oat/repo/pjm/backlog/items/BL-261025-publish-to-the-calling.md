@@ -17,10 +17,10 @@ external_plans: []
 
 ## Description
 
-The brief's Decision says publishing uses GITHUB_TOKEN by default with an optional GitHub App token, so generated pull requests can trigger CI. Today the calling repository is always published with GITHUB_TOKEN (run-agent.yml and tools-update.yml publish checkouts use github.token when the target is not another repository; src/targets/resolve.ts picks the GitHub token whenever cross is false). Only another repository can be published with a different token, as AGENT_CI_TARGET_TOKEN. Found by the p06 docs review (reviews/p06-review-2026-10-25T203922Z.md).
+The brief's Decision says publishing uses GITHUB_TOKEN by default with an optional GitHub App token, so generated pull requests can trigger CI. Today the calling repository is always published with GITHUB_TOKEN (run-agent.yml and tools-update.yml publish checkouts use github.token when the target is not another repository; src/targets/resolve.ts picks the GitHub token whenever cross is false). Only another repository can be published with a different token, as AGENT_CI_TARGET_TOKEN. Pull requests agent-ci opens or updates with GITHUB_TOKEN get `pull_request` runs that wait for approval (a write user selects "Approve workflows to run"), and its pushes start no runs, so CI on them is manual today; a publish token would make it automatic. Updated after the p06 gate (reviews/p06-review-2026-10-25T205507Z.md, M3). Found by the p06 docs review (reviews/p06-review-2026-10-25T203922Z.md).
 
 ## Acceptance Criteria
 
 - `run-agent.yml`, `tools-update.yml`, `fan-out.yml` and the wrappers accept an optional publish token secret for the calling repository (referenced only in the publish job), and fall back to `GITHUB_TOKEN` when it is absent
 - Workflow structure tests assert that the token reaches only the publish job, and `publisher_login` documents the identity it acts as
-- `docs/configuration.md` describes the option, and a live run shows a pull request published with that token starting the repository's workflows (or the gap is recorded)
+- `docs/configuration.md` describes the option, and a live run shows a pull request published with that token starting the repository's workflows without approval (or the gap is recorded)

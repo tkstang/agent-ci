@@ -23,9 +23,10 @@
 # targets that same branch (publish_base defaults to it). Set publish_base
 # together with target_ref if the run should start elsewhere.
 #
-# Pull requests and pushes made with GITHUB_TOKEN do not trigger this
-# repository's workflows: generated pull requests get no CI until someone
-# pushes to them, or until a GitHub App token is configured.
+# Pushes made with GITHUB_TOKEN start no workflow runs, and pull_request runs
+# for the generated pull request wait for approval ("Approve workflows to
+# run" by a user with write access). agent-ci publishes to this repository
+# only with GITHUB_TOKEN, so CI on its pull requests here starts on approval.
 name: agent-ci
 
 on:
