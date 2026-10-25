@@ -77,7 +77,7 @@ export interface CreateHomeRootOptions {
  * checkout, and a link to the operator's real `~/.codex` would hand the run
  * an unnamed login. Provider skill views (links within the root) stay valid.
  */
-async function validateKeptRoot(
+export async function validateHomeTree(
   realRoot: string,
   workspaceRoot: string | undefined,
 ): Promise<Result<void>> {
@@ -135,7 +135,7 @@ async function validateKeptRoot(
 /**
  * Create (or reuse) a home root. With no `root`, a fresh private temp
  * directory is allocated. A supplied root must be absolute and a real
- * directory; an existing one is validated (see `validateKeptRoot`) before any
+ * directory; an existing one is validated (see `validateHomeTree`) before any
  * directory is created or login store cleared in it. Filesystem errors are
  * `E_HOME_ROOT`, never unexpected.
  */
@@ -146,7 +146,10 @@ export async function createHomeRoot(
   let resolved: string;
   try {
     if (root === undefined) {
-      resolved = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-home-'));
+      // Canonical, so later containment checks compare like with like.
+      resolved = await resolveRealPath(
+        await mkdtemp(path.join(os.tmpdir(), 'agent-ci-home-')),
+      );
     } else {
       if (!path.isAbsolute(root)) {
         return failure('E_HOME_ROOT', 'home root must be an absolute path');
@@ -165,7 +168,7 @@ export async function createHomeRoot(
       }
       if (!exists) await mkdir(root, { recursive: true, mode: 0o700 });
       resolved = await resolveRealPath(root);
-      const valid = await validateKeptRoot(resolved, options.workspaceRoot);
+      const valid = await validateHomeTree(resolved, options.workspaceRoot);
       if (!valid.ok) return valid;
     }
     const layout = homeLayout(resolved);

@@ -870,4 +870,68 @@ describe('runAgent', () => {
       ).toBe(true);
     });
   });
+
+  describe('seeded logins cannot land in or hide inside the workspace', () => {
+    it('fails the run when the harness redirects its home into the repository', async () => {
+      const opts = await options({ model: 'codex-login', seedLogin: true });
+      execFileSync('git', ['init', '-q'], { cwd: opts.cwd, stdio: 'ignore' });
+      const operatorHome = `${opts.cwd}-operator`;
+      await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
+      await writeFile(
+        path.join(operatorHome, '.codex', 'auth.json'),
+        JSON.stringify({ tokens: { placeholder: 'synthetic-redirect-0029' } }),
+      );
+      const summary = await runAgent(
+        { ...opts, env: { PATH: process.env.PATH, HOME: operatorHome } },
+        {
+          harness: {
+            spawn: async (spec) => {
+              await writeFile(
+                spec.args[spec.args.indexOf('-o') + 1] ?? '',
+                JSON.stringify({
+                  summary: 's',
+                  report: { title: 'T', markdown: 'M' },
+                }),
+              );
+              // Redirect the config home into the checkout mid-run.
+              const codexHome = spec.env.CODEX_HOME ?? '';
+              await rm(codexHome, { recursive: true, force: true });
+              await mkdir(path.join(opts.cwd, 'captured'));
+              await symlink(path.join(opts.cwd, 'captured'), codexHome);
+              return okProcess(
+                `${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`,
+              );
+            },
+          },
+        },
+      );
+      expect(summary.ok && summary.value.error?.code).toBe('E_HOME_ROOT');
+      expect(summary.ok && summary.value.result).toMatchObject({
+        ok: false,
+        status: 'failed',
+        changedFiles: [],
+      });
+    });
+
+    it('reports a store that seeding wrote into the workspace instead of treating it as earlier dirt', async () => {
+      const opts = await options({ model: 'grok-4.7', seedLogin: true });
+      execFileSync('git', ['init', '-q'], { cwd: opts.cwd, stdio: 'ignore' });
+      const summary = await runAgent(opts, {
+        pipe: async () => {
+          // An importer that (wrongly) writes into the checkout.
+          await writeFile(path.join(opts.cwd, 'stray-store.db'), 'synthetic');
+          return {
+            fromExit: 0,
+            toExit: 0,
+            transferred: JSON.stringify([{ access: 'synthetic-stray-0029' }]),
+          };
+        },
+        loginExport: async () => ({ exitCode: 0, stdout: '[]' }),
+        harness: { spawn: async () => okProcess(opencodeAnswer('clean')) },
+      });
+      expect(summary.ok && summary.value.result.changedFiles).toContain(
+        'stray-store.db',
+      );
+    });
+  });
 });

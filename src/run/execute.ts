@@ -19,12 +19,14 @@ import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
 import { CredentialLeakError } from '@agent-ci/harness/env.js';
 import {
   createHomeRoot,
+  clearLoginStores,
   type ExportRunner,
   type HomeRoot,
   type PipeRunner,
   readLoginSecrets,
   seedLogin,
   seedSkills,
+  validateHomeTree,
 } from '@agent-ci/harness/home.js';
 import { type RunHarnessDeps, runHarness } from '@agent-ci/harness/run.js';
 import type {
@@ -231,6 +233,9 @@ async function runInHome(
   outDir: string,
 ): Promise<Result<RunSummary>> {
   const now = deps.now ?? Date.now;
+  // Baseline first: anything that lands in the workspace from here on,
+  // including a seeded login, is a change the run reports, never hidden dirt.
+  const baseline = await snapshotWorkspace(options.cwd, [outDir], deps.git);
   if (options.skillsDir !== undefined) {
     const seeded = await seedSkills(homeRoot, options.skillsDir);
     if (!seeded.ok) return seeded;
@@ -243,6 +248,20 @@ async function runInHome(
       ...(deps.pipe === undefined ? {} : { pipe: deps.pipe }),
     });
     if (!seeded.ok) return seeded;
+    // Defense in depth: the seeded store must sit outside the workspace.
+    let seededAt: string | undefined;
+    try {
+      seededAt = await resolveRealPath(seeded.value.location);
+    } catch {
+      seededAt = undefined;
+    }
+    if (seededAt === undefined || isWithin(boundaryRoot, seededAt)) {
+      await clearLoginStores(homeRoot);
+      return failure(
+        'E_HOME_ROOT',
+        'the seeded login would sit inside the workspace',
+      );
+    }
     seededSecrets.push(...seeded.value.secrets);
   }
 
@@ -324,7 +343,6 @@ async function runInHome(
   });
 
   // Only changes made during the run count; pre-existing dirt does not.
-  const baseline = await snapshotWorkspace(options.cwd, [outDir], deps.git);
   if (!baseline.ok) {
     log.add('workspace.status', {
       phase: 'baseline',
@@ -426,6 +444,14 @@ async function runInHome(
           },
         });
 
+  // The harness had write access to its home: refuse to trust or publish
+  // anything if it redirected part of the home out of the root or into the
+  // workspace (for example `home/.codex -> <repo>`).
+  const homeAfter = await validateHomeTree(homeRoot.root, boundaryRoot);
+  if (!homeAfter.ok) {
+    guardFailure ??= { code: homeAfter.code, message: homeAfter.message };
+    log.withholdFreeText();
+  }
   const outcome = supervised.result.outcome;
   let result: ValidatedRunResult;
   let error: { code: ErrorCode; message: string } | undefined;
