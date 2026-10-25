@@ -126,7 +126,7 @@ function docsUpdatePrompt(context: PromptContext): string {
     '- Do not create helper scripts, audit tools, CI checks, or other non-documentation files.',
     '- Edit existing docs-tree content, tracked Markdown, and OAT tracking only.',
     ...AGENT_BOUNDARY,
-    '- The publisher refuses any change outside documentation files (Markdown, MDX and assets under docs directories, root-level Markdown, AGENTS.md, CLAUDE.md and GEMINI.md) and the OAT tracking and analysis artifacts, and refuses executables and symlinks.',
+    '- The publisher refuses any change outside documentation files (Markdown, MDX and images under docs directories, navigation data files there such as meta.json, sidebars.json or toc.yml, root-level Markdown, AGENTS.md, CLAUDE.md and GEMINI.md) and the OAT tracking and analysis artifacts. It refuses any other JSON or YAML file (package.json, vercel.json, tsconfig.json, editor tasks, site config), executables and symlinks.',
     '',
     ...footer(context),
   ].join('\n');
@@ -234,11 +234,13 @@ const LOCKFILES =
  * The publish-time path policies, ported from pntr's wrapper defaults and
  * narrowed to the files each preset exists to change:
  *
- * - docs-update: Markdown/MDX and documentation assets under any `docs`
- *   tree, root-level Markdown, instruction files (AGENTS.md, CLAUDE.md,
- *   GEMINI.md) anywhere, and the OAT tracking and analysis artifacts. Never
- *   agent or tool configuration directories, `.github/`, executables or
- *   symlinks.
+ * - docs-update: Markdown, MDX and images under any `docs` tree, navigation
+ *   data files there by name (`meta.json`, `_meta.json`, `_category_.json`,
+ *   `sidebars.json`, `mint.json`, `docs.json`, `_category_.yml`, `toc.yml`,
+ *   `_toc.yml`, `nav.yml`), root-level Markdown, instruction files
+ *   (AGENTS.md, CLAUDE.md, GEMINI.md) anywhere, and the OAT tracking and
+ *   analysis artifacts. Never other JSON/YAML, agent or tool configuration
+ *   directories, `.github/`, `.vscode/`, executables or symlinks.
  * - instructions-update: instruction files, rules directories
  *   (`.claude/rules`, `.cursor/rules`, `.agents/rules`, `.windsurf/rules`),
  *   Copilot instructions and the OAT artifacts. Never settings, hooks,
@@ -252,7 +254,13 @@ export const PATH_POLICIES: Readonly<Record<PathPolicyName, PathPolicy>> =
   Object.freeze({
     'docs-update': {
       allow: [
-        /^(?:[^/]+\/)*docs\/(?:[^/]+\/)*[^/]+\.(?:md|mdx|png|jpe?g|gif|svg|webp|json|ya?ml)$/u,
+        // Content: Markdown, MDX and images under any docs tree.
+        /^(?:[^/]+\/)*docs\/(?:[^/]+\/)*[^/]+\.(?:md|mdx|png|jpe?g|gif|svg|webp)$/u,
+        // Navigation data, by name only: JSON and YAML are otherwise
+        // configuration (package.json scripts, vercel.json build commands,
+        // editor tasks) that a later install, build or preview deploy runs.
+        /^(?:[^/]+\/)*docs\/(?:[^/]+\/)*(?:_?meta|_category_|sidebars|mint|docs)\.json$/u,
+        /^(?:[^/]+\/)*docs\/(?:[^/]+\/)*(?:_category_|_?toc|nav)\.ya?ml$/u,
         /^[^/]+\.mdx?$/u,
         INSTRUCTION_FILES,
         ...OAT_ARTIFACTS,
@@ -265,6 +273,12 @@ export const PATH_POLICIES: Readonly<Record<PathPolicyName, PathPolicy>> =
         /^\.github\//u,
         /(?:^|\/)\.?mcp\.json$/u,
         /^\.oat\/scripts\//u,
+        // Defence in depth, at any depth: editor tasks, dot-directories
+        // inside docs trees (site generator config such as .vitepress), and
+        // manifest, lockfile, build, deploy, lint and action files.
+        /(?:^|\/)\.vscode\//u,
+        /(?:^|\/)docs\/(?:[^/]+\/)*\.[^/]+\//u,
+        /(?:^|\/)(?:package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig[^/]*\.json|vercel\.json|netlify\.[^/]+|turbo\.json|\.eslintrc[^/]*|action\.ya?ml)$/u,
       ],
       executables: false,
       symlinks: false,
