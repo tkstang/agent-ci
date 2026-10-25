@@ -10,6 +10,7 @@
   },
   "files": [
     "dist",
+    "models.yaml",
     "tools/install-hooks.mjs"
   ],
   "type": "module",
@@ -36,6 +37,7 @@
     "worktree:validate": "bash scripts/worktree/validate.sh"
   },
   "dependencies": {
+    "yaml": "^2.9.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
