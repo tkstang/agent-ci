@@ -298,7 +298,7 @@ export function loginStorePaths(layout: HomeRoot): string[] {
  * User-level harness configuration that can execute commands or widen
  * permissions: Claude user settings (hooks, permission allows; the Cursor
  * agent reads them too), Cursor user hooks and permission config, OpenCode plugins, agents,
- * commands and config files other than the `opencode.json` agent-ci writes,
+ * commands, custom tools and config files other than the `opencode.json` agent-ci writes,
  * Codex exec-policy rules and hooks. Adapters rewrite what they need (Codex
  * `config.toml`, OpenCode `opencode.json`) on every run; skills stay.
  */
@@ -324,6 +324,9 @@ export function harnessConfigPaths(layout: HomeRoot): string[] {
     path.join(opencode, 'config.json'),
     path.join(opencode, 'plugin'),
     path.join(opencode, 'plugins'),
+    // Custom tools: JS/TS modules OpenCode imports at startup.
+    path.join(opencode, 'tool'),
+    path.join(opencode, 'tools'),
     path.join(opencode, 'agent'),
     path.join(opencode, 'agents'),
     path.join(opencode, 'command'),

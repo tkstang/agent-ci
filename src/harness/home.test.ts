@@ -471,6 +471,8 @@ describe('harness config reset', () => {
         'home/.cursor/hooks.json',
         'home/.cursor/cli-config.json',
         'home/.config/opencode/plugin',
+        'home/.config/opencode/tool',
+        'home/.config/opencode/tools',
         'home/.codex/rules',
       ]),
     );
