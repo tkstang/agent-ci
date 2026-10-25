@@ -232,6 +232,41 @@ describe('absolute links into the repository', () => {
     });
   });
 
+  it('a chained link that reaches the original from the copy downgrades to one in-place attempt (review r3 L1)', async () => {
+    const repo = await scratchRepo();
+    await writeFile(path.join(repo, 'b.txt'), 'b\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'b');
+    const depth = repo.split('/').filter(Boolean).length + 2;
+    const dirs = Array.from({ length: depth }, (_, i) => `d${i}`).join('/');
+    await mkdir(path.join(repo, dirs), { recursive: true });
+    // l1 resolves to the repository root; `link` climbs from there to / and
+    // back down to the original b.txt. Lexically neither leaves the tree.
+    await symlink('../'.repeat(depth), path.join(repo, dirs, 'l1'));
+    await symlink(
+      `${dirs}/l1/${'../'.repeat(depth)}${repo.slice(1)}/b.txt`,
+      path.join(repo, 'link'),
+    );
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'links');
+    // The lexical pre-scan cannot see it...
+    expect(await isolationSupport(repo, true)).toEqual({ mode: 'copy' });
+    // ...the post-copy physical check does.
+    const summary = await runAgent(await runOptions(repo));
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    const events = await logEvents(summary.value.logPath);
+    const isolation = events.filter((e) => e.event === 'attempt.isolation');
+    expect(isolation.at(-1)).toMatchObject({
+      mode: 'single-attempt',
+      reason:
+        'link resolves into the original repository from the attempt copy',
+    });
+    // flaky-edit fails its first attempt; a downgraded attempt is not retried.
+    expect(summary.value.attempts).toBe(1);
+    expect(await attemptDirs()).toEqual([]);
+  });
+
   it('any relative link leaving the repository disables copy isolation (fail-safe)', async () => {
     const repo = await scratchRepo();
     await symlink('../sibling/file', path.join(repo, 'up'));

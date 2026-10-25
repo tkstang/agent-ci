@@ -15,7 +15,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { failure, success, type Result } from '@agent-ci/result.js';
-import { isWithin, resolveRealPath } from '@agent-ci/run/workspace.js';
+import {
+  isWithin,
+  resolvePhysical,
+  resolveRealPath,
+} from '@agent-ci/run/workspace.js';
 
 /**
  * Per-attempt workspace isolation for edit runs, after pntr's supervisor:
@@ -258,6 +262,41 @@ async function copyTree(
       // sockets, FIFOs and devices are skipped
     }
   }
+}
+
+/**
+ * The exact isolation test, run on a finished copy: resolve every link in it
+ * physically (chains, `..` after links). A link that reaches the original
+ * repository (or cannot be resolved) means an attempt could write the
+ * original through it. Returns the reason, or undefined when isolated.
+ */
+export async function copyReachesOriginal(
+  copyRoot: string,
+  boundaryRoot: string,
+): Promise<string | undefined> {
+  const pending = [copyRoot];
+  while (pending.length > 0) {
+    const dir = pending.pop() ?? copyRoot;
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (dir === copyRoot && entry.name === '.git') continue;
+      if (entry.isDirectory()) {
+        pending.push(full);
+      } else if (entry.isSymbolicLink()) {
+        const rel = path.relative(copyRoot, full);
+        let real: string;
+        try {
+          real = (await resolvePhysical(full)).real;
+        } catch {
+          return `${rel} cannot be resolved in the attempt copy`;
+        }
+        if (isWithin(boundaryRoot, real)) {
+          return `${rel} resolves into the original repository from the attempt copy`;
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 /** A repository-relative path that may be promoted. */

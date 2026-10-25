@@ -52,6 +52,7 @@ import {
 } from '@agent-ci/routing/resolve.js';
 import type { HarnessId, ModelsFile, Route } from '@agent-ci/routing/schema.js';
 import {
+  copyReachesOriginal,
   createAttemptWorkspace,
   isolationSupport,
   promoteChanges,
@@ -435,6 +436,8 @@ async function runInHome(
       ...(isolation.mode === 'copy' ? {} : { reason: isolation.reason }),
     });
   }
+  /** Set when a copy proved unable to isolate: no further retries. */
+  let downgraded: string | undefined;
   let realCwd = options.cwd;
   if (isolation?.mode === 'copy') {
     try {
@@ -459,8 +462,8 @@ async function runInHome(
             );
             let run: Awaited<ReturnType<typeof runHarness>> | undefined;
             let outcome: HarnessOutcome;
-            const copy =
-              isolation?.mode === 'copy'
+            let copy =
+              isolation?.mode === 'copy' && downgraded === undefined
                 ? await createAttemptWorkspace({
                     boundaryRoot,
                     cwd: realCwd,
@@ -488,6 +491,23 @@ async function runInHome(
                   message: copy.message,
                 },
               };
+            }
+            // The exact check needs the copy: a chained link that reaches the
+            // original means this copy cannot isolate. Run in place, once.
+            if (copy?.ok) {
+              const escape = await copyReachesOriginal(
+                copy.value.root,
+                boundaryRoot,
+              );
+              if (escape !== undefined) {
+                await copy.value.dispose();
+                copy = undefined;
+                downgraded = escape;
+                log.add('attempt.isolation', {
+                  mode: 'single-attempt',
+                  reason: escape,
+                });
+              }
             }
             const attemptCwd = copy?.value.cwd ?? options.cwd;
             try {
@@ -595,7 +615,12 @@ async function runInHome(
             });
             return {
               ok: outcome.ok,
-              retryable: outcome.ok ? false : outcome.retryable,
+              // An attempt run in place (isolation downgraded) is never
+              // retried: its partial edits are in the real workspace.
+              retryable:
+                outcome.ok || downgraded !== undefined
+                  ? false
+                  : outcome.retryable,
               outcome,
             };
           },
