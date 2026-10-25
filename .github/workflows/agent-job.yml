@@ -259,4 +259,3 @@ jobs:
           path: ${{ runner.temp }}/agent-ci-out
           retention-days: 7
           if-no-files-found: error
-
