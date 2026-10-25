@@ -101,6 +101,12 @@ export interface EligibilityRequest {
   readonly allowPool: boolean;
   readonly seedLogin: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * Require the route's credential variables to be present (default true).
+   * A workflow resolves the route before the credential is mapped into the
+   * agent step, so it checks policy without them.
+   */
+  readonly requireCredentials?: boolean;
 }
 
 /** Request-time checks: may this run use this route right now? */
@@ -140,6 +146,7 @@ export function checkEligibility(
       );
     }
   }
+  if (request.requireCredentials === false) return success(route);
   const missing = route.credentials.filter((name) => {
     const value = request.env[name];
     return value === undefined || value === '';

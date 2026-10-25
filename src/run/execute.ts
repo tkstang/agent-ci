@@ -43,10 +43,11 @@ import {
 } from '@agent-ci/result.js';
 import {
   loadModelsFile,
+  type ResolveRequest,
   resolveRoute,
   type SkippedRoute,
 } from '@agent-ci/routing/resolve.js';
-import type { HarnessId, Route } from '@agent-ci/routing/schema.js';
+import type { HarnessId, ModelsFile, Route } from '@agent-ci/routing/schema.js';
 import {
   createAttemptWorkspace,
   isolationSupport,
@@ -91,7 +92,16 @@ export interface RunOptions {
   readonly retryDelayMs: number;
   readonly modelsPath: string;
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * Take the route's single credential from `AGENT_CI_CREDENTIAL` (a
+   * workflow maps exactly one secret into that variable). The value is moved
+   * to the route's named variable; the transport variable is dropped.
+   */
+  readonly credentialFromEnv?: boolean;
 }
+
+/** The transport variable for `--credential-from-env`. */
+export const CREDENTIAL_TRANSPORT_ENV = 'AGENT_CI_CREDENTIAL';
 
 export interface RunDeps {
   readonly harness?: RunHarnessDeps;
@@ -141,14 +151,21 @@ export async function runAgent(
 ): Promise<Result<RunSummary>> {
   const models = await loadModelsFile(options.modelsPath);
   if (!models.ok) return models;
-  const resolved = resolveRoute(models.value, {
+  const request = {
     model: options.model,
     harness: options.harness,
     routeId: options.routeId,
     allowPool: options.allowPool,
     seedLogin: options.seedLogin,
-    env: options.env,
-  });
+  };
+  let env = options.env;
+  if (options.credentialFromEnv === true) {
+    const mapped = mapTransportCredential(models.value, request, env);
+    if (!mapped.ok) return mapped;
+    env = mapped.value;
+    options = { ...options, env };
+  }
+  const resolved = resolveRoute(models.value, { ...request, env });
   if (!resolved.ok) return resolved;
   const { route } = resolved.value;
 
@@ -729,6 +746,36 @@ async function runInHome(
     homeRoot: options.homeRoot === undefined ? null : homeRoot.root,
     ...(error === undefined ? {} : { error }),
   });
+}
+
+/**
+ * Move the value of `AGENT_CI_CREDENTIAL` to the variable the route names.
+ * The transport variable is always dropped. Empty means "no credential" (the
+ * fake harness); a non-empty value needs a route that names exactly one
+ * credential, so the value can only ever reach that one variable.
+ */
+export function mapTransportCredential(
+  file: ModelsFile,
+  request: Omit<ResolveRequest, 'env'>,
+  env: Readonly<Record<string, string | undefined>>,
+): Result<Readonly<Record<string, string | undefined>>> {
+  const { [CREDENTIAL_TRANSPORT_ENV]: value, ...rest } = env;
+  if (value === undefined || value === '') return success(rest);
+  const pre = resolveRoute(file, {
+    ...request,
+    env: rest,
+    requireCredentials: false,
+  });
+  if (!pre.ok) return pre;
+  const names = pre.value.route.credentials;
+  const [name] = names;
+  if (names.length !== 1 || name === undefined) {
+    return failure(
+      'E_ROUTE_CONFIG',
+      `--credential-from-env needs a route that names exactly one credential; ${pre.value.route.id} names ${names.length}`,
+    );
+  }
+  return success({ ...rest, [name]: value });
 }
 
 /**

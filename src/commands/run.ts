@@ -48,7 +48,14 @@ Execution:
                              removed after the run).
   --timeout-minutes <n>      Deadline for all attempts (default 30).
   --max-attempts <n>         Attempts for transient failures (default 2).
-  --retry-delay-seconds <n>  Delay between attempts (default 30).`;
+  --retry-delay-seconds <n>  Delay between attempts (default 30).
+  --credential-from-env      Take the route's single credential from
+                             AGENT_CI_CREDENTIAL (workflows map exactly one
+                             secret there); empty means none.
+
+Edit runs that may retry run each attempt in a fresh copy of the repository
+and promote only the successful attempt's changes. An edit run that changed
+files also writes <out>/changes.json for agent-ci publish.`;
 
 const FLAGS = {
   model: { type: 'string' },
@@ -72,6 +79,7 @@ const FLAGS = {
   'timeout-minutes': { type: 'string' },
   'max-attempts': { type: 'string' },
   'retry-delay-seconds': { type: 'string' },
+  'credential-from-env': { type: 'boolean' },
 } as const;
 
 async function promptFrom(
@@ -146,6 +154,7 @@ export function createRunCommand(deps: RunDeps = {}): CommandSpec {
             ) * 1_000,
           modelsPath: resolvePath(flags.models) ?? DEFAULT_MODELS_PATH,
           env: context.env,
+          credentialFromEnv: flags['credential-from-env'] === true,
         },
         deps,
       );

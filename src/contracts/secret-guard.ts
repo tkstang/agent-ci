@@ -28,6 +28,7 @@ export const KNOWN_CREDENTIAL_ENV = [
   'GITHUB_TOKEN',
   'GH_TOKEN',
   'AGENT_CI_SOURCE_TOKEN',
+  'AGENT_CI_CREDENTIAL',
 ] as const;
 
 /** Values shorter than this are too ambiguous to guard by substring. */
