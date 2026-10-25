@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { extractStructuredResult } from '@agent-ci/contracts/final-answer.js';
@@ -54,6 +54,7 @@ import { superviseAttempts } from '@agent-ci/run/supervisor.js';
 import {
   findWorkspaceRoot,
   isWithin,
+  resolvePhysical,
   resolveRealPath,
 } from '@agent-ci/run/workspace.js';
 
@@ -164,12 +165,12 @@ export async function runAgent(
   const boundary = await findWorkspaceRoot(options.cwd, deps.git);
   if (!boundary.ok) return boundary;
   const boundaryRoot = boundary.value.root;
-  const outputPath = await checkOutputDir(
+  const outputDir = await resolveOutputDir(
     options.cwd,
     options.outDir,
     boundaryRoot,
   );
-  if (!outputPath.ok) return outputPath;
+  if (!outputDir.ok) return outputDir;
   const homeOutside = async (root: string): Promise<boolean> => {
     try {
       return !isWithin(boundaryRoot, await resolveRealPath(root));
@@ -211,6 +212,7 @@ export async function runAgent(
       prompt.value,
       home.value,
       boundaryRoot,
+      outputDir.value,
     );
   } finally {
     // A temp root may hold a seeded login; never leave it behind.
@@ -226,6 +228,7 @@ async function runInHome(
   promptText: string,
   homeRoot: HomeRoot,
   boundaryRoot: string,
+  outDir: string,
 ): Promise<Result<RunSummary>> {
   const now = deps.now ?? Date.now;
   if (options.skillsDir !== undefined) {
@@ -289,8 +292,16 @@ async function runInHome(
     log.addSecrets(observed.value);
     return true;
   };
-  const outDir = path.resolve(options.cwd, options.outDir);
+  // `outDir` is the canonical path validated before the home was created;
+  // every write below goes through it (never a recomputed path).
   await mkdir(outDir, { recursive: true });
+  const created = await confirmOutputDir(
+    options.cwd,
+    options.outDir,
+    boundaryRoot,
+    outDir,
+  );
+  if (!created.ok) return created;
   const promptPath = path.join(outDir, 'prompt.md');
   const resultPath = path.join(outDir, 'run-result.json');
   const logPath = path.join(outDir, 'run-log.jsonl');
@@ -486,10 +497,11 @@ async function runInHome(
   });
   // The agent ran inside this workspace: re-check that nothing it did
   // redirects the output directory before writing through it.
-  const stillSafe = await checkOutputDir(
+  const stillSafe = await confirmOutputDir(
     options.cwd,
     options.outDir,
     boundaryRoot,
+    outDir,
   );
   if (!stillSafe.ok) return stillSafe;
   await writeOwnedFile(
@@ -513,51 +525,57 @@ async function runInHome(
 }
 
 /**
- * An output directory inside the workspace (the default `<cwd>/.agent-ci`)
- * must not be reached through a symlink: a checked-out repository could
- * commit `.agent-ci -> elsewhere` and redirect the run's writes. Every
- * existing component between the repository boundary and the directory is
- * checked with lstat. An output directory outside the workspace is the
- * operator's own choice.
+ * Resolve the output directory ONCE to its canonical path. A relative `--out`
+ * is taken against the workspace path as given, without lexical
+ * normalization, so `sublink/..` is resolved physically. The path is refused
+ * when it traverses any symlink located inside the workspace: a checked-out
+ * repository can commit `.agent-ci -> elsewhere`, or a linked subdirectory,
+ * to redirect the run's writes. Links outside the workspace (`/tmp` ->
+ * `/private/tmp`, an operator's own folder links) are the operator's choice.
+ * The returned canonical path is the only one the run writes through.
  */
-async function checkOutputDir(
+async function resolveOutputDir(
   cwd: string,
   outDir: string,
   boundaryRoot: string,
 ): Promise<Result<string>> {
-  let realCwd: string;
+  const raw = path.isAbsolute(outDir) ? outDir : `${cwd}${path.sep}${outDir}`;
+  let physical: Awaited<ReturnType<typeof resolvePhysical>>;
   try {
-    realCwd = await realpath(cwd);
-  } catch {
-    return failure('E_INVALID_INPUT', `workspace not found: ${cwd}`);
+    physical = await resolvePhysical(raw);
+  } catch (err) {
+    return failure(
+      'E_OUTPUT_PATH',
+      `cannot resolve the output directory ${outDir}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
-  const lexical = path.resolve(
-    realCwd,
-    path.relative(path.resolve(cwd), path.resolve(cwd, outDir)),
+  const workspaceLink = physical.links.find((link) =>
+    isWithin(boundaryRoot, path.dirname(link)),
   );
-  if (!isWithin(boundaryRoot, lexical)) return success(lexical);
-  let current = boundaryRoot;
-  for (const part of path.relative(boundaryRoot, lexical).split(path.sep)) {
-    if (part === '') continue;
-    current = path.join(current, part);
-    try {
-      const info = await lstat(current);
-      if (info.isSymbolicLink()) {
-        return failure(
-          'E_OUTPUT_PATH',
-          `output path component ${current} is a symlink inside the workspace`,
-          'Remove the link or pass --out outside the repository.',
-        );
-      }
-      if (!info.isDirectory()) {
-        return failure(
-          'E_OUTPUT_PATH',
-          `output path component ${current} is not a directory`,
-        );
-      }
-    } catch {
-      break; // the rest does not exist yet and will be created as directories
-    }
+  if (workspaceLink !== undefined) {
+    return failure(
+      'E_OUTPUT_PATH',
+      `output path goes through the symlink ${workspaceLink} inside the workspace`,
+      'Remove the link or pass --out outside the repository.',
+    );
   }
-  return success(lexical);
+  return success(physical.real);
+}
+
+/** Re-resolve and require the same canonical output directory, still link-free. */
+async function confirmOutputDir(
+  cwd: string,
+  outDir: string,
+  boundaryRoot: string,
+  expected: string,
+): Promise<Result<string>> {
+  const again = await resolveOutputDir(cwd, outDir, boundaryRoot);
+  if (!again.ok) return again;
+  if (again.value !== expected) {
+    return failure(
+      'E_OUTPUT_PATH',
+      `the output directory now resolves to ${again.value}, not ${expected}`,
+    );
+  }
+  return again;
 }

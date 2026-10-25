@@ -788,6 +788,51 @@ describe('runAgent', () => {
       expect(await readFile(victim, 'utf8')).toBe('untouched');
     });
 
+    it('refuses a case-variant --out that reaches a committed output link', async () => {
+      const opts = await options({ model: 'fake-echo' });
+      const parent = path.dirname(opts.cwd);
+      const repo = path.join(parent, `${path.basename(opts.cwd)}-Repo`);
+      await mkdir(repo);
+      if (!existsSync(path.join(parent, `${path.basename(opts.cwd)}-repo`))) {
+        return; // case-sensitive volume: the variant is a different path
+      }
+      const elsewhere = `${opts.cwd}-elsewhere-case`;
+      await mkdir(elsewhere);
+      await symlink(elsewhere, path.join(repo, '.agent-ci'));
+      const summary = await runAgent({
+        ...opts,
+        cwd: repo,
+        outDir: path.join(
+          parent,
+          `${path.basename(opts.cwd)}-repo`,
+          '.agent-ci',
+        ),
+      });
+      expect(summary).toMatchObject({ ok: false, code: 'E_OUTPUT_PATH' });
+      expect(readdirSync(elsewhere)).toEqual([]);
+    });
+
+    it('refuses a relative --out that climbs out of a linked subdirectory cwd', async () => {
+      const opts = await options({ model: 'fake-echo' });
+      execFileSync('git', ['init', '-q'], { cwd: opts.cwd, stdio: 'ignore' });
+      const elsewhere = `${opts.cwd}-elsewhere-sub`;
+      await mkdir(elsewhere);
+      await symlink(elsewhere, path.join(opts.cwd, '.agent-ci'));
+      await mkdir(path.join(opts.cwd, 'a', 'b'), { recursive: true });
+      await symlink(
+        path.join(opts.cwd, 'a', 'b'),
+        path.join(opts.cwd, 'sublink'),
+      );
+      const summary = await runAgent({
+        ...opts,
+        cwd: path.join(opts.cwd, 'sublink'),
+        outDir: '../.agent-ci',
+      });
+      expect(summary).toMatchObject({ ok: false, code: 'E_OUTPUT_PATH' });
+      expect(readdirSync(elsewhere)).toEqual([]);
+      expect(existsSync(path.join(opts.cwd, 'a', '.agent-ci'))).toBe(false);
+    });
+
     it('re-checks the output directory after the agent ran', async () => {
       const opts = await options({ model: 'fake-echo', mode: 'edit' });
       const elsewhere = `${opts.cwd}-swapped`;
@@ -819,9 +864,10 @@ describe('runAgent', () => {
       const opts = await options({ model: 'fake-echo' });
       const outDir = `${opts.cwd}-out`;
       const summary = await runAgent({ ...opts, outDir });
-      expect(summary.ok && summary.value.resultPath.startsWith(outDir)).toBe(
-        true,
-      );
+      expect(
+        summary.ok &&
+          summary.value.resultPath.startsWith(await realpath(outDir)),
+      ).toBe(true);
     });
   });
 });

@@ -117,7 +117,8 @@ export function createRunCommand(deps: RunDeps = {}): CommandSpec {
           routeId: flags.route,
           prompt,
           cwd,
-          outDir: path.resolve(cwd, flags.out ?? '.agent-ci'),
+          // Raw: resolved once, physically, against the workspace by runAgent.
+          outDir: flags.out ?? '.agent-ci',
           outputContract:
             oneOf(flags.contract, '--contract', OUTPUT_CONTRACTS, 'report') ??
             'report',
