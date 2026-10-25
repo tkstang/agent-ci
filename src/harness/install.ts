@@ -37,6 +37,8 @@ export type InstallSpec =
 export const HARNESS_INSTALLS: Readonly<
   Record<InstallableHarness, InstallSpec>
 > = {
+  // Read-only safety depends on this version's skill and hook behavior:
+  // re-run research `read-only-execution-probe-2026-10-25.md` on a bump.
   claude: {
     kind: 'npm',
     package: '@anthropic-ai/claude-code',

@@ -202,6 +202,23 @@ describe('run-agent.yml', () => {
     );
   });
 
+  it('installs repository skills only for edit runs, never for read-only runs', async () => {
+    const { jobs } = await runAgent();
+    const agent = jobs.agent ?? {};
+    const oat = step(agent, 'Install skills into the per-job home');
+    expect(oat.run).not.toContain('--source');
+    expect(oat.run).not.toContain('--allow-workspace-source');
+    const repo = step(agent, 'Install repository skills (edit runs only)');
+    expect(repo.if).toBe("inputs.skills_source != '' && inputs.mode == 'edit'");
+    expect(repo.run).toContain('--allow-workspace-source');
+    // No other step can bring workspace skills in.
+    for (const entry of agent.steps ?? []) {
+      if (entry !== repo) {
+        expect(entry.run ?? '').not.toContain('--allow-workspace-source');
+      }
+    }
+  });
+
   it('publishes only from the canonical result directory', async () => {
     const { jobs } = await runAgent();
     const publish = jobs.publish ?? {};

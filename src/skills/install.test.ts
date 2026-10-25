@@ -149,6 +149,35 @@ describe('installSkills', () => {
     });
   });
 
+  it('refuses repository skills (inside the workspace) unless explicitly allowed', async () => {
+    const { ws, root } = await workspaceAndRoot();
+    const repoSkills = path.join(ws, '.claude', 'skills', 'repo-skill');
+    await mkdir(repoSkills, { recursive: true });
+    await writeFile(
+      path.join(repoSkills, 'SKILL.md'),
+      '---\nname: repo-skill\n---\n',
+    );
+    const refused = await installSkills({
+      homeRoot: root,
+      workspace: ws,
+      oatPacks: [],
+      sourceDir: path.join(ws, '.claude', 'skills'),
+      env: { PATH: process.env.PATH },
+    });
+    expect(refused.ok ? 'ok' : refused.code).toBe('E_INVALID_INPUT');
+    const allowed = await installSkills({
+      homeRoot: root,
+      workspace: ws,
+      oatPacks: [],
+      sourceDir: path.join(ws, '.claude', 'skills'),
+      allowWorkspaceSource: true,
+      env: { PATH: process.env.PATH },
+    });
+    expect(allowed.ok && allowed.value.views['.agents/skills']).toEqual([
+      'repo-skill',
+    ]);
+  });
+
   it('rejects bad pack names and an empty request; the CLI needs both paths', async () => {
     const { ws, root } = await workspaceAndRoot();
     for (const oatPacks of [['Core; rm'], []]) {

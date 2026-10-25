@@ -10,12 +10,14 @@ const USAGE = `agent-ci skills install — install skills into a home root befor
 
   agent-ci skills install --home-root <dir> --workspace <dir>
                           [--oat-pack <name[,name]>]... [--source <dir>]
-                          [--oat-command <path>]
+                          [--oat-command <path>] [--allow-workspace-source]
 
 Creates (or reuses) the home root, which must not overlap the workspace, then
 installs OAT packs at user scope with HOME inside the root (pinned OAT CLI via
 npx; --oat-command uses a local oat binary instead) and/or copies the skills
-under --source. Pass the same --home-root to agent-ci run. Reports the skill
+under --source. A --source inside the workspace is repository content and
+is refused unless --allow-workspace-source (edit runs only). Pass the same
+--home-root to agent-ci run. Reports the skill
 names found in each provider view (.agents/skills, .claude/skills,
 .codex/skills, .cursor/skills, .config/opencode/skills).`;
 
@@ -41,6 +43,7 @@ export function createSkillsCommand(
           'oat-pack': { type: 'string', multiple: true },
           source: { type: 'string' },
           'oat-command': { type: 'string' },
+          'allow-workspace-source': { type: 'boolean' },
         },
         USAGE,
       );
@@ -59,6 +62,7 @@ export function createSkillsCommand(
         ...(optional(flags['oat-command']) === undefined
           ? {}
           : { oatCommand: [flags['oat-command'] ?? ''] }),
+        allowWorkspaceSource: flags['allow-workspace-source'] === true,
         env: context.env,
         ...(deps.run === undefined ? {} : { run: deps.run }),
         ...(deps.git === undefined ? {} : { git: deps.git }),

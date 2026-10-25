@@ -71,7 +71,9 @@ on:
         type: string
         default: ''
       skills_source:
-        description: Skills directory in the target checkout to copy into the per-job home.
+        description: >-
+          Skills directory in the target checkout to copy into the per-job home.
+          Edit runs only: repository content never becomes a user skill in a read-only run.
         type: string
         default: ''
       publish_pr:
@@ -206,11 +208,19 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
 
       - name: Install skills into the per-job home
-        if: inputs.skills_oat_packs != '' || inputs.skills_source != ''
+        if: inputs.skills_oat_packs != ''
         env:
           PACKS: ${{ inputs.skills_oat_packs }}
+        run: agent-ci skills install --home-root "$RUNNER_TEMP/agent-ci-home" --workspace target --oat-pack "$PACKS"
+
+      # Repository skills are repository content: installed at user scope they
+      # become trusted instructions, so only edit runs (whose agent can already
+      # act on the repository) get them; read-only runs never do.
+      - name: Install repository skills (edit runs only)
+        if: inputs.skills_source != '' && inputs.mode == 'edit'
+        env:
           SOURCE: ${{ inputs.skills_source }}
-        run: agent-ci skills install --home-root "$RUNNER_TEMP/agent-ci-home" --workspace target --oat-pack "$PACKS" --source "${SOURCE:+target/$SOURCE}"
+        run: agent-ci skills install --home-root "$RUNNER_TEMP/agent-ci-home" --workspace target --source "target/$SOURCE" --allow-workspace-source
 
       - name: Run the setup command (no secrets)
         if: inputs.setup_command != ''

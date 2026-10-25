@@ -12,7 +12,11 @@ import {
   type ProcessRunner,
 } from '@agent-ci/harness/install.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
-import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
+import {
+  findWorkspaceRoot,
+  isWithin,
+  resolveRealPath,
+} from '@agent-ci/run/workspace.js';
 
 /**
  * Install skills into a per-job (or per-run) home root before the agent
@@ -48,6 +52,13 @@ export interface InstallSkillsOptions {
   readonly workspace: string;
   readonly oatPacks: readonly string[];
   readonly sourceDir?: string;
+  /**
+   * Allow `sourceDir` inside the workspace. Skills from the checkout are
+   * repository content: installing them at user scope makes them trusted
+   * instructions, so this is for edit runs only (an edit agent can already
+   * act on repository content); read-only runs never get them.
+   */
+  readonly allowWorkspaceSource?: boolean;
   /** OAT CLI command and leading args (default: pinned `npx`). */
   readonly oatCommand?: readonly string[];
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -93,6 +104,25 @@ export async function installSkills(
   const layout = home.value;
 
   if (options.sourceDir !== undefined) {
+    let realSource: string;
+    try {
+      realSource = await resolveRealPath(options.sourceDir);
+    } catch {
+      return failure(
+        'E_HOME_ROOT',
+        `skills source not found: ${options.sourceDir}`,
+      );
+    }
+    if (
+      isWithin(boundary.value.root, realSource) &&
+      options.allowWorkspaceSource !== true
+    ) {
+      return failure(
+        'E_INVALID_INPUT',
+        `skills source ${options.sourceDir} is inside the workspace (repository content)`,
+        'Repository skills are installed only for edit runs: pass --allow-workspace-source.',
+      );
+    }
     const seeded = await seedSkills(layout, options.sourceDir);
     if (!seeded.ok) return seeded;
   }

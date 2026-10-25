@@ -13,7 +13,15 @@ import type {
  * Built-in tools a read-only run may use: read, search and load installed
  * skills; no edits or shell. Without `Skill`, skills installed into the home
  * root are invisible (live probe 2026-10-25, research
- * `skill-discovery-2026-10-25.md`); loading one only reads its instructions.
+ * `skill-discovery-2026-10-25.md`).
+ *
+ * `Skill` does not reopen execution (claude 2.1.310, live probe 2026-10-25,
+ * research `read-only-execution-probe-2026-10-25.md`): a skill's
+ * `` !`command` `` dynamic context runs through the Bash permission check and
+ * is denied in this mode (it ran only in a `bypassPermissions` control), a
+ * skill declaring `allowed-tools: Bash` is denied, and project skills from
+ * `<repo>/.claude/skills` are not loaded under `--setting-sources user`.
+ * Re-run that probe whenever the pinned Claude Code version changes.
  */
 export const CLAUDE_READ_ONLY_TOOLS = 'Read,Grep,Glob,Skill';
 
