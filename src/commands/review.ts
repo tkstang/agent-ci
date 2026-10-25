@@ -73,6 +73,7 @@ import {
   parsePolicy,
   type ReviewPolicy,
 } from '@agent-ci/review/trigger.js';
+import { runVerify } from '@agent-ci/review/verify.js';
 import { loadModelsFile } from '@agent-ci/routing/resolve.js';
 import { HARNESS_IDS } from '@agent-ci/routing/schema.js';
 
@@ -89,6 +90,9 @@ Stages (each one job step in pr-review.yml):
   gate        Authorize the request, check models, consume the label or
               reply once, and write the bound request.json (GitHub token).
   prepare     Build the digest-bound review spec and diff (GitHub token).
+  verify      verify-review only: run the configured checks on the PR head
+              in a controlled environment and record checks.json (no model
+              credential, no GitHub token, no helper token).
   pass        Run one reviewer pass read-only on the PR head checkout
               (model credential; no GitHub token).
   sources     Fetch the cited source the adjudicator will see (GitHub
@@ -474,6 +478,78 @@ async function prepare(
     if (error instanceof CliError) await output({ error_code: error.code });
     throw error;
   }
+}
+
+// --- verify ----------------------------------------------------------------
+
+const VERIFY_USAGE = `agent-ci review verify — run the configured checks (verify-review).
+
+Runs every check in the spec's checks configuration (read from the base
+commit) on the PR head checkout: a fresh copy per check, an environment
+allowlist with no credential, a PATH without checkout entries, a deadline,
+a 1 MiB output capture, a process-group kill, and namespaces (Linux) or
+sandbox-exec (macOS) where available. Run it only where no model credential
+or other secret exists: the PR's code runs here.
+
+  --spec-dir <dir> --spec-sha256 <hex>   The prepared spec (verified).
+  --repo <owner/name>                    Default $GITHUB_REPOSITORY.
+  --cwd <dir>                            The PR head checkout (default .).
+  --out <dir>                            checks.json (outside the checkout).
+  --github-output                        status, digest (of --out).`;
+
+async function verifyStage(
+  argv: readonly string[],
+  context: CommandContext,
+  deps: Deps,
+) {
+  const flags = parseFlags(
+    argv,
+    {
+      ...SPEC_FLAGS,
+      cwd: { type: 'string' },
+      out: { type: 'string' },
+      'github-output': { type: 'boolean' },
+    },
+    VERIFY_USAGE,
+  );
+  const { env } = context;
+  return await stage(async () => {
+    const spec = await loadSpecDir({
+      dir: path.resolve(context.cwd, required(flags['spec-dir'], '--spec-dir')),
+      specSha256: required(flags['spec-sha256'], '--spec-sha256'),
+      repository: repoOf(flags.repo, env),
+    });
+    const outDir = path.resolve(context.cwd, required(flags.out, '--out'));
+    const ran = await runVerify({
+      cwd: path.resolve(context.cwd, flags.cwd ?? '.'),
+      spec,
+      outDir,
+      env,
+      log: context.log,
+      ...(deps.git === undefined ? {} : { git: deps.git }),
+    });
+    if (!ran.ok) throw CliError.fromFailure(ran);
+    const digest = await digestResultDir(outDir);
+    if (!digest.ok) throw CliError.fromFailure(digest);
+    const { evidence } = ran.value;
+    if (flags['github-output'] === true)
+      await appendGithubOutput(env, {
+        status: evidence.status,
+        digest: digest.value,
+      });
+    return {
+      status: evidence.status,
+      digest: digest.value,
+      evidencePath: ran.value.evidencePath,
+      checks: evidence.entries.map((entry) => ({
+        name: entry.name,
+        exitCode: entry.exit_code,
+        timedOut: entry.timed_out,
+        isolation: entry.isolation,
+        evidenceId: entry.evidence_id,
+      })),
+    };
+  });
 }
 
 // --- pass ------------------------------------------------------------------
@@ -1078,6 +1154,7 @@ const STAGES: Record<
 > = {
   gate,
   prepare,
+  verify: verifyStage,
   pass: passStage,
   sources,
   adjudicate: (argv, context) => adjudicate(argv, context),
@@ -1088,6 +1165,7 @@ const STAGES: Record<
 const STAGE_USAGE: Record<string, string> = {
   gate: GATE_USAGE,
   prepare: PREPARE_USAGE,
+  verify: VERIFY_USAGE,
   pass: PASS_USAGE,
   sources: SOURCES_USAGE,
   adjudicate: ADJUDICATE_USAGE,

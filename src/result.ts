@@ -63,6 +63,10 @@ export const ERROR_CODES = [
   'E_DIFF_TOO_LARGE',
   'E_INVALID_DIFF',
   'E_GITHUB_API',
+  // verify-review checks
+  'E_VERIFY_CONFIG',
+  'E_VERIFY_EVIDENCE',
+  'E_VERIFY_RUN',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

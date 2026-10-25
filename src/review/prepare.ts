@@ -1,4 +1,10 @@
 import {
+  CHECKS_CONFIG_PATH,
+  validateVerifySpec,
+  type VerifySpec,
+  verifySpecFromText,
+} from '@agent-ci/review/checks.js';
+import {
   contractError,
   isRepoPath,
   isSha,
@@ -17,6 +23,7 @@ import {
   type ResolvedRequestConfig,
   validateRequestConfig,
 } from '@agent-ci/review/request.js';
+import { fetchSources } from '@agent-ci/review/sources.js';
 import type { RequestRecord } from '@agent-ci/review/trigger.js';
 
 /**
@@ -69,7 +76,36 @@ export type ReviewSpecDocument = {
   };
   changed_files: string[];
   pr: { title: string; body: string };
+  /**
+   * verify-review only: the checks configuration read from the base commit
+   * (never the PR head, so a PR cannot add or redefine a check).
+   */
+  verify?: VerifySpec;
 };
+
+/**
+ * Read `.github/agent-ci/checks.yaml` from the base commit through the git
+ * database API (a regular file only; a symlink reads as missing).
+ */
+export async function readChecksConfig(input: {
+  github: GithubClient;
+  repository: string;
+  baseSha: string;
+}): Promise<VerifySpec> {
+  const texts = await fetchSources({
+    github: input.github,
+    repository: input.repository,
+    shas: { RIGHT: input.baseSha, LEFT: input.baseSha },
+    wanted: [{ side: 'RIGHT', path: CHECKS_CONFIG_PATH }],
+  });
+  const text = [...texts.values()][0];
+  if (text === undefined)
+    contractError(
+      'E_VERIFY_CONFIG',
+      `verify-review needs ${CHECKS_CONFIG_PATH} as a regular file on the base commit ${input.baseSha.slice(0, 12)}`,
+    );
+  return verifySpecFromText(text);
+}
 
 /** Read and verify a request record against its trusted digest. */
 export function verifyRequest(
@@ -238,6 +274,14 @@ export async function prepareReview(input: {
   const changed = [...new Set([...diffPaths(parsed), ...listed])].filter(
     (name) => isRepoPath(name),
   );
+  const verify =
+    request.config.mode === 'verify-review'
+      ? await readChecksConfig({
+          github,
+          repository: request.repository,
+          baseSha: request.base_sha,
+        })
+      : undefined;
   const spec: ReviewSpecDocument = {
     version: 1,
     request: request.config,
@@ -258,6 +302,7 @@ export async function prepareReview(input: {
     },
     changed_files: changed,
     pr: request.pr,
+    ...(verify === undefined ? {} : { verify }),
   };
   const specText = `${JSON.stringify(spec, null, 2)}\n`;
   return { spec, specText, specSha256: sha256(specText), diffText };
@@ -303,6 +348,11 @@ export function verifySpec(input: {
   )
     contractError('E_REVIEW_INPUT', 'the review spec is invalid');
   validateRequestConfig(spec.request);
+  if (spec.request.mode === 'verify-review') {
+    spec.verify = validateVerifySpec(spec.verify);
+  } else if (spec.verify !== undefined) {
+    contractError('E_REVIEW_INPUT', 'the review spec is invalid');
+  }
   if (input.diffText === null || sha256(input.diffText) !== spec.diff.sha256)
     contractError(
       'E_REVIEW_INPUT',

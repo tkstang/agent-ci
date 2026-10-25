@@ -91,7 +91,6 @@ describe('review.json contract', () => {
     ['unknown top-level field', { extra: true }],
     ['wrong version', { version: 2 }],
     ['unknown mode', { mode: 'deep' }],
-    ['verify-review mode (p04)', { mode: 'verify-review' }],
     ['unknown pass', { pass: 'third' }],
     ['short SHA', { head_sha: 'c'.repeat(39) }],
     ['uppercase SHA', { base_sha: 'A'.repeat(40) }],
@@ -107,6 +106,22 @@ describe('review.json contract', () => {
     expect(code(() => validateReviewEnvelope(review(overrides)))[0]).toBe(
       'E_REVIEW_INPUT',
     );
+  });
+
+  it('accepts verify-review mode only when the trusted run is verify-review', () => {
+    const value = review({ mode: 'verify-review' });
+    expect(validateReviewEnvelope(value).header.mode).toBe('verify-review');
+    expect(
+      code(() =>
+        validateReviewEnvelope(value, {
+          mode: 'review',
+          pass: 'primary',
+          base_sha: BASE,
+          merge_base_sha: MERGE,
+          head_sha: HEAD,
+        }),
+      )[0],
+    ).toBe('E_REVIEW_INPUT');
   });
 
   it('rejects an envelope that disagrees with the trusted run', () => {

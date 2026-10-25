@@ -45,6 +45,8 @@ const FAILURE_TEXT: Record<string, string> = {
     'the PR head changed after the review was requested. Request the review again.',
   E_REVIEW_GUIDANCE:
     "this workflow's review guidance inputs are invalid or larger than agent-ci's caps. A maintainer needs to fix the workflow file.",
+  E_VERIFY_CONFIG:
+    'verify-review needs a valid checks configuration at `.github/agent-ci/checks.yaml` on the base branch. A maintainer needs to add or fix it.',
 };
 
 export type PublishContext = {

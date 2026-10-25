@@ -18,6 +18,7 @@
 | DR-261025-route-models-through-a-checked | 2026-10-25 | accepted | Route models through a checked-in models.yaml with an enforced policy | - |
 | DR-261025-run-agents-through-harness | 2026-10-25 | accepted | Run agents through harness CLIs, not SDKs or the AI SDK | - |
 | DR-261025-run-the-pr-review-adjudicator | 2026-10-25 | accepted | Run the PR-review adjudicator only on Claude with every tool removed | - |
+| DR-261025-run-verify-review-checks-where | 2026-10-25 | accepted | Run verify-review checks where no model credential exists | - |
 | DR-261025-trigger-pr-reviews-from | 2026-10-25 | accepted | Trigger PR reviews from the default branch with a strict gate | - |
 | DR-261025-use-the-local-proxy-pool | 2026-10-25 | accepted | Use the local proxy pool for Claude only in local runs | - |
 | DR-261025-use-tsrs-instead-of-tsc | 2026-10-25 | accepted | Use tsrs instead of tsc for type checking and emit | - |

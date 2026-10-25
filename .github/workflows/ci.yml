@@ -45,6 +45,14 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # verify-review's Linux isolation tests need unprivileged user
+      # namespaces, which the hosted image restricts through AppArmor.
+      - name: Allow unprivileged user namespaces
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
       - name: Test
         run: pnpm run test
 

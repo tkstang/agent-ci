@@ -27,8 +27,11 @@ export const CATEGORIES = [
   'maintainability',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
-/** Review modes; `verify-review` (with `run_check`) is p04. */
-export const REVIEW_MODES = ['review'] as const;
+/**
+ * Review modes. `verify-review` adds recorded repository checks the
+ * reviewer reads through the `run_check` tool and cites as check evidence.
+ */
+export const REVIEW_MODES = ['review', 'verify-review'] as const;
 export type ReviewMode = (typeof REVIEW_MODES)[number];
 /** Reviewer passes, in deterministic precedence order. */
 export const REVIEW_PASSES = ['primary', 'second'] as const;
@@ -78,6 +81,9 @@ export type ReviewErrorCode = Extract<
   | 'E_DIFF_TOO_LARGE'
   | 'E_INVALID_DIFF'
   | 'E_GITHUB_API'
+  | 'E_VERIFY_CONFIG'
+  | 'E_VERIFY_EVIDENCE'
+  | 'E_VERIFY_RUN'
 >;
 
 /**

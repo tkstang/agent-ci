@@ -1,3 +1,8 @@
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import { sha256 } from '@agent-ci/review/contracts.js';
 import { parseUnifiedDiff } from '@agent-ci/review/diff-position.js';
 import {
@@ -184,6 +189,120 @@ describe('verifyRequest and verifySpec', () => {
         specText: result.specText,
         diffText: result.diffText,
         specSha256: 'f'.repeat(64),
+        repository: REPO,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'E_REVIEW_INPUT' }));
+  });
+});
+
+async function baseRepo(write: (repo: string) => Promise<void>) {
+  const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-prepare-'));
+  const run = (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args],
+      { cwd: repo, encoding: 'utf8' },
+    ).trim();
+  run('init', '-q', '-b', 'main');
+  await mkdir(path.join(repo, '.github', 'agent-ci'), { recursive: true });
+  await write(repo);
+  run('add', '-A');
+  run('commit', '-qm', 'base', '--allow-empty');
+  return { repo, base: run('rev-parse', 'HEAD') };
+}
+
+function verifyRecord(base: string): RequestRecord {
+  return {
+    ...record,
+    base_sha: base,
+    config: { ...record.config, mode: 'verify-review' },
+  };
+}
+
+describe('prepareReview for verify-review', () => {
+  it('binds the checks configuration read from the base commit', async () => {
+    const text =
+      'version: 1\nchecks:\n  - name: test\n    command: pnpm test\n';
+    const { repo, base } = await baseRepo((dir) =>
+      writeFile(path.join(dir, '.github/agent-ci/checks.yaml'), text),
+    );
+    try {
+      const result = await prepareReview({
+        github: github().serveGitDatabase(API, repo).client(),
+        request: verifyRecord(base),
+        guidance: {},
+      });
+      expect(result.spec.verify).toEqual({
+        config_path: '.github/agent-ci/checks.yaml',
+        config_sha256: sha256(text),
+        config: {
+          version: 1,
+          setup: null,
+          checks: [
+            {
+              name: 'test',
+              command: 'pnpm test',
+              description: '',
+              timeout_minutes: 10,
+            },
+          ],
+        },
+      });
+      // The bound spec reads back with its verify section re-validated.
+      expect(
+        verifySpec({
+          specText: result.specText,
+          diffText: result.diffText,
+          specSha256: result.specSha256,
+          repository: REPO,
+        }).spec.verify?.config.checks[0]?.name,
+      ).toBe('test');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a missing or symlinked configuration with E_VERIFY_CONFIG', async () => {
+    for (const write of [
+      async () => undefined,
+      async (dir: string) => {
+        await writeFile(
+          path.join(dir, 'real.yaml'),
+          'version: 1\nchecks:\n  - name: test\n    command: x\n',
+        );
+        await symlink(
+          '../../real.yaml',
+          path.join(dir, '.github/agent-ci/checks.yaml'),
+        );
+      },
+    ]) {
+      const { repo, base } = await baseRepo(write);
+      try {
+        await expect(
+          prepareReview({
+            github: github().serveGitDatabase(API, repo).client(),
+            request: verifyRecord(base),
+            guidance: {},
+          }),
+        ).rejects.toMatchObject({ code: 'E_VERIFY_CONFIG' });
+      } finally {
+        await rm(repo, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('rejects a review-mode spec that carries a verify section', async () => {
+    const result = await prepareReview({
+      github: github().client(),
+      request: record,
+      guidance: {},
+    });
+    const tampered = `${JSON.stringify({ ...result.spec, verify: { config_path: 'x' } }, null, 2)}\n`;
+    expect(() =>
+      verifySpec({
+        specText: tampered,
+        diffText: result.diffText,
+        specSha256: sha256(tampered),
         repository: REPO,
       }),
     ).toThrow(expect.objectContaining({ code: 'E_REVIEW_INPUT' }));
