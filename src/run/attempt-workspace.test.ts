@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  copyIsolationProblem,
   createAttemptWorkspace,
   isolationSupport,
   promoteChanges,
@@ -259,8 +260,7 @@ describe('absolute links into the repository', () => {
     const isolation = events.filter((e) => e.event === 'attempt.isolation');
     expect(isolation.at(-1)).toMatchObject({
       mode: 'single-attempt',
-      reason:
-        'link resolves into the original repository from the attempt copy',
+      reason: 'link is a symlink that does not resolve inside the copy',
     });
     // flaky-edit fails its first attempt; a downgraded attempt is not retried.
     expect(summary.value.attempts).toBe(1);
@@ -280,6 +280,112 @@ describe('absolute links into the repository', () => {
     await symlink('README.md', path.join(repo, 'rel-link'));
     await symlink(os.tmpdir(), path.join(repo, 'outside-link'));
     expect(await isolationSupport(repo, true)).toEqual({ mode: 'copy' });
+  });
+});
+
+/** A finished copy of `repo`. */
+async function copyOf(repo: string) {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-qual-home-'));
+  const copy = await createAttemptWorkspace({
+    boundaryRoot: repo,
+    cwd: repo,
+    outDir: path.join(path.dirname(repo), 'out'),
+    homeRoot: home,
+    attempt: 1,
+  });
+  if (!copy.ok) throw new Error(copy.message);
+  return copy.value;
+}
+
+describe('copy qualification (phase gate H1)', () => {
+  it('rejects a link under the copied .git that reaches the original', async () => {
+    const repo = await scratchRepo();
+    await symlink(
+      path.join(repo, 'README.md'),
+      path.join(repo, '.git', 'link'),
+    );
+    const copy = await copyOf(repo);
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      '.git/link is a symlink that does not resolve inside the copy',
+    );
+    await copy.dispose();
+  });
+
+  it('rejects a link to an ancestor of the original (copy/up/repo/README.md would reach it)', async () => {
+    const repo = await scratchRepo();
+    await symlink(path.dirname(repo), path.join(repo, 'up'));
+    const copy = await copyOf(repo);
+    // Without the rule a write through here lands in the original:
+    expect(
+      await readFile(path.join(copy.root, 'up', 'repo', 'README.md'), 'utf8'),
+    ).toBe('# Scratch\n');
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      'up is a symlink that does not resolve inside the copy',
+    );
+    await copy.dispose();
+  });
+
+  it('rejects git metadata that points outside the copy', async () => {
+    const repo = await scratchRepo();
+    git(repo, 'config', 'core.worktree', repo);
+    const copy = await copyOf(repo);
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      '.git/config points git outside the copy',
+    );
+    await copy.dispose();
+    const sub = await scratchRepo();
+    await mkdir(path.join(sub, 'mod'));
+    await writeFile(
+      path.join(sub, 'mod', '.git'),
+      `gitdir: ${path.join(sub, '.git')}\n`,
+    );
+    const subCopy = await copyOf(sub);
+    expect(await copyIsolationProblem(subCopy.root)).toBe(
+      'mod/.git points git outside the copy',
+    );
+    await subCopy.dispose();
+  });
+
+  it('accepts honest in-tree links, and writes through them never change the original', async () => {
+    const repo = await scratchRepo();
+    await mkdir(path.join(repo, 'sub'));
+    await writeFile(path.join(repo, 'sub', 'x.txt'), 'original\n');
+    await symlink('README.md', path.join(repo, 'rel'));
+    await symlink('sub', path.join(repo, 'dir-link'));
+    await symlink('missing', path.join(repo, 'dangling'));
+    const copy = await copyOf(repo);
+    expect(await copyIsolationProblem(copy.root)).toBeUndefined();
+    await writeFile(path.join(copy.root, 'rel'), 'changed through the copy\n');
+    await writeFile(path.join(copy.root, 'dir-link', 'x.txt'), 'changed\n');
+    expect(await readFile(path.join(repo, 'README.md'), 'utf8')).toBe(
+      '# Scratch\n',
+    );
+    expect(await readFile(path.join(repo, 'sub', 'x.txt'), 'utf8')).toBe(
+      'original\n',
+    );
+    await copy.dispose();
+  });
+
+  it('a non-qualifying copy runs one in-place attempt that is never retried', async () => {
+    const repo = await scratchRepo();
+    await symlink(
+      path.join(repo, 'README.md'),
+      path.join(repo, '.git', 'link'),
+    );
+    const summary = await runAgent(await runOptions(repo));
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    const events = await logEvents(summary.value.logPath);
+    expect(
+      events.filter((e) => e.event === 'attempt.isolation').at(-1),
+    ).toMatchObject({
+      mode: 'single-attempt',
+      reason: '.git/link is a symlink that does not resolve inside the copy',
+    });
+    expect(summary.value.attempts).toBe(1);
+    expect(await readFile(path.join(repo, 'README.md'), 'utf8')).toBe(
+      '# Scratch\n',
+    );
   });
 });
 

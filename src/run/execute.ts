@@ -52,7 +52,7 @@ import {
 } from '@agent-ci/routing/resolve.js';
 import type { HarnessId, ModelsFile, Route } from '@agent-ci/routing/schema.js';
 import {
-  copyReachesOriginal,
+  copyIsolationProblem,
   createAttemptWorkspace,
   isolationSupport,
   promoteChanges,
@@ -492,12 +492,12 @@ async function runInHome(
                 },
               };
             }
-            // The exact check needs the copy: a chained link that reaches the
-            // original means this copy cannot isolate. Run in place, once.
+            // Qualify the finished copy (every link and git pointer strictly
+            // inside it); otherwise run in place, once.
             if (copy?.ok) {
-              const escape = await copyReachesOriginal(
+              const escape = await copyIsolationProblem(
                 copy.value.root,
-                boundaryRoot,
+                deps.git,
               );
               if (escape !== undefined) {
                 await copy.value.dispose();

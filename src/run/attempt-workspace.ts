@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import {
@@ -7,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   readlink,
   rm,
   symlink,
@@ -14,6 +16,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
+import { SAFE_GIT_ENV, safeGitArgs } from '@agent-ci/git/safe-git.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import {
   isWithin,
@@ -265,38 +268,124 @@ async function copyTree(
 }
 
 /**
- * The exact isolation test, run on a finished copy: resolve every link in it
- * physically (chains, `..` after links). A link that reaches the original
- * repository (or cannot be resolved) means an attempt could write the
- * original through it. Returns the reason, or undefined when isolated.
+ * Copy-isolation qualification, run on every finished copy. The rule is
+ * deliberately simple and conservative (phase gate p02 H1):
+ *
+ * 1. every symlink anywhere in the copy, the copied `.git` included,
+ *    resolves physically (chains, `..` after links) inside the copy root
+ *    (the root itself included);
+ * 2. every git metadata pointer in the copy resolves inside the copy root: `core.worktree` in any `config` under a `.git` directory,
+ *    the `gitdir`/`commondir` pointer files there, and `gitdir:` in any
+ *    `.git` file in the worktree.
+ *
+ * Why this is enough: walk any path that descends from the copy root (no
+ * `..` segment). Every real directory or file the copy holds is inside it;
+ * every symlink met on the way is resolved from its own location, which is
+ * inside the copy, and by (1) lands inside the copy; so by induction every
+ * step stays inside. Git commands run in the copy write only where its
+ * metadata points, inside the copy by (2). A write through the copy can
+ * therefore never change the original (or any ancestor or other location).
+ * Not covered, by design: paths an agent constructs to climb above the
+ * copy (`../..`) or absolute paths. An edit agent is not filesystem
+ * sandboxed; isolation is about discarding failed attempts, not containment.
+ *
+ * Returns the reason the copy does not qualify, or undefined.
  */
-export async function copyReachesOriginal(
+export async function copyIsolationProblem(
   copyRoot: string,
-  boundaryRoot: string,
+  git = 'git',
 ): Promise<string | undefined> {
-  const pending = [copyRoot];
+  const root = await resolveRealPath(copyRoot);
+  const inside = async (target: string): Promise<boolean> => {
+    try {
+      const real = (await resolvePhysical(target)).real;
+      return isWithin(root, real);
+    } catch {
+      return false;
+    }
+  };
+  const pending: { dir: string; inGitDir: boolean }[] = [
+    { dir: root, inGitDir: false },
+  ];
   while (pending.length > 0) {
-    const dir = pending.pop() ?? copyRoot;
+    const { dir, inGitDir } = pending.pop() ?? { dir: root, inGitDir: false };
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      if (dir === copyRoot && entry.name === '.git') continue;
-      if (entry.isDirectory()) {
-        pending.push(full);
-      } else if (entry.isSymbolicLink()) {
-        const rel = path.relative(copyRoot, full);
-        let real: string;
-        try {
-          real = (await resolvePhysical(full)).real;
-        } catch {
-          return `${rel} cannot be resolved in the attempt copy`;
+      const rel = path.relative(root, full);
+      if (entry.isSymbolicLink()) {
+        if (!(await inside(full))) {
+          return `${rel} is a symlink that does not resolve inside the copy`;
         }
-        if (isWithin(boundaryRoot, real)) {
-          return `${rel} resolves into the original repository from the attempt copy`;
+      } else if (entry.isDirectory()) {
+        pending.push({
+          dir: full,
+          inGitDir: inGitDir || entry.name === '.git',
+        });
+      } else if (entry.isFile()) {
+        const pointer = await gitPointer(full, entry.name, inGitDir, git);
+        if (pointer !== undefined && !(await inside(pointer))) {
+          return `${rel} points git outside the copy`;
         }
       }
     }
   }
   return undefined;
+}
+
+/**
+ * The path a git metadata file points at (absolute), or undefined when the
+ * file is not a pointer.
+ */
+async function gitPointer(
+  file: string,
+  name: string,
+  inGitDir: boolean,
+  git: string,
+): Promise<string | undefined> {
+  const base = path.dirname(file);
+  const resolve = (value: string) =>
+    path.isAbsolute(value) ? value : `${base}${path.sep}${value}`;
+  if (name === '.git' && !inGitDir) {
+    const text = (await readFile(file, 'utf8')).trim();
+    const match = /^gitdir:\s*(.+)$/mu.exec(text);
+    // Unparseable: fail closed (the filesystem root is never inside).
+    return match?.[1] === undefined ? '/' : resolve(match[1].trim());
+  }
+  if (!inGitDir) return undefined;
+  if (name === 'gitdir' || name === 'commondir') {
+    const value = (await readFile(file, 'utf8')).trim();
+    return value === '' ? undefined : resolve(value);
+  }
+  if (name === 'config') {
+    const worktree = await configValue(file, 'core.worktree', git);
+    return worktree === undefined ? undefined : resolve(worktree);
+  }
+  return undefined;
+}
+
+/** One value from a config file, read without executing anything. */
+function configValue(
+  file: string,
+  key: string,
+  git: string,
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const child = execFile(
+      git,
+      safeGitArgs(['config', '--file', file, '--get', key]),
+      { env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV } },
+      (error, stdout) => {
+        const value = String(stdout).trim();
+        // Exit 1: unset. Anything else unreadable: treat as an outside pointer.
+        if (error !== null) {
+          resolve(error.code === 1 ? undefined : '/');
+          return;
+        }
+        resolve(value === '' ? undefined : value);
+      },
+    );
+    child.stdin?.end();
+  });
 }
 
 /** A repository-relative path that may be promoted. */
