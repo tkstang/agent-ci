@@ -69,7 +69,11 @@ export interface SelectOptions {
   readonly models: ModelsFile;
   /** The pool opt-in (see checkPoolPolicy). */
   readonly allowPool?: boolean;
-  /** Environment for the routing policy (CI refuses pool and login routes). */
+  /**
+   * Environment for the routing policy: under CI, pool routes resolve only
+   * with the opt-in on a self-hosted runner and never for a Claude model,
+   * and login routes never resolve (checkPoolPolicy, checkEligibility).
+   */
   readonly env: Readonly<Record<string, string | undefined>>;
 }
 

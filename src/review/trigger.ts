@@ -690,7 +690,11 @@ export function configureRequest(input: {
   allowedModels: readonly string[];
   models: ModelsFile;
   env: Readonly<Record<string, string | undefined>>;
-  /** Local runs only: allow pool routes (always refused in CI). */
+  /**
+   * The pool opt-in (`--allow-pool`, or the workflow's `allow_pool` input).
+   * Under CI a pool model still resolves only on a self-hosted runner and
+   * never for a Claude model (checkPoolPolicy).
+   */
   allowPool?: boolean;
   /** Local runs only: allow login routes (always refused in CI). */
   seedLogin?: boolean;

@@ -1,8 +1,9 @@
 # Example targets.yaml for a fleet repository that calls fan-out.yml.
 # Every value becomes a reusable-workflow input; agent-ci targets validate
 # checks the schema, unique ids and repositories, allowedOwners and that each
-# model resolves under the routing policy (pool and login routes are refused
-# in CI).
+# model resolves under the routing policy (in CI, login routes are refused and
+# pool routes resolve only with the opt-in on a self-hosted runner, never for
+# a Claude model).
 version: 1
 
 # Optional: every target repository must belong to one of these owners.

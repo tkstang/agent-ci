@@ -167,7 +167,8 @@ jobs:
         run: agent-ci workspace restore --archive "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" --target target --sha256 "$PREPARED_SHA256"
 
       # The route the resolve job selected the credential for, re-resolved
-      # under this environment's policy (pool and login routes are refused).
+      # under this environment's policy (a pool route only with allow_pool on a
+      # self-hosted runner and never for a Claude model; login routes refused).
       - name: Resolve the route
         id: route
         env:

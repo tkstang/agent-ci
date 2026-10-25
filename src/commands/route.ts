@@ -32,10 +32,11 @@ export const WORKFLOW_MODEL_SECRETS = [
 
 const USAGE = `agent-ci route — resolve the route a run would use, without running it.
 
-Applies the routing policy for this environment (pool and login routes are
-refused when CI or GITHUB_ACTIONS is set) but does not require the route's
-credential to be present: a workflow resolves the route first, then passes
-only that credential to the agent step.
+Applies the routing policy for this environment (pool routes need the
+opt-in and, when CI or GITHUB_ACTIONS is set, a self-hosted runner and a
+non-Claude model; login routes are refused in CI) but does not require the
+route's credential to be present: a workflow resolves the route first, then
+passes only that credential to the agent step.
 
 Flags:
   --model <key> | --route <id>   What to resolve (one required).

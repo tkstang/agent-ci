@@ -48,7 +48,8 @@ import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
  * spec, each reviewer pass in a detached worktree at the captured head, the
  * optional adjudicator, the findings gate over the git object store, and,
  * with `publish`, one inline review plus the summary comment posted as that
- * user. Pool and login routes are allowed only when asked for (local only).
+ * user. Pool and login routes are allowed only when asked for (`allowPool`,
+ * `seedLogin`); the routing policy still applies (checkPoolPolicy).
  */
 
 export type LocalReviewOptions = {
