@@ -52,7 +52,9 @@ export function claudeArgs(request: HarnessRequest): string[] {
       '--permission-mode',
       'dontAsk',
       '--tools',
-      CLAUDE_READ_ONLY_TOOLS,
+      // `""` removes every built-in tool (the adjudicator); with
+      // --strict-mcp-config and user-only settings nothing else is offered.
+      request.noTools === true ? '' : CLAUDE_READ_ONLY_TOOLS,
     );
   } else {
     args.push(
@@ -68,6 +70,11 @@ export function claudeArgs(request: HarnessRequest): string[] {
   ) {
     args.push('--json-schema', JSON.stringify(request.jsonSchema));
   }
+  // The same flags on every turn: a resumed turn keeps the run's posture
+  // because each `claude -p` invocation applies its own flags.
+  if (request.resumeSessionId !== undefined) {
+    args.push('--resume', request.resumeSessionId);
+  }
   args.push('--', request.prompt);
   return args;
 }
@@ -76,6 +83,8 @@ export const claudeAdapter: HarnessAdapter = {
   id: 'claude',
   defaultCommand: 'claude',
   versionArgs: ['--version'],
+  supportsResume: true,
+  supportsNoTools: true,
   async prepare(request) {
     const settings: Record<string, string> = {
       DISABLE_AUTOUPDATER: '1',

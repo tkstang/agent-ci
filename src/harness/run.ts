@@ -58,6 +58,34 @@ function assertNoCredentialInArgs(
   }
 }
 
+/** The request asks for a posture this adapter has not verified. */
+export class UnsupportedPostureError extends Error {
+  override readonly name = 'UnsupportedPostureError';
+}
+
+/**
+ * Refuse a resume or a tool-free run on an adapter that has not verified
+ * it, and a tool-free run outside read-only mode, before anything starts.
+ */
+export function assertSupportedPosture(
+  adapter: HarnessAdapter,
+  request: Pick<HarnessRequest, 'resumeSessionId' | 'noTools' | 'mode'>,
+): void {
+  if (request.resumeSessionId !== undefined && !adapter.supportsResume) {
+    throw new UnsupportedPostureError(
+      `${adapter.id} has no verified session resume`,
+    );
+  }
+  if (
+    request.noTools === true &&
+    (!adapter.supportsNoTools || request.mode !== 'read-only')
+  ) {
+    throw new UnsupportedPostureError(
+      `${adapter.id} has no verified tool-free read-only posture`,
+    );
+  }
+}
+
 /** Prepare, spawn and interpret one harness invocation. */
 export async function runHarness(
   adapter: HarnessAdapter,
@@ -65,6 +93,7 @@ export async function runHarness(
   limits: RunLimits,
   deps: RunHarnessDeps = {},
 ): Promise<HarnessRun> {
+  assertSupportedPosture(adapter, request);
   const invocation = await adapter.prepare(request);
   assertNoCredentialInArgs(invocation, request);
   const override = deps.commandOverride;

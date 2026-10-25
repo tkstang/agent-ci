@@ -25,6 +25,9 @@ export const fakeAdapter: HarnessAdapter = {
   id: 'fake',
   defaultCommand: process.execPath,
   versionArgs: ['--version'],
+  // No model and no tools: resuming replays the scenario with `--resume`.
+  supportsResume: true,
+  supportsNoTools: true,
   async prepare(request) {
     return {
       command: process.execPath,
@@ -32,6 +35,9 @@ export const fakeAdapter: HarnessAdapter = {
         fakeAgentPath(),
         '--scenario',
         request.route.providerModel,
+        ...(request.resumeSessionId === undefined
+          ? []
+          : ['--resume', request.resumeSessionId]),
         '--',
         request.prompt,
       ],

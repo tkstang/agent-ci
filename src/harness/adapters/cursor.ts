@@ -140,6 +140,10 @@ export const cursorAdapter: HarnessAdapter = {
   id: 'cursor',
   defaultCommand: 'agent',
   versionArgs: ['--version'],
+  // Not verified live: Cursor gets no repair turn, and its read-only (ask
+  // mode) posture still runs shell commands its classifier allows.
+  supportsResume: false,
+  supportsNoTools: false,
   async prepare(request) {
     await assertNoCursorProjectHooks(request.cwd);
     return {

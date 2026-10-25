@@ -8,7 +8,10 @@
  * Self-contained on purpose (node: imports only, erasable TypeScript) so Node
  * can run the source file directly in tests and `dist/` in production.
  *
- * Usage: fake-agent --scenario <echo|edit|flaky-edit|invalid|fail|auth|hang> -- <prompt>
+ * Usage: fake-agent --scenario <name> [--resume <session>] -- <prompt>
+ *
+ * Scenarios: echo, edit, flaky-edit, invalid, fail, auth, hang, review,
+ * review-repair, adjudicate.
  *
  * `edit` writes `agent-ci-fake-edit.md` in the working directory (content
  * derived from the prompt only, so reruns are identical). `flaky-edit` fails
@@ -16,10 +19,21 @@
  * `fake-partial.txt`, then behaves like `edit`. Test-only: `edit-commit`
  * edits and commits; `edit-secret` writes every credential-like variable it
  * can see into `leak.txt`.
+ *
+ * `review` answers a PR-review pass: one `medium` finding on the first added
+ * line of `.agent-ci-review/diff.patch` (quoting it as evidence), or none.
+ * `review-repair` answers with an invalid review until it is resumed
+ * (`--resume`), then like `review`. `adjudicate` keeps every finding.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, fstatSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  fstatSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -82,7 +96,96 @@ function editWorkspace(): void {
   );
 }
 
+/** The first added line of the review diff, if any. */
+function firstAddedLine():
+  | { path: string; line: number; text: string }
+  | undefined {
+  let text: string;
+  try {
+    text = readFileSync(
+      path.join(process.cwd(), '.agent-ci-review', 'diff.patch'),
+      'utf8',
+    );
+  } catch {
+    return undefined;
+  }
+  let file: string | undefined;
+  let next = 0;
+  let inHunk = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\r$/u, '');
+    if (line.startsWith('diff --git ')) {
+      file = undefined;
+      inHunk = false;
+    } else if (!inHunk && line.startsWith('+++ ')) {
+      file = line.startsWith('+++ b/') ? line.slice(6) : undefined;
+    } else if (line.startsWith('@@ ')) {
+      const match = /\+(\d+)/u.exec(line);
+      next = Number(match?.[1] ?? 0);
+      inHunk = file !== undefined;
+    } else if (inHunk && line.startsWith('+')) {
+      if (file !== undefined && line.slice(1).trim() !== '')
+        return { path: file, line: next, text: line.slice(1) };
+      next += 1;
+    } else if (inHunk && (line.startsWith(' ') || line === '')) {
+      next += 1;
+    }
+  }
+  return undefined;
+}
+
+function reviewAnswer(): string {
+  const added = firstAddedLine();
+  const findings =
+    added === undefined
+      ? []
+      : [
+          {
+            id: 'f1',
+            severity: 'medium',
+            category: 'maintainability',
+            rule_id: null,
+            title: 'Fake finding on the first added line (no model was called)',
+            body: 'The credential-free fake harness reports the first added line of the diff so the findings gate and the publisher can be exercised.',
+            path: added.path,
+            line: added.line,
+            end_line: added.line,
+            side: 'RIGHT',
+            original_code: added.text,
+            suggestion: null,
+            evidence: [
+              {
+                kind: 'code',
+                path: added.path,
+                line: added.line,
+                end_line: added.line,
+                side: 'RIGHT',
+                quote: added.text,
+              },
+            ],
+          },
+        ];
+  return JSON.stringify({
+    summary: `Fake review (no model was called): ${findings.length} finding(s).`,
+    findings,
+  });
+}
+
 switch (scenario) {
+  case 'review':
+    emit(reviewAnswer(), false);
+    break;
+  case 'review-repair':
+    emit(
+      argValue('--resume') === undefined
+        ? JSON.stringify({ summary: 'incomplete', findings: 'none' })
+        : reviewAnswer(),
+      false,
+    );
+    break;
+  case 'adjudicate':
+    emit(JSON.stringify({ operations: [] }), false);
+    break;
   case 'echo': {
     const credentialLike = Object.keys(process.env).filter((name) =>
       /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/u.test(name),

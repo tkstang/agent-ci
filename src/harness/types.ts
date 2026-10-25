@@ -22,6 +22,16 @@ export interface HarnessRequest {
   /** JSON Schema for the final answer, when the route supports one. */
   readonly jsonSchema?: Record<string, unknown> | undefined;
   /**
+   * Continue this harness session for one more turn (the structured-output
+   * repair turn). Only adapters with `supportsResume`; others refuse it.
+   */
+  readonly resumeSessionId?: string | undefined;
+  /**
+   * Offer the agent no tools at all (the PR-review adjudicator). Read-only
+   * mode only, and only adapters with `supportsNoTools`; others refuse it.
+   */
+  readonly noTools?: boolean | undefined;
+  /**
    * The parent environment. Adapters read ONLY the route's named credentials
    * and allowlisted base variables from it (see `env.ts`).
    */
@@ -94,6 +104,13 @@ export interface HarnessAdapter {
   readonly defaultCommand: string;
   /** Arguments that print the harness version (used by `doctor`). */
   readonly versionArgs: readonly string[];
+  /**
+   * Session resume is verified live and keeps the run's permission posture
+   * (research `review-harness-probes-2026-10-25.md`).
+   */
+  readonly supportsResume: boolean;
+  /** A verified posture that removes every tool (the adjudicator). */
+  readonly supportsNoTools: boolean;
   /**
    * Build argv and the child environment, and write any config or schema
    * files into the home root or scratch directory.

@@ -335,6 +335,59 @@ describe('claude argv and posture', () => {
     expect(JSON.parse(observed.argv[index + 1] ?? '')).toEqual(schema);
     expect(run.outcome).toMatchObject({ ok: true, structured: { ok: true } });
   });
+
+  it('removes every tool for a tool-free run and resumes with the same posture', async () => {
+    const request = await makeRequest(route, {
+      noTools: true,
+      resumeSessionId: 'session-1',
+    });
+    const { observed } = await replay(claudeAdapter, request, {
+      stdout: await fixture('claude-success.json'),
+    });
+    expect(observed.argv).toEqual([
+      '-p',
+      '--output-format',
+      'json',
+      '--model',
+      'claude-haiku-4-5-20251001',
+      '--setting-sources',
+      'user',
+      '--strict-mcp-config',
+      '--permission-mode',
+      'dontAsk',
+      '--tools',
+      '',
+      '--resume',
+      'session-1',
+      '--',
+      'Reply with exactly: agent-ci-probe-ok',
+    ]);
+  });
+});
+
+describe('posture guard', () => {
+  it('refuses a resume or a tool-free run an adapter has not verified', async () => {
+    const cursorRoute = cases[3]?.route as Route;
+    const resume = await makeRequest(cursorRoute, {
+      resumeSessionId: 'chat-1',
+    });
+    await expect(replay(cursorAdapter, resume, { stdout: '' })).rejects.toThrow(
+      'no verified session resume',
+    );
+    const codexRoute = cases[1]?.route as Route;
+    const noTools = await makeRequest(codexRoute, { noTools: true });
+    await expect(replay(codexAdapter, noTools, { stdout: '' })).rejects.toThrow(
+      'no verified tool-free',
+    );
+    const claudeRoute = cases[0]?.route as Route;
+    const editNoTools = await makeRequest(claudeRoute, {
+      noTools: true,
+      mode: 'edit',
+    });
+    await expect(
+      replay(claudeAdapter, editNoTools, { stdout: '' }),
+    ).rejects.toThrow('no verified tool-free');
+  });
 });
 
 describe('codex argv, provider config and posture', () => {
@@ -415,6 +468,37 @@ describe('codex argv, provider config and posture', () => {
     expect(run.outcome).toMatchObject({ ok: true, structured: { ok: true } });
   });
 
+  it('resumes with exec resume, setting the read-only sandbox again', async () => {
+    const schema = { type: 'object' };
+    const request = await makeRequest(route, {
+      resumeSessionId: '0199-session',
+      jsonSchema: schema,
+    });
+    const { observed } = await replay(codexAdapter, request, {
+      stdout: await fixture('codex-success.jsonl'),
+      writeArgFile: { flag: '-o', content: '{}' },
+    });
+    expect(observed.argv).toEqual([
+      'exec',
+      'resume',
+      '-m',
+      'gpt-5.6-luna',
+      '--json',
+      '-o',
+      path.join(request.scratchDir, 'codex-last-message.txt'),
+      '-c',
+      'sandbox_mode="read-only"',
+      '--skip-git-repo-check',
+      '-c',
+      'model_reasoning_effort="low"',
+      '--output-schema',
+      path.join(request.scratchDir, 'codex-output-schema.json'),
+      '--',
+      '0199-session',
+      'Reply with exactly: agent-ci-probe-ok',
+    ]);
+  });
+
   it('reports the recorded grok protocol failure as non-retryable', async () => {
     const request = await makeRequest(route);
     const { run } = await replay(codexAdapter, request, {
@@ -488,6 +572,24 @@ describe('opencode argv and job config', () => {
       question: 'deny',
       execute: 'deny',
     });
+  });
+
+  it('continues a session with --session in the same isolated home', async () => {
+    const request = await makeRequest(route, { resumeSessionId: 'ses_1' });
+    const { observed } = await replay(opencodeAdapter, request, {
+      stdout: await fixture('opencode-success.jsonl'),
+    });
+    expect(observed.argv).toEqual([
+      'run',
+      '--standalone',
+      '-m',
+      'opencode-go/grok-4.7',
+      '--format',
+      'json',
+      '--session',
+      'ses_1',
+      'Reply with exactly: agent-ci-probe-ok',
+    ]);
   });
 
   it('adds --auto for edit runs and keeps the network and question tools denied', async () => {

@@ -75,6 +75,7 @@ export function opencodeArgs(
   providerModel: string,
   mode: RunMode,
   prompt: string,
+  resumeSessionId?: string,
 ): string[] {
   return [
     'run',
@@ -83,6 +84,9 @@ export function opencodeArgs(
     providerModel,
     '--format',
     'json',
+    // The session lives in the isolated home root's data directory, and the
+    // deny rules come from its config, so a resumed turn keeps the posture.
+    ...(resumeSessionId === undefined ? [] : ['--session', resumeSessionId]),
     ...(mode === 'edit' ? ['--auto'] : []),
     prompt,
   ];
@@ -107,6 +111,8 @@ export const opencodeAdapter: HarnessAdapter = {
   id: 'opencode',
   defaultCommand: 'opencode',
   versionArgs: ['--version'],
+  supportsResume: true,
+  supportsNoTools: false,
   async prepare(request) {
     const configHome = request.home.env.XDG_CONFIG_HOME;
     if (configHome === undefined)
@@ -124,6 +130,7 @@ export const opencodeAdapter: HarnessAdapter = {
         request.route.providerModel,
         request.mode,
         request.prompt,
+        request.resumeSessionId,
       ),
       env: buildChildEnv({
         parentEnv: request.parentEnv,

@@ -51,19 +51,40 @@ export function codexArgs(
   request: HarnessRequest,
   files: { lastMessage: string; schema?: string },
 ): string[] {
-  const args = [
-    'exec',
-    '-m',
-    request.route.providerModel,
-    '--json',
-    '-o',
-    files.lastMessage,
-    '-s',
-    request.mode === 'read-only' ? 'read-only' : 'workspace-write',
-    '--skip-git-repo-check',
-    '--color',
-    'never',
-  ];
+  const sandbox =
+    request.mode === 'read-only' ? 'read-only' : 'workspace-write';
+  const resume = request.resumeSessionId;
+  // `codex exec resume` has no `-s` and does not keep the first turn's
+  // sandbox (it falls back to config), so the sandbox is set again through
+  // `-c sandbox_mode` (live probe 2026-10-25, research
+  // `review-harness-probes-2026-10-25.md`). It also has no `--color`.
+  const args =
+    resume === undefined
+      ? [
+          'exec',
+          '-m',
+          request.route.providerModel,
+          '--json',
+          '-o',
+          files.lastMessage,
+          '-s',
+          sandbox,
+          '--skip-git-repo-check',
+          '--color',
+          'never',
+        ]
+      : [
+          'exec',
+          'resume',
+          '-m',
+          request.route.providerModel,
+          '--json',
+          '-o',
+          files.lastMessage,
+          '-c',
+          `sandbox_mode=${JSON.stringify(sandbox)}`,
+          '--skip-git-repo-check',
+        ];
   if (request.route.effort !== undefined) {
     args.push(
       '-c',
@@ -71,7 +92,9 @@ export function codexArgs(
     );
   }
   if (files.schema !== undefined) args.push('--output-schema', files.schema);
-  args.push('--', request.prompt);
+  args.push('--');
+  if (resume !== undefined) args.push(resume);
+  args.push(request.prompt);
   return args;
 }
 
@@ -102,6 +125,9 @@ export const codexAdapter: HarnessAdapter = {
   id: 'codex',
   defaultCommand: 'codex',
   versionArgs: ['--version'],
+  supportsResume: true,
+  // `-s read-only` still offers a read-only shell; there is no tool-free mode.
+  supportsNoTools: false,
   async prepare(request) {
     const codexHome = request.home.env.CODEX_HOME;
     if (codexHome === undefined) throw new Error('home root lacks CODEX_HOME');
