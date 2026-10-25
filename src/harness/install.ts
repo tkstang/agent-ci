@@ -305,19 +305,25 @@ export async function codexSandboxSmoke(
       ['-c', 'sandbox_mode="workspace-write"'],
       'echo x > probe-workspace.txt',
     );
+    const readPassed =
+      read.exitCode === 0 && read.stdout.includes('agent-ci-sandbox-ok');
     return [
       {
         name: 'read',
         expected: 'exit 0 and the marker on stdout',
-        passed:
-          read.exitCode === 0 && read.stdout.includes('agent-ci-sandbox-ok'),
+        passed: readPassed,
         exitCode: read.exitCode,
         detail: detail(read),
       },
       {
         name: 'write-denied',
-        expected: 'non-zero exit and no file (default read-only sandbox)',
-        passed: denied.exitCode !== 0 && !(await exists('probe-default.txt')),
+        expected:
+          'non-zero exit and no file (default read-only sandbox), while the sandbox runs commands',
+        // A failed write proves nothing when the sandbox cannot run at all.
+        passed:
+          readPassed &&
+          denied.exitCode !== 0 &&
+          !(await exists('probe-default.txt')),
         exitCode: denied.exitCode,
         detail: detail(denied),
       },

@@ -78,3 +78,12 @@ jobs:
 
       - name: Smoke-test the Codex sandbox on this runner
         run: agent-ci harness smoke --harness codex --report-only
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+      # which stops bubblewrap (Codex's Linux sandbox) from configuring its
+      # network namespace. Probe whether lifting the restriction fixes it.
+      - name: Allow unprivileged user namespaces (bubblewrap)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Smoke-test the Codex sandbox again
+        run: agent-ci harness smoke --harness codex --report-only

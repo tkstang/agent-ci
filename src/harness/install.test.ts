@@ -221,13 +221,26 @@ describe('codex sandbox smoke check', () => {
     ).toBe(false);
   });
 
+  it('fails every check when the sandbox cannot run commands (hosted-runner bwrap failure)', async () => {
+    const dir = await tmp('agent-ci-bwrap-');
+    const bin = path.join(dir, 'codex');
+    await writeFile(
+      bin,
+      '#!/bin/sh\necho "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted" >&2\nexit 1\n',
+      { mode: 0o755 },
+    );
+    const checks = await codexSandboxSmoke(bin);
+    expect(checks.map((check) => [check.name, check.passed])).toEqual([
+      ['read', false],
+      ['write-denied', false],
+      ['workspace-write', false],
+    ]);
+  });
+
   it('reports a missing codex binary as failed checks', async () => {
     const dir = await tmp('agent-ci-nocodex-');
     await mkdir(path.join(dir, 'empty'));
     const checks = await codexSandboxSmoke(path.join(dir, 'empty', 'codex'));
-    expect(
-      checks.every((check) => !check.passed || check.name === 'write-denied'),
-    ).toBe(true);
-    expect(checks.find((check) => check.name === 'read')?.passed).toBe(false);
+    expect(checks.every((check) => !check.passed)).toBe(true);
   });
 });
