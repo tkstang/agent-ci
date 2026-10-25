@@ -267,6 +267,26 @@ describe('hostile prepared trees are refused and leave the checkout untouched', 
     });
   }
 
+  it('counts hard-link copies toward the byte limit (review r3 L2)', async () => {
+    const { target, config } = await agentCheckout();
+    const { archive, digest } = await forged([
+      { name: 'f', content: '12345678' },
+      ...[1, 2, 3, 4, 5].map((n) => ({
+        name: `h${n}`,
+        type: '1',
+        linkname: 'f',
+      })),
+    ]);
+    const restored = await restoreWorkspace({
+      archive,
+      target,
+      sha256: digest,
+      limits: { maxEntries: 100, maxFileBytes: 8, maxTotalBytes: 10 },
+    });
+    expect(restored.ok ? 'ok' : restored.code).toBe('E_WORKSPACE_BUNDLE');
+    await untouched(target, config);
+  });
+
   it('refuses data after the end-of-archive marker', async () => {
     const { target, config } = await agentCheckout();
     const { archive, digest } = await forged(

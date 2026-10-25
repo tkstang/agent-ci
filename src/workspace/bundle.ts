@@ -47,7 +47,8 @@ export interface ArchiveLimits {
 export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = {
   maxEntries: 2_000_000,
   maxFileBytes: 2 * 1024 * 1024 * 1024,
-  maxTotalBytes: 16 * 1024 * 1024 * 1024,
+  // Below a hosted runner's free disk (hard-link copies count too).
+  maxTotalBytes: 8 * 1024 * 1024 * 1024,
 };
 
 /**
@@ -337,6 +338,9 @@ async function extract(
           `archive hard link ${rel} does not name an earlier file`,
         );
       }
+      // Materialized as a copy: it costs disk like a file.
+      total += (await lstat(path.join(staging, source))).size;
+      if (total > limits.maxTotalBytes) throw new Error('archive is too large');
       await copyFile(path.join(staging, source), full);
       files.add(key);
       await reader.skip(dataBytes);
