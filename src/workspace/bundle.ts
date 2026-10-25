@@ -482,15 +482,25 @@ async function swapIntoPlace(
   try {
     await doRename(staging, target);
   } catch (err) {
+    // Report where each part really is when the rollback stops partway.
     try {
       await doRename(old, target);
+    } catch {
+      return fail(
+        'replacing the checkout',
+        err,
+        false,
+        `previous checkout at ${old} (nothing at ${target}), its .git at ${staging}/.git`,
+      );
+    }
+    try {
       await doRename(path.join(staging, '.git'), path.join(target, '.git'));
     } catch {
       return fail(
         'replacing the checkout',
         err,
         false,
-        `previous checkout at ${old}, its .git at ${staging}/.git`,
+        `previous checkout restored at ${target} without its .git, which is at ${staging}/.git`,
       );
     }
     await rm(staging, { recursive: true, force: true });

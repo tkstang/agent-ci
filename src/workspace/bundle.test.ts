@@ -396,6 +396,55 @@ describe('the swap is transactional (gate L1)', () => {
     });
   }
 
+  for (const [failing, expected] of [
+    [
+      [3, 4],
+      (t: string, o: string, s: string) =>
+        `previous checkout at ${o} (nothing at ${t}), its .git at ${s}/.git`,
+    ],
+    [
+      [3, 5],
+      (t: string, _o: string, s: string) =>
+        `previous checkout restored at ${t} without its .git, which is at ${s}/.git`,
+    ],
+  ] as const) {
+    it(`a failed step-3 rollback (renames ${failing.join(' and ')}) reports the true state (gate round 2 L)`, async () => {
+      const { target, config } = await agentCheckout();
+      const { archive, digest } = await forged(honest);
+      let calls = 0;
+      const seen: [string, string][] = [];
+      const restored = await restoreWorkspace({
+        archive,
+        target,
+        sha256: digest,
+        fs: {
+          rename: async (from, to) => {
+            calls += 1;
+            seen.push([String(from), String(to)]);
+            if ((failing as readonly number[]).includes(calls)) {
+              throw Object.assign(new Error('injected'), { code: 'EIO' });
+            }
+            await rename(from, to);
+          },
+        },
+      });
+      // Call 1 moved .git into staging; call 2 moved the target to the backup.
+      const staging = path.dirname(seen[0]?.[1] ?? '');
+      const old = seen[1]?.[1] ?? '';
+      expect(restored.ok ? 'ok' : restored.message).toContain(
+        `rollback failed, current state: ${expected(target, old, staging)}`,
+      );
+      // The message matches the disk.
+      expect(await readFile(path.join(staging, '.git', 'config'), 'utf8')).toBe(
+        config,
+      );
+      const checkout = failing[1] === 4 ? old : target;
+      expect(await readFile(path.join(checkout, 'README.md'), 'utf8')).toBe(
+        '# repo\n',
+      );
+    });
+  }
+
   it('reports a retained backup (not a failure) when only cleanup fails', async () => {
     const { target, config } = await agentCheckout();
     // A directory whose entries cannot be removed (permission control).
