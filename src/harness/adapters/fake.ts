@@ -19,7 +19,9 @@ export function fakeAgentPath(): string {
 
 /**
  * The credential-free `fake` harness. The route's `providerModel` names the
- * scenario (`echo`, `invalid`, `fail`, `auth`, `hang`).
+ * scenario (`echo`, `edit`, `review`, `verify-review`, `adjudicate` in
+ * `dist/`; tests also reach the failure-mode scenarios in
+ * `testing/fake-agent-test-scenarios.ts`).
  */
 export const fakeAdapter: HarnessAdapter = {
   id: 'fake',

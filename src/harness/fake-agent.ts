@@ -10,41 +10,38 @@
  *
  * Usage: fake-agent --scenario <name> [--resume <session>] -- <prompt>
  *
- * Scenarios: echo, edit, flaky-edit, invalid, fail, auth, hang, review,
- * review-repair, adjudicate.
+ * Scenarios shipped in `dist/` (the ones the packaged models.yaml names):
+ * echo, edit, review, verify-review, adjudicate.
  *
  * `edit` writes `agent-ci-fake-edit.md` in the working directory (content
- * derived from the prompt only, so reruns are identical). `flaky-edit` fails
- * its first attempt in a home root with a transient error after writing
- * `fake-partial.txt`, then behaves like `edit`. Test-only: `edit-commit`
- * edits and commits; `edit-secret` writes every credential-like variable it
- * can see into `leak.txt`.
+ * derived from the prompt only, so reruns are identical).
  *
  * `review` answers a PR-review pass: one `medium` finding on the first added
  * line of `.agent-ci-review/diff.patch` (quoting it as evidence), or none.
- * `review-repair` answers with an invalid review until it is resumed
- * (`--resume`), then like `review`. `adjudicate` keeps every finding.
- * Test-only: `review-repair-escape` links its home into the workspace on
- * the resumed turn.
+ * `adjudicate` keeps every finding.
  *
  * `verify-review` calls the `run_check` tool bridge it is given
  * (`--bridge <json>`: command, args, tool) over stdio for the first check the
  * server lists, then answers like `review` with the returned evidence id
- * cited as a check evidence item next to the code evidence. Test-only:
- * `verify-review-forged` cites an evidence id the bridge never returned.
+ * cited as a check evidence item next to the code evidence.
+ *
+ * Test-only scenarios (failure modes, leaks, escapes, forged evidence) live
+ * in `testing/fake-agent-test-scenarios.ts`, which the build excludes. This
+ * CLI loads that module only when the source file exists next to it, which
+ * is the case when tests run this file from source.
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
   fstatSync,
   readFileSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -259,64 +256,48 @@ function verifyAnswer(evidenceId: string | undefined): string {
   return JSON.stringify(review);
 }
 
+/** The shape of `testing/fake-agent-test-scenarios.ts` (source runs only). */
+type TestScenarios = {
+  runTestScenario(
+    name: string,
+    kit: {
+      readonly prompt: string;
+      argValue(name: string): string | undefined;
+      emit(result: string, isError: boolean): void;
+      editWorkspace(): void;
+      reviewAnswer(): string;
+      verifyAnswer(evidenceId: string | undefined): string;
+    },
+  ): boolean;
+};
+
+/** Run a test-only scenario when its module sits next to this source file. */
+async function testScenario(name: string): Promise<boolean> {
+  const module = new URL(
+    './testing/fake-agent-test-scenarios.ts',
+    import.meta.url,
+  );
+  if (!existsSync(fileURLToPath(module))) return false;
+  const loaded = (await import(module.href)) as TestScenarios;
+  return loaded.runTestScenario(name, {
+    prompt,
+    argValue,
+    emit,
+    editWorkspace,
+    reviewAnswer,
+    verifyAnswer,
+  });
+}
+
 switch (scenario) {
   case 'verify-review':
     emit(verifyAnswer(bridgeEvidence()), false);
     break;
-  case 'verify-review-forged':
-    emit(verifyAnswer(`check-${'0'.repeat(24)}`), false);
-    break;
   case 'review':
     emit(reviewAnswer(), false);
     break;
-  case 'review-repair':
-    emit(
-      argValue('--resume') === undefined
-        ? JSON.stringify({ summary: 'incomplete', findings: 'none' })
-        : reviewAnswer(),
-      false,
-    );
-    break;
   case 'adjudicate':
     emit(JSON.stringify({ operations: [] }), false);
-    break;
-  case 'adjudicate-drop': {
-    // Test-only: drop the first reducible candidate the prompt shows, citing
-    // its own anchor (candidate ids embed the workflow attempt).
-    const id = /"candidate_id": "([^"]+)"/u.exec(prompt)?.[1];
-    const after = id === undefined ? '' : prompt.slice(prompt.indexOf(id));
-    const file = /"path": "([^"]+)"/u.exec(after)?.[1];
-    const line = Number(/"line": (\d+)/u.exec(after)?.[1] ?? 0);
-    const side = /"side": "(RIGHT|LEFT)"/u.exec(after)?.[1] ?? 'RIGHT';
-    emit(
-      JSON.stringify({
-        operations:
-          id === undefined || file === undefined || line < 1
-            ? []
-            : [
-                {
-                  candidate_id: id,
-                  op: 'drop',
-                  to_severity: null,
-                  reason: { code: 'incorrect_claim', detail: 'fake drop' },
-                  references: [{ path: file, line, end_line: line, side }],
-                },
-              ],
-      }),
-      false,
-    );
-    break;
-  }
-  case 'review-repair-escape':
-    // Test-only: the resumed turn links its home into the workspace.
-    if (argValue('--resume') !== undefined)
-      symlinkSync(process.cwd(), path.join(process.env.HOME ?? '.', 'escape'));
-    emit(
-      argValue('--resume') === undefined
-        ? JSON.stringify({ summary: 'incomplete', findings: 'none' })
-        : reviewAnswer(),
-      false,
-    );
     break;
   case 'echo': {
     const credentialLike = Object.keys(process.env).filter((name) =>
@@ -348,61 +329,9 @@ switch (scenario) {
   case 'edit':
     editWorkspace();
     break;
-  case 'edit-commit':
-    editWorkspace();
-    execFileSync(
-      'git',
-      [
-        '-c',
-        'user.name=fake',
-        '-c',
-        'user.email=fake@example.com',
-        'commit',
-        '-qam',
-        'fake commit',
-        '--allow-empty',
-      ],
-      { stdio: 'ignore' },
-    );
-    break;
-  case 'edit-secret': {
-    const values = Object.entries(process.env)
-      .filter(([name]) => /KEY|TOKEN|SECRET/u.test(name))
-      .map(([, value]) => value ?? '');
-    writeFileSync(path.join(process.cwd(), 'leak.txt'), values.join('\n'));
-    editWorkspace();
-    break;
-  }
-  case 'flaky-edit': {
-    const marker = path.join(
-      process.env.HOME ?? '.',
-      '.agent-ci-fake-attempted',
-    );
-    if (existsSync(marker)) {
-      editWorkspace();
-    } else {
-      writeFileSync(marker, 'attempted\n');
-      writeFileSync(path.join(process.cwd(), 'fake-partial.txt'), 'partial\n');
-      process.stderr.write('API Error: 503 Service Unavailable (overloaded)\n');
-      process.exitCode = 1;
-    }
-    break;
-  }
-  case 'invalid':
-    emit('This is not JSON.', false);
-    break;
-  case 'auth':
-    emit('Not logged in · Please run /login', true);
-    process.exitCode = 1;
-    break;
-  case 'fail':
-    process.stderr.write('API Error: 503 Service Unavailable (overloaded)\n');
-    process.exitCode = 1;
-    break;
-  case 'hang':
-    setInterval(() => undefined, 60_000);
-    break;
   default:
-    process.stderr.write(`unknown fake scenario: ${scenario}\n`);
-    process.exitCode = 2;
+    if (!(await testScenario(scenario))) {
+      process.stderr.write(`unknown fake scenario: ${scenario}\n`);
+      process.exitCode = 2;
+    }
 }
