@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import {
   mkdir,
   mkdtemp,
@@ -692,6 +692,47 @@ describe('runAgent', () => {
         expect(summary).toMatchObject({ ok: false, code: 'E_SECRET_GUARD' });
         expect(existsSync(opts.outDir)).toBe(false);
       }
+    });
+  });
+
+  describe('output directory inside the workspace', () => {
+    it('refuses an output path that a workspace symlink redirects', async () => {
+      const opts = await options({ model: 'fake-echo' });
+      const elsewhere = `${opts.cwd}-elsewhere`;
+      await mkdir(elsewhere);
+      await symlink(elsewhere, path.join(opts.cwd, '.agent-ci'));
+      for (const outDir of [
+        path.join(opts.cwd, '.agent-ci'),
+        path.join(opts.cwd, '.agent-ci', 'nested'),
+      ]) {
+        expect(await runAgent({ ...opts, outDir }), outDir).toMatchObject({
+          ok: false,
+          code: 'E_OUTPUT_PATH',
+        });
+      }
+      expect(readdirSync(elsewhere)).toEqual([]);
+    });
+
+    it('replaces links at output file paths instead of writing through them', async () => {
+      const opts = await options({ model: 'fake-echo' });
+      const victim = `${opts.cwd}-victim.txt`;
+      await writeFile(victim, 'untouched');
+      await mkdir(opts.outDir, { recursive: true });
+      for (const name of ['prompt.md', 'run-result.json', 'run-log.jsonl']) {
+        await symlink(victim, path.join(opts.outDir, name));
+      }
+      const summary = await runAgent(opts);
+      expect(summary.ok && summary.value.result.ok).toBe(true);
+      expect(await readFile(victim, 'utf8')).toBe('untouched');
+    });
+
+    it('accepts an output directory outside the workspace (control)', async () => {
+      const opts = await options({ model: 'fake-echo' });
+      const outDir = `${opts.cwd}-out`;
+      const summary = await runAgent({ ...opts, outDir });
+      expect(summary.ok && summary.value.resultPath.startsWith(outDir)).toBe(
+        true,
+      );
     });
   });
 });

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { extractStructuredResult } from '@agent-ci/contracts/final-answer.js';
@@ -14,6 +14,7 @@ import {
   maskSecrets,
   secretValuesFromEnv,
 } from '@agent-ci/contracts/secret-guard.js';
+import { writeOwnedFile } from '@agent-ci/files.js';
 import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
 import { CredentialLeakError } from '@agent-ci/harness/env.js';
 import {
@@ -163,6 +164,12 @@ export async function runAgent(
   const boundary = await findWorkspaceRoot(options.cwd, deps.git);
   if (!boundary.ok) return boundary;
   const boundaryRoot = boundary.value.root;
+  const outputPath = await checkOutputDir(
+    options.cwd,
+    options.outDir,
+    boundaryRoot,
+  );
+  if (!outputPath.ok) return outputPath;
   const homeOutside = async (root: string): Promise<boolean> => {
     try {
       return !isWithin(boundaryRoot, await resolveRealPath(root));
@@ -285,7 +292,7 @@ async function runInHome(
   const promptPath = path.join(outDir, 'prompt.md');
   const resultPath = path.join(outDir, 'run-result.json');
   const logPath = path.join(outDir, 'run-log.jsonl');
-  await writeFile(promptPath, maskSecrets(promptText, secrets));
+  await writeOwnedFile(promptPath, maskSecrets(promptText, secrets), 0o644);
 
   const routeInfo = {
     id: route.id,
@@ -475,7 +482,11 @@ async function runInHome(
       : { stopReason: supervised.stopReason }),
     ...(error === undefined ? {} : { code: error.code }),
   });
-  await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`);
+  await writeOwnedFile(
+    resultPath,
+    `${JSON.stringify(result, null, 2)}\n`,
+    0o644,
+  );
   await log.write(logPath);
 
   return success({
@@ -489,4 +500,54 @@ async function runInHome(
     homeRoot: options.homeRoot === undefined ? null : homeRoot.root,
     ...(error === undefined ? {} : { error }),
   });
+}
+
+/**
+ * An output directory inside the workspace (the default `<cwd>/.agent-ci`)
+ * must not be reached through a symlink: a checked-out repository could
+ * commit `.agent-ci -> elsewhere` and redirect the run's writes. Every
+ * existing component between the repository boundary and the directory is
+ * checked with lstat. An output directory outside the workspace is the
+ * operator's own choice.
+ */
+async function checkOutputDir(
+  cwd: string,
+  outDir: string,
+  boundaryRoot: string,
+): Promise<Result<string>> {
+  let realCwd: string;
+  try {
+    realCwd = await realpath(cwd);
+  } catch {
+    return failure('E_INVALID_INPUT', `workspace not found: ${cwd}`);
+  }
+  const lexical = path.resolve(
+    realCwd,
+    path.relative(path.resolve(cwd), path.resolve(cwd, outDir)),
+  );
+  if (!isWithin(boundaryRoot, lexical)) return success(lexical);
+  let current = boundaryRoot;
+  for (const part of path.relative(boundaryRoot, lexical).split(path.sep)) {
+    if (part === '') continue;
+    current = path.join(current, part);
+    try {
+      const info = await lstat(current);
+      if (info.isSymbolicLink()) {
+        return failure(
+          'E_OUTPUT_PATH',
+          `output path component ${current} is a symlink inside the workspace`,
+          'Remove the link or pass --out outside the repository.',
+        );
+      }
+      if (!info.isDirectory()) {
+        return failure(
+          'E_OUTPUT_PATH',
+          `output path component ${current} is not a directory`,
+        );
+      }
+    } catch {
+      break; // the rest does not exist yet and will be created as directories
+    }
+  }
+  return success(lexical);
 }

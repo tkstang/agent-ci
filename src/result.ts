@@ -13,6 +13,7 @@
 export const ERROR_CODES = [
   // Input and configuration
   'E_INVALID_INPUT',
+  'E_OUTPUT_PATH',
   'E_ROUTE_CONFIG',
   'E_ROUTE_NOT_FOUND',
   // Routing policy

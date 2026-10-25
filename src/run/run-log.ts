@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { containsSecret } from '@agent-ci/contracts/secret-guard.js';
+import { writeOwnedFile } from '@agent-ci/files.js';
 
 /**
  * The JSONL run log (`run-log.jsonl`), after pntr's `writeRunLog`: one JSON
@@ -63,9 +64,10 @@ export class RunLog {
   async write(filePath: string): Promise<void> {
     await mkdir(path.dirname(filePath), { recursive: true });
     const lines = this.records.map((record) => JSON.stringify(record));
-    await writeFile(
+    await writeOwnedFile(
       filePath,
       lines.length === 0 ? '' : `${lines.join('\n')}\n`,
+      0o644,
     );
   }
 }

@@ -12,7 +12,6 @@ import {
   readFile,
   realpath,
   rm,
-  writeFile,
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -195,18 +194,7 @@ export async function createHomeRoot(
   }
 }
 
-/**
- * Write an agent-ci-owned file without following a link: remove whatever is
- * at the path (a link is removed, not its target), then create exclusively.
- */
-export async function writeOwnedFile(
-  file: string,
-  content: string,
-  mode = 0o600,
-): Promise<void> {
-  await rm(file, { force: true });
-  await writeFile(file, content, { flag: 'wx', mode });
-}
+export { writeOwnedFile } from '@agent-ci/files.js';
 
 /**
  * Harness login stores that can live inside a home root. OpenCode v2 keeps
