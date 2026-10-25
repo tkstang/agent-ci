@@ -47,12 +47,28 @@ routes:
     qualified: null
 `;
 
+// No background auto-maintenance: a detached `git maintenance run --auto`
+// holding maintenance.lock races the copy of .git the run makes.
+const NO_MAINTENANCE = ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0'];
 const git = (cwd: string, ...args: string[]) =>
   execFileSync(
     'git',
-    ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args],
+    [
+      '-c',
+      'user.name=t',
+      '-c',
+      'user.email=t@example.com',
+      ...NO_MAINTENANCE,
+      ...args,
+    ],
     { cwd, stdio: ['ignore', 'pipe', 'pipe'] },
   ).toString();
+
+/** Persist the settings for agent-ci's own git calls in the repository. */
+function disableMaintenance(repo: string): void {
+  git(repo, 'config', 'maintenance.auto', 'false');
+  git(repo, 'config', 'gc.auto', '0');
+}
 
 async function scratchRepo(): Promise<string> {
   const dir = await realpath(
@@ -63,6 +79,7 @@ async function scratchRepo(): Promise<string> {
   await writeFile(path.join(repo, 'README.md'), '# Scratch\n');
   await writeFile(path.join(repo, 'notes.txt'), 'committed\n');
   git(repo, 'init', '-q');
+  disableMaintenance(repo);
   git(repo, 'add', '.');
   git(repo, 'commit', '-qm', 'init');
   return repo;
@@ -403,6 +420,7 @@ async function withSubmodule(repo: string, worktree: string): Promise<void> {
   await mkdir(path.dirname(gitDir), { recursive: true });
   git(repo, 'init', '-q', '--separate-git-dir', gitDir, sub);
   await writeFile(path.join(sub, '.git'), 'gitdir: ../.git/modules/sub\n');
+  disableMaintenance(sub);
   git(sub, 'config', 'extensions.worktreeConfig', 'true');
   git(sub, 'config', '--worktree', 'core.worktree', worktree);
   await writeFile(path.join(sub, 's.txt'), 'sub committed\n');
