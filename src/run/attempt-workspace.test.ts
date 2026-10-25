@@ -8,6 +8,7 @@ import {
   readFile,
   readlink,
   realpath,
+  rm,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -637,6 +638,69 @@ describe('git directories outside .git and submodule children (phase review r5)'
     git(path.join(repo, 'sub'), 'commit', '-qm', 'n');
     const moved = await detectChangedFiles(repo);
     expect(moved).toEqual({ ok: true, value: ['sub'] });
+  });
+});
+
+describe('git directory candidates with linked metadata (phase gate g2 M1)', () => {
+  /** `fixtures/tool.git` sharing the repository's objects through a link. */
+  async function linkedTool(repo: string, worktree: string): Promise<string> {
+    const tool = path.join(repo, 'fixtures', 'tool.git');
+    await mkdir(path.dirname(tool));
+    git(repo, 'init', '-q', '--bare', tool);
+    await rm(path.join(tool, 'objects'), { recursive: true });
+    await symlink('../../.git/objects', path.join(tool, 'objects'));
+    git(tool, 'config', 'core.bare', 'false');
+    git(tool, 'config', 'core.worktree', worktree);
+    git(tool, 'read-tree', git(repo, 'rev-parse', 'HEAD').trim());
+    return tool;
+  }
+
+  it('refuses a nested git directory with an objects link whose core.worktree names the original', async () => {
+    const repo = await scratchRepo();
+    await linkedTool(repo, repo);
+    await writeFile(path.join(repo, 'README.md'), 'original dirty\n');
+    const copy = await copyOf(repo);
+    const copyTool = path.join(copy.root, 'fixtures', 'tool.git');
+    // The vector is live: git from inside it in the copy works on the original.
+    expect(git(copyTool, 'rev-parse', '--show-toplevel').trim()).toBe(repo);
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      'fixtures/tool.git/config points git outside the copy',
+    );
+    await copy.dispose();
+  });
+
+  it('accepts the same layout with core.worktree inside the copy; git there leaves the original alone', async () => {
+    const repo = await scratchRepo();
+    await linkedTool(repo, '../..');
+    await writeFile(path.join(repo, 'README.md'), 'original dirty\n');
+    const copy = await copyOf(repo);
+    await writeFile(path.join(copy.root, 'README.md'), 'copy dirty\n');
+    expect(await copyIsolationProblem(copy.root)).toBeUndefined();
+    git(
+      path.join(copy.root, 'fixtures', 'tool.git'),
+      'checkout',
+      '--',
+      ':/README.md',
+    );
+    expect(await readFile(path.join(copy.root, 'README.md'), 'utf8')).toBe(
+      '# Scratch\n',
+    );
+    expect(await readFile(path.join(repo, 'README.md'), 'utf8')).toBe(
+      'original dirty\n',
+    );
+    await copy.dispose();
+  });
+
+  it('refuses a candidate git cannot answer for', async () => {
+    const repo = await scratchRepo();
+    await mkdir(path.join(repo, 'odd'));
+    await writeFile(path.join(repo, 'odd', 'HEAD'), 'not a ref\n');
+    await writeFile(path.join(repo, 'odd', 'config'), '[core]\n');
+    const copy = await copyOf(repo);
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      'git cannot read the git directory odd in the copy',
+    );
+    await copy.dispose();
   });
 });
 

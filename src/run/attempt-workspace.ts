@@ -282,11 +282,15 @@ async function copyTree(
  *    for the copy root and every directory holding a `.git` entry,
  *    `git rev-parse --show-toplevel --absolute-git-dir --git-common-dir` and
  *    `--show-superproject-working-tree`; for every git directory anywhere in
- *    the copy (`.git`, `.git/modules/*`, a nested `tool.git`, ...; a `HEAD`
- *    file plus `objects/` or `commondir`), its effective `core.worktree` (config,
+ *    the copy (`.git`, `.git/modules/*`, a nested `tool.git`, ...; any
+ *    directory with a `HEAD` plus `config`, `objects`, `commondir` or
+ *    `gitdir`, links included), its effective `core.worktree` (config,
  *    `config.worktree` under `extensions.worktreeConfig`, and includes, as
- *    git reads them) and `--git-common-dir`. Every answer must resolve inside
- *    the copy root; any git error fails closed.
+ *    git reads them), `--git-common-dir`, and what git discovers when run
+ *    from inside it (`--absolute-git-dir`, `--git-common-dir`,
+ *    `--show-toplevel`). Every answer must resolve inside the copy root; any
+ *    git error fails closed (a missing toplevel is accepted only when no
+ *    `core.worktree` is configured).
  *
  * Why this is enough: walk any path that descends from the copy root (no
  * `..` segment). Every real directory or file the copy holds is inside it;
@@ -359,17 +363,23 @@ export async function copyIsolationProblem(
 }
 
 /**
- * A git directory as git recognizes one: a `HEAD` file plus an `objects`
- * directory or a `commondir` file (so `.git/logs`, which holds a `HEAD`, is
- * not one).
+ * A git directory candidate, recognized conservatively (phase gate g2 M1):
+ * a `HEAD` file or link together with any of `config`, `objects`,
+ * `commondir` or `gitdir`, each as a file, directory or link. Git accepts
+ * linked metadata (for example `objects -> ../../.git/objects`), so links
+ * count; rule 1 has already required every link to stay in the copy.
+ * `.git/logs`, which holds only `HEAD` and `refs/`, is not a candidate. A
+ * candidate git cannot answer for refuses the copy.
  */
 function isGitDirectory(entries: readonly Dirent[]): boolean {
-  const has = (name: string, test: (entry: Dirent) => boolean) =>
-    entries.some((entry) => entry.name === name && test(entry));
+  const names = new Set(
+    entries
+      .filter((e) => e.isFile() || e.isDirectory() || e.isSymbolicLink())
+      .map((e) => e.name),
+  );
   return (
-    has('HEAD', (e) => e.isFile()) &&
-    (has('objects', (e) => e.isDirectory()) ||
-      has('commondir', (e) => e.isFile()))
+    names.has('HEAD') &&
+    ['config', 'objects', 'commondir', 'gitdir'].some((name) => names.has(name))
   );
 }
 
@@ -432,10 +442,36 @@ async function gitAnswerProblem(
       [`--git-dir=${dir}`, 'rev-parse', '--git-common-dir'],
       dir,
     );
-    if (worktree === undefined || common === undefined || common.length !== 1) {
+    // As the agent's git would see it from inside the directory: discovery
+    // from the cwd, no inherited GIT_* (the reviewer's attack runs here).
+    const discovered = await gitOutput(
+      git,
+      ['rev-parse', '--absolute-git-dir', '--git-common-dir'],
+      dir,
+    );
+    const toplevel = await gitOutput(
+      git,
+      ['rev-parse', '--show-toplevel'],
+      dir,
+    );
+    if (
+      worktree === undefined ||
+      common === undefined ||
+      common.length !== 1 ||
+      discovered === undefined ||
+      discovered.length !== 2 ||
+      // No work tree is an answer only when none is configured.
+      (toplevel === undefined && worktree.length > 0) ||
+      (toplevel !== undefined && toplevel.length !== 1)
+    ) {
       return `git cannot read the git directory ${rel} in the copy`;
     }
-    const escaped = await outside(dir, [...worktree, ...common]);
+    const escaped = await outside(dir, [
+      ...worktree,
+      ...common,
+      ...discovered,
+      ...(toplevel ?? []),
+    ]);
     if (escaped !== undefined) {
       return `git directory ${rel} in the copy points git at ${escaped}, outside the copy`;
     }
