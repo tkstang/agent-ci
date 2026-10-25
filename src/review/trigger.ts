@@ -23,6 +23,7 @@ import {
   MODEL_NAME,
   type ResolvedRequestConfig,
 } from '@agent-ci/review/request.js';
+import { isCiEnvironment } from '@agent-ci/routing/policy.js';
 import { resolveRoute } from '@agent-ci/routing/resolve.js';
 import type { ModelsFile } from '@agent-ci/routing/schema.js';
 
@@ -728,6 +729,15 @@ export function configureRequest(input: {
       return fail('command', error.message);
     }
   }
+  if (
+    mode === 'verify-review' &&
+    input.allowPool === true &&
+    isCiEnvironment(input.env)
+  )
+    return fail(
+      'configuration',
+      'verify-review is refused in CI when `allow_pool` is on: pool routes need the self-hosted proxy host, and the pull request code the verify job runs must not run there.',
+    );
   if (mode === 'verify-review' && input.verifyEnabled !== true)
     return fail(
       'command',

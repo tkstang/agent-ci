@@ -249,6 +249,10 @@ describe('pr-review.yml verify-review', () => {
       }
     ).inputs;
     expect(inputs.verify).toMatchObject({ type: 'boolean', default: false });
+    expect(inputs.verify_on_self_hosted).toMatchObject({
+      type: 'boolean',
+      default: false,
+    });
     const gate = (workflow.jobs.gate?.steps ?? []).find((s) => s.id === 'gate');
     expect(gate?.env?.VERIFY).toBe('${{ inputs.verify }}');
     expect(gate?.run).toContain('--verify "$VERIFY"');
@@ -290,6 +294,11 @@ describe('pr-review.yml verify-review', () => {
       'node "$RUNNER_TEMP/agent-ci-helpers/dist/cli.js" review verify',
     );
     expect(Object.keys(jobSteps[run]?.env ?? {})).toEqual(['SPEC_SHA256']);
+    // First step: refuse a self-hosted runner unless explicitly opted in.
+    expect(jobSteps[0]?.if).toBe(
+      "runner.environment != 'github-hosted' && !inputs.verify_on_self_hosted",
+    );
+    expect(jobSteps[0]?.run).toContain('exit 1');
     // The gate packs the bundle only for verify-review requests.
     const gateSteps = jobs.gate?.steps ?? [];
     expect(gateSteps.find((s) => s.id === 'helpers')?.if).toContain(

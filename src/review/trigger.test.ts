@@ -417,6 +417,29 @@ describe('configureRequest', () => {
     });
   });
 
+  it('refuses verify-review with the pool opt-in in CI, but not locally', () => {
+    expect(
+      configure('/agent-ci-verify-review', {
+        verifyEnabled: true,
+        allowPool: true,
+        env: { ...CI_ENV, RUNNER_ENVIRONMENT: 'self-hosted' },
+      }),
+    ).toMatchObject({
+      status: 'failed',
+      failure: {
+        route: 'configuration',
+        detail: expect.stringContaining('allow_pool'),
+      },
+    });
+    expect(
+      configure('/agent-ci-verify-review', {
+        verifyEnabled: true,
+        allowPool: true,
+        env: {},
+      }),
+    ).toMatchObject({ status: 'planned', config: { mode: 'verify-review' } });
+  });
+
   it('resolves a label request to the workflow settings', () => {
     expect(configure(null)).toMatchObject({
       status: 'planned',

@@ -40,6 +40,10 @@
 # Claude or Codex reviewers read the results through the run_check tool and
 # cite them. That job runs pull-request code: enable it only where pull
 # request authors (who need write access) may run code in your Actions.
+# The verify job refuses self-hosted runners: on a reused runner that code
+# could persist into later jobs holding model secrets. `verify_on_self_hosted:
+# true` allows ephemeral self-hosted runners only, and verify-review is
+# refused with `allow_pool: true` (the proxy host must never run PR code).
 #
 # Accepted residual risk: the reviewer reads untrusted pull-request text
 # while holding the model credential. Its tools are read-only, but a prompt

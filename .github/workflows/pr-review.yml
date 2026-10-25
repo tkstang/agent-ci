@@ -121,6 +121,13 @@ on:
           pull-request code in that job.
         type: boolean
         default: false
+      verify_on_self_hosted:
+        description: >-
+          Let the verify job run on a self-hosted runner. Only for ephemeral runners that
+          are discarded after the job: on a reused runner the pull-request code the job runs
+          can persist into later jobs that hold model secrets. Never the proxy (pool) host.
+        type: boolean
+        default: false
       allow_pool:
         description: >-
           Allow a proxy-pool route (models.yaml account: pool). CI allows one only
@@ -298,6 +305,14 @@ jobs:
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
       digest: ${{ steps.verify.outputs.digest }}
     steps:
+      # Before anything else: the job boundary is only a boundary on a
+      # runner that is discarded after the job.
+      - name: Require a GitHub-hosted runner (or the explicit self-hosted opt-in)
+        if: runner.environment != 'github-hosted' && !inputs.verify_on_self_hosted
+        run: |
+          echo "::error::verify-review runs pull-request code. On a reused self-hosted runner it can persist into later jobs that hold model credentials. Use a GitHub-hosted runner, or set verify_on_self_hosted for ephemeral runners only."
+          exit 1
+
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
