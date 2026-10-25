@@ -50,7 +50,12 @@ export function isCiEnvironment(
 /**
  * Whether a Claude-family pool route may run under CI. The single policy
  * point for that question: false until the operator decides
- * (DR-261025-use-the-local-proxy-pool, amendment 2026-10-25).
+ * (DR-261025-use-the-local-proxy-pool, amendment and note 2026-10-25).
+ * Setting it to true is not enough by itself: the Claude pool routes name
+ * `ANTHROPIC_AUTH_TOKEN`, which is outside `WORKFLOW_MODEL_SECRETS`
+ * (`agent-ci route --github-output` refuses them with `E_ROUTE_CONFIG`) and
+ * outside every workflow's static credential chain and secret declarations,
+ * so those would need the credential wiring too.
  */
 export const CI_POOL_ALLOWS_CLAUDE = false;
 

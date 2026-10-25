@@ -123,14 +123,14 @@ deliberately.
 Each request is checked against the route and the environment
 (`src/routing/policy.ts`). CI means `CI` or `GITHUB_ACTIONS` is set.
 
-| Rule                                                                                                                                                                                                                  | Code                                             |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| A `pool` route needs the opt-in: `--allow-pool` locally, the `allow_pool: true` workflow input in Actions (`--allow-pool-value true`).                                                                                | `E_POLICY_POOL`                                  |
-| In CI, a `pool` route runs only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`), because a GitHub-hosted runner cannot reach a loopback proxy.                                                             | `E_POLICY_POOL_CI`                               |
-| In CI, a Claude-family `pool` route is refused on every runner while `CI_POOL_ALLOWS_CLAUDE` is `false` in `src/routing/policy.ts`.                                                                                   | `E_POLICY_POOL_CI`                               |
-| A `login` route is local only, and needs `--seed-login`.                                                                                                                                                              | `E_POLICY_LOGIN_CI`, `E_CREDENTIAL_MISSING`      |
-| Every credential the route names must be set and non-empty. `agent-ci route`, the review gate and `targets` skip this check, because a workflow resolves the route before it maps the credential into the agent step. | `E_CREDENTIAL_MISSING`                           |
-| No fallback from subscription to paid billing, or into a work account.                                                                                                                                                | `E_POLICY_FALLBACK`, `E_POLICY_ACCOUNT_FALLBACK` |
+| Rule                                                                                                                                                                                                                                         | Code                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| A `pool` route needs the opt-in: `--allow-pool` locally, the `allow_pool: true` workflow input in Actions (`--allow-pool-value true`).                                                                                                       | `E_POLICY_POOL`                                  |
+| In CI, a `pool` route runs only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`), because a GitHub-hosted runner cannot reach a loopback proxy.                                                                                    | `E_POLICY_POOL_CI`                               |
+| In CI, a Claude-family `pool` route is refused on every runner while `CI_POOL_ALLOWS_CLAUDE` is `false` in `src/routing/policy.ts`. Changing that constant alone would not let one run in a workflow; see [The proxy pool](#the-proxy-pool). | `E_POLICY_POOL_CI`                               |
+| A `login` route is local only, and needs `--seed-login`.                                                                                                                                                                                     | `E_POLICY_LOGIN_CI`, `E_CREDENTIAL_MISSING`      |
+| Every credential the route names must be set and non-empty. `agent-ci route`, the review gate and `targets` skip this check, because a workflow resolves the route before it maps the credential into the agent step.                        | `E_CREDENTIAL_MISSING`                           |
+| No fallback from subscription to paid billing, or into a work account.                                                                                                                                                                       | `E_POLICY_FALLBACK`, `E_POLICY_ACCOUNT_FALLBACK` |
 
 The child process receives only the route's named credential variables.
 Every other known credential variable in your environment
@@ -163,7 +163,12 @@ loopback `baseUrl` (`http://127.0.0.1:8317`). Locally they need
 routes, `AGENT_CI_PROXY_API_KEY` for the Codex pool route. In Actions only
 the non-Claude pool route can run, on a self-hosted runner whose host serves
 the proxy, with `allow_pool: true` and the `AGENT_CI_PROXY_API_KEY` secret;
-the workflows never pass `ANTHROPIC_AUTH_TOKEN`. Runner setup is in
+the workflows never pass `ANTHROPIC_AUTH_TOKEN`. Running a Claude pool route in
+Actions would need both a policy change (`CI_POOL_ALLOWS_CLAUDE`) and
+credential wiring: `ANTHROPIC_AUTH_TOKEN` is not among the credentials
+`agent-ci route --github-output` accepts (it refuses the Claude pool routes
+with `E_ROUTE_CONFIG`) and is in no workflow's credential chain. That
+decision is pending with the operator. Runner setup is in
 [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy).
 
 ## Current routes

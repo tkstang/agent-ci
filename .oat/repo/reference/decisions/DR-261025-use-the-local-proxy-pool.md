@@ -31,3 +31,15 @@ The operator asked on 2026-10-25 why CI refused the proxy outright; this decisio
 
 The original decision above is unchanged for Claude.
 
+## Note 2026-10-25: what enabling Claude pool routes in CI requires (final review)
+
+The amendment above calls `CI_POOL_ALLOWS_CLAUDE = false` "the switch". That constant is the single policy point, but flipping it alone does not let a Claude pool route run in any workflow. The Claude pool routes name `ANTHROPIC_AUTH_TOKEN`. That variable is outside `WORKFLOW_MODEL_SECRETS` (`src/commands/route.ts`), so `agent-ci route --github-output` refuses those routes with `E_ROUTE_CONFIG`, and no workflow's static credential chain or secret declaration carries it.
+
+Enabling them needs every one of these:
+
+- `CI_POOL_ALLOWS_CLAUDE = true`;
+- `ANTHROPIC_AUTH_TOKEN` added to `WORKFLOW_MODEL_SECRETS`;
+- the four static credential chains (`run-agent.yml` and the three in `pr-review.yml`) and the secret declarations and forwarding in `run-agent.yml`, `pr-review.yml`, `fan-out.yml`, `docs-update.yml` and `instructions-update.yml`, with matching workflow structure tests.
+
+The other way is a Claude pool route that names a credential already in that list. No behavior changes here; the decision stays with the operator, including whether to key the rule to billing instead of model family.
+
