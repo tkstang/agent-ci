@@ -396,9 +396,8 @@ describe('runAgent', () => {
       await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
       await writeFile(
         path.join(operatorHome, '.codex', 'auth.json'),
-        JSON.stringify({
-          tokens: { access_token: 'synthetic-placement-0019' },
-        }),
+        // Shape only; no token-like key, so secret scanners stay quiet.
+        JSON.stringify({ tokens: { placeholder: 'synthetic-placement-0019' } }),
       );
       return { ...opts, env: { PATH: process.env.PATH, HOME: operatorHome } };
     }
