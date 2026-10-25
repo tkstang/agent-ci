@@ -49,6 +49,9 @@ Flags:
                              Commit identity (default github-actions[bot]).
   --allow-workflow-changes   Allow .github/workflows changes (needs a token
                              with the workflow scope; GITHUB_TOKEN has none).
+  --result-digest <hex>      Refuse the result directory unless its content
+                             digest (agent-ci digest) matches; workflows pass
+                             the agent job's digest.
   --github-output            Write status, pr_url, pr_action, comment_url to
                              $GITHUB_OUTPUT.
 
@@ -100,6 +103,7 @@ export function createPublishCommand(
           'branch-prefix': { type: 'string' },
           'adopt-branch': { type: 'boolean' },
           'comment-author': { type: 'string' },
+          'result-digest': { type: 'string' },
           'github-output': { type: 'boolean' },
         },
         USAGE,
@@ -115,6 +119,7 @@ export function createPublishCommand(
         'run-url': optional(parsed['run-url']),
         'branch-prefix': optional(parsed['branch-prefix']),
         'comment-author': optional(parsed['comment-author']),
+        'result-digest': optional(parsed['result-digest']),
       };
       const publishPr = optional(parsed['publish-pr']);
       if (publishPr !== undefined && !['true', 'false'].includes(publishPr)) {
@@ -134,7 +139,12 @@ export function createPublishCommand(
           context.cwd,
           required(flags['result-dir'], '--result-dir'),
         ),
-        boundary.ok ? { workspaceRoot: boundary.value.root } : {},
+        {
+          ...(boundary.ok ? { workspaceRoot: boundary.value.root } : {}),
+          ...(flags['result-digest'] === undefined
+            ? {}
+            : { digest: flags['result-digest'] }),
+        },
       );
       if (!outputs.ok) throw CliError.fromFailure(outputs);
       const github = createGitHubClient({

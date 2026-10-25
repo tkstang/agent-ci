@@ -301,8 +301,48 @@ describe('run-agent.yml', () => {
     const upload = step(jobs.agent ?? {}, 'Upload the run result');
     expect(upload.with?.path).toBe('${{ runner.temp }}/agent-ci-out');
     expect(jobs.publish?.if).toBe(
-      "${{ !cancelled() && needs.agent.outputs.result_uploaded == 'true' }}",
+      "${{ !cancelled() && needs.agent.outputs.result_artifact_id != '' }}",
     );
+  });
+
+  it("publishes only the agent job's own upload, verified by digest", async () => {
+    const workflow = await runAgent();
+    const agent = workflow.jobs.agent as Job & {
+      outputs?: Record<string, string>;
+    };
+    const upload = step(agent, 'Upload the run result');
+    expect(upload.id).toBe('upload');
+    expect(upload.if).toBe("always() && steps.digest.outcome == 'success'");
+    expect(agent.outputs?.result_artifact_id).toBe(
+      '${{ steps.upload.outputs.artifact-id }}',
+    );
+    expect(agent.outputs?.result_digest).toBe(
+      '${{ steps.digest.outputs.digest }}',
+    );
+    expect(step(agent, 'Digest the run result').run).toBe(
+      'agent-ci digest --dir "$RUNNER_TEMP/agent-ci-out" --github-output',
+    );
+    const publish = workflow.jobs.publish ?? {};
+    const download = step(publish, 'Download the run result');
+    expect(download.with?.['artifact-ids']).toBe(
+      '${{ needs.agent.outputs.result_artifact_id }}',
+    );
+    expect(download.with?.name).toBeUndefined();
+    for (const name of ['Publish', 'Notify']) {
+      const entry = step(publish, name);
+      expect(entry.run).toContain('--result-digest "$RESULT_DIGEST"');
+      expect(entry.env?.RESULT_DIGEST).toBe(
+        '${{ needs.agent.outputs.result_digest }}',
+      );
+    }
+    // No artifact is downloaded by name anywhere.
+    for (const job of Object.values(workflow.jobs)) {
+      for (const entry of job.steps ?? []) {
+        if (entry.uses?.startsWith('actions/download-artifact')) {
+          expect(entry.with?.name).toBeUndefined();
+        }
+      }
+    }
   });
 
   it('keeps step logic in agent-ci subcommands and inputs out of scripts', async () => {

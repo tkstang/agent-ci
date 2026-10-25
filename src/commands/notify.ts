@@ -15,7 +15,8 @@ Flags:
                           (default AGENT_CI_NOTIFY_WEBHOOK). Unset or empty:
                           nothing is sent.
   --pr-url <url>          Pull request to link (optional).
-  --run-url <url>         Default: built from the GITHUB_* run variables.`;
+  --run-url <url>         Default: built from the GITHUB_* run variables.
+  --result-digest <hex>   Refuse the directory unless its content digest matches.`;
 
 export function createNotifyCommand(
   deps: { readonly fetch?: typeof fetch } = {},
@@ -32,6 +33,7 @@ export function createNotifyCommand(
           'webhook-env': { type: 'string' },
           'pr-url': { type: 'string' },
           'run-url': { type: 'string' },
+          'result-digest': { type: 'string' },
         },
         USAGE,
       );
@@ -47,6 +49,9 @@ export function createNotifyCommand(
           context.cwd,
           required(flags['result-dir'], '--result-dir'),
         ),
+        flags['result-digest'] === undefined || flags['result-digest'] === ''
+          ? {}
+          : { digest: flags['result-digest'] },
       );
       if (!outputs.ok) throw CliError.fromFailure(outputs);
       const sent = await notify({

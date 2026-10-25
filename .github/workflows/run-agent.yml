@@ -221,7 +221,10 @@ jobs:
     permissions:
       contents: read
     outputs:
-      result_uploaded: ${{ steps.result.outputs.present }}
+      # Set only when the upload succeeded; the publish job takes exactly
+      # this artifact and verifies this digest.
+      result_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      result_digest: ${{ steps.digest.outputs.digest }}
       route_id: ${{ steps.route.outputs.route_id }}
     steps:
       # job.workflow_* name the reusable workflow's own repository and commit
@@ -343,8 +346,14 @@ jobs:
         if: always()
         run: test -f "$RUNNER_TEMP/agent-ci-out/run-result.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
 
-      - name: Upload the run result
+      - name: Digest the run result
+        id: digest
         if: always() && steps.result.outputs.present == 'true'
+        run: agent-ci digest --dir "$RUNNER_TEMP/agent-ci-out" --github-output
+
+      - name: Upload the run result
+        id: upload
+        if: always() && steps.digest.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}
@@ -355,7 +364,7 @@ jobs:
   publish:
     name: Publish
     needs: agent
-    if: ${{ !cancelled() && needs.agent.outputs.result_uploaded == 'true' }}
+    if: ${{ !cancelled() && needs.agent.outputs.result_artifact_id != '' }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
@@ -386,11 +395,14 @@ jobs:
         with:
           path: .agent-ci-src
 
+      # By the agent job's own upload ID, never by name: an artifact another
+      # job of this run uploads under the same name is never used.
       - name: Download the run result
         uses: actions/download-artifact@v8
         with:
-          name: ${{ inputs.artifact_name }}
+          artifact-ids: ${{ needs.agent.outputs.result_artifact_id }}
           path: ${{ runner.temp }}/agent-ci-result
+          merge-multiple: true
 
       - name: Publish
         id: publish
@@ -402,14 +414,17 @@ jobs:
           TITLE: ${{ inputs.pr_title }}
           COMMENT_PR: ${{ inputs.comment_pr || github.event.pull_request.number || '' }}
           PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
+          RESULT_DIGEST: ${{ needs.agent.outputs.result_digest }}
         run: >-
           agent-ci publish --result-dir "$RUNNER_TEMP/agent-ci-result" --cwd target
           --publish-pr "$PUBLISH_PR" --branch "$BRANCH" --base "$BASE" --title "$TITLE"
-          --comment-on "$COMMENT_PR" --comment-author "$PUBLISHER_LOGIN" --github-output
+          --comment-on "$COMMENT_PR" --comment-author "$PUBLISHER_LOGIN"
+          --result-digest "$RESULT_DIGEST" --github-output
 
       - name: Notify
         if: always() && steps.publish.outcome != 'skipped'
         env:
           AGENT_CI_NOTIFY_WEBHOOK: ${{ secrets.AGENT_CI_NOTIFY_WEBHOOK }}
           PR_URL: ${{ steps.publish.outputs.pr_url }}
-        run: agent-ci notify --result-dir "$RUNNER_TEMP/agent-ci-result" --pr-url "$PR_URL"
+          RESULT_DIGEST: ${{ needs.agent.outputs.result_digest }}
+        run: agent-ci notify --result-dir "$RUNNER_TEMP/agent-ci-result" --pr-url "$PR_URL" --result-digest "$RESULT_DIGEST"

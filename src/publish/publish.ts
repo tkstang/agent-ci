@@ -12,6 +12,7 @@ import {
   type ChangeSet,
   parseChangeSet,
 } from '@agent-ci/publish/changes.js';
+import { verifyResultDir } from '@agent-ci/publish/digest.js';
 import type { GitRunner } from '@agent-ci/publish/git.js';
 import type { GitHubClient } from '@agent-ci/publish/github.js';
 import {
@@ -92,7 +93,11 @@ async function readNoFollow(
  */
 export async function readRunOutputs(
   dir: string,
-  options: { readonly workspaceRoot?: string } = {},
+  options: {
+    readonly workspaceRoot?: string;
+    /** Expected content digest (`agent-ci digest`) of the directory. */
+    readonly digest?: string;
+  } = {},
 ): Promise<Result<RunOutputs>> {
   let physical: Awaited<ReturnType<typeof resolvePhysical>>;
   try {
@@ -115,6 +120,10 @@ export async function readRunOutputs(
     );
   }
   const canonical = physical.real;
+  if (options.digest !== undefined) {
+    const verified = await verifyResultDir(canonical, options.digest);
+    if (!verified.ok) return verified;
+  }
   const resultText = await readNoFollow(
     path.join(canonical, RESULT_FILE),
     MAX_RESULT_BYTES,
