@@ -64,9 +64,12 @@ Contributing).
 
 Accepted selection supplied to init: flat-small; anticipated reader pages: 7. Reader structure is collapsed into grouped root headings. Contributor, template and toolchain pages are outside this reader-page estimate.
 
-| Location                     | Reader track | Entry principle                     |
-| ---------------------------- | ------------ | ----------------------------------- |
-| index.md (group: Start here) | Start here   | Reader goal in a flat grouped index |
+| Location                   | Reader group | Entry principle                                                    |
+| -------------------------- | ------------ | ------------------------------------------------------------------ |
+| index.md (group: Start)    | Start        | First safe result: build, a credential-free run, a cheap-model run |
+| index.md (group: Use)      | Use          | One page per capability: routing, workflows, PR review             |
+| index.md (group: Set up)   | Set up       | Credentials, settings and other repositories                       |
+| index.md (group: Concepts) | Concepts     | Trust boundaries and residual risk                                 |
 
 Readers enter by their immediate goal, using one grouped index instead of navigating a hierarchy before choosing a task.
 
