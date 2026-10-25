@@ -354,7 +354,7 @@ async function localReview(
       log('agent-ci review: running the configured checks (verify-review)');
       if (options.trustPrCode === true)
         log(
-          "agent-ci review: --verify-trust-pr-code: the pull request's code runs as you; without Linux user namespaces it can read your processes' environments and your Keychain",
+          "agent-ci review: --verify-trust-pr-code: the pull request's code runs as you and can reach your credentials (other processes' environments, your Keychain, host service sockets); no local isolation is a credential boundary",
         );
       checksDir = path.join(outDir, 'checks');
       const verified = await runVerify({
