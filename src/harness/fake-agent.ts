@@ -13,8 +13,11 @@
  * `edit` writes `agent-ci-fake-edit.md` in the working directory (content
  * derived from the prompt only, so reruns are identical). `flaky-edit` fails
  * its first attempt in a home root with a transient error after writing
- * `fake-partial.txt`, then behaves like `edit`.
+ * `fake-partial.txt`, then behaves like `edit`. Test-only: `edit-commit`
+ * edits and commits; `edit-secret` writes every credential-like variable it
+ * can see into `leak.txt`.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, fstatSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -110,6 +113,31 @@ switch (scenario) {
   case 'edit':
     editWorkspace();
     break;
+  case 'edit-commit':
+    editWorkspace();
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.name=fake',
+        '-c',
+        'user.email=fake@example.com',
+        'commit',
+        '-qam',
+        'fake commit',
+        '--allow-empty',
+      ],
+      { stdio: 'ignore' },
+    );
+    break;
+  case 'edit-secret': {
+    const values = Object.entries(process.env)
+      .filter(([name]) => /KEY|TOKEN|SECRET/u.test(name))
+      .map(([, value]) => value ?? '');
+    writeFileSync(path.join(process.cwd(), 'leak.txt'), values.join('\n'));
+    editWorkspace();
+    break;
+  }
   case 'flaky-edit': {
     const marker = path.join(
       process.env.HOME ?? '.',

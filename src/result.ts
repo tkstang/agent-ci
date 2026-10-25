@@ -41,6 +41,8 @@ export const ERROR_CODES = [
   'E_INVALID_RUN_RESULT',
   'E_SECRET_COPY',
   'E_SECRET_GUARD',
+  // Change sets and publishing
+  'E_CHANGE_SET',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

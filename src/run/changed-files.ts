@@ -170,3 +170,43 @@ export async function changedSince(
   }
   return success([...changed].toSorted());
 }
+
+/**
+ * The commit HEAD points at, or null in a repository without commits or
+ * outside git. Other git failures are `E_WORKSPACE_STATUS`.
+ */
+export function readHead(
+  cwd: string,
+  git = 'git',
+): Promise<Result<string | null>> {
+  return new Promise((resolve) => {
+    const child = execFile(
+      git,
+      ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+      { cwd, env: { PATH: process.env.PATH ?? '/usr/bin:/bin' } },
+      (error, stdout, stderr) => {
+        const sha = String(stdout).trim();
+        if (error === null && /^[0-9a-f]{40}$/u.test(sha)) {
+          resolve(success(sha));
+          return;
+        }
+        // --quiet: an unborn HEAD exits 1 with no output.
+        const text = String(stderr);
+        if (
+          (error !== null && error.code === 1 && text.trim() === '') ||
+          /not a git repository/iu.test(text)
+        ) {
+          resolve(success(null));
+          return;
+        }
+        resolve(
+          failure(
+            'E_WORKSPACE_STATUS',
+            `could not read the workspace HEAD: ${text.trim().split('\n')[0] || (error?.message ?? 'unexpected output')}`,
+          ),
+        );
+      },
+    );
+    child.stdin?.end();
+  });
+}

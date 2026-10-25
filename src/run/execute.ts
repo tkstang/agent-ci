@@ -34,6 +34,7 @@ import type {
   RunMode,
   Usage,
 } from '@agent-ci/harness/types.js';
+import { buildChangeSet, CHANGE_SET_FILE } from '@agent-ci/publish/changes.js';
 import {
   failure,
   success,
@@ -53,6 +54,7 @@ import {
 } from '@agent-ci/run/attempt-workspace.js';
 import {
   changedSince,
+  readHead,
   snapshotWorkspace,
 } from '@agent-ci/run/changed-files.js';
 import { buildRunPrompt } from '@agent-ci/run/prompt.js';
@@ -107,6 +109,8 @@ export interface RunSummary {
   readonly resultPath: string;
   readonly logPath: string;
   readonly promptPath: string;
+  /** `changes.json` for an edit run that changed files, else null. */
+  readonly changesPath: string | null;
   readonly route: Pick<
     Route,
     'id' | 'model' | 'harness' | 'providerModel' | 'billing' | 'account'
@@ -248,6 +252,13 @@ async function runInHome(
   // Baseline first: anything that lands in the workspace from here on,
   // including a seeded login, is a change the run reports, never hidden dirt.
   const baseline = await snapshotWorkspace(options.cwd, [outDir], deps.git);
+  // The commit an edit run starts from: the change set is based on it, and a
+  // run that moves HEAD (commits) is refused, because commits are not
+  // visible to change detection and would never be published.
+  const baseHead =
+    options.mode === 'edit'
+      ? await readHead(boundaryRoot, deps.git)
+      : success<string | null>(null);
   if (options.skillsDir !== undefined) {
     const seeded = await seedSkills(homeRoot, options.skillsDir);
     if (!seeded.ok) return seeded;
@@ -336,6 +347,10 @@ async function runInHome(
   const promptPath = path.join(outDir, 'prompt.md');
   const resultPath = path.join(outDir, 'run-result.json');
   const logPath = path.join(outDir, 'run-log.jsonl');
+  const changesPath = path.join(outDir, CHANGE_SET_FILE);
+  // A change set left by an earlier run in this directory must never be
+  // published with this run's result.
+  await rm(changesPath, { force: true });
   await writeOwnedFile(promptPath, maskSecrets(promptText, secrets), 0o644);
 
   const routeInfo = {
@@ -355,17 +370,22 @@ async function runInHome(
   });
 
   // Only changes made during the run count; pre-existing dirt does not.
-  if (!baseline.ok) {
+  const workspaceProblem = !baseline.ok
+    ? baseline
+    : !baseHead.ok
+      ? baseHead
+      : undefined;
+  if (workspaceProblem !== undefined) {
     log.add('workspace.status', {
       phase: 'baseline',
-      code: baseline.code,
-      message: baseline.message,
+      code: workspaceProblem.code,
+      message: workspaceProblem.message,
     });
   }
   // An edit run whose changes cannot be detected would publish nothing; stop
   // before spending a model call.
   const preflight: AttemptRecord | undefined =
-    !baseline.ok && options.mode === 'edit'
+    workspaceProblem !== undefined && options.mode === 'edit'
       ? {
           ok: false,
           retryable: false,
@@ -373,7 +393,7 @@ async function runInHome(
             ok: false,
             code: 'E_HARNESS_FAILED',
             retryable: false,
-            message: baseline.message,
+            message: workspaceProblem.message,
           },
         }
       : undefined;
@@ -494,13 +514,20 @@ async function runInHome(
             if (copy !== undefined) {
               // Only a successful attempt's changes reach the workspace; a
               // failed attempt's copy is discarded with its partial edits.
-              if (outcome.ok && baseline.ok) {
-                const inCopy = await changedSince(
-                  copy.value.cwd,
-                  baseline.value,
-                  [copy.value.outDir],
-                  deps.git,
-                );
+              if (outcome.ok && baseline.ok && baseHead.ok) {
+                const copyHead = await readHead(copy.value.root, deps.git);
+                const inCopy =
+                  !copyHead.ok || copyHead.value !== baseHead.value
+                    ? failure(
+                        'E_WORKSPACE_STATUS',
+                        'the attempt moved HEAD; commits made by the agent are not published',
+                      )
+                    : await changedSince(
+                        copy.value.cwd,
+                        baseline.value,
+                        [copy.value.outDir],
+                        deps.git,
+                      );
                 const moved = inCopy.ok
                   ? await promoteChanges(
                       copy.value.root,
@@ -563,6 +590,8 @@ async function runInHome(
   const outcome = supervised.result.outcome;
   let result: ValidatedRunResult;
   let error: { code: ErrorCode; message: string } | undefined;
+  /** Changes detected by git (never the agent's own claims). */
+  let detected: readonly string[] = [];
   if (outcome.ok) {
     const candidate =
       outcome.structured === undefined
@@ -578,18 +607,31 @@ async function runInHome(
         message: changed.message,
       });
     }
+    if (changed.ok) detected = changed.value;
+    const headAfter =
+      options.mode === 'edit' && baseHead.ok
+        ? await readHead(boundaryRoot, deps.git)
+        : baseHead;
     const finalized = !candidate.ok
       ? candidate
       : !changed.ok && options.mode === 'edit'
         ? changed
-        : finalizeRunResult(candidate.value, {
-            useCase: options.useCase,
-            targetRepo: options.targetRepo,
-            outputContract: options.outputContract,
-            verdictItems: options.verdictItems,
-            detectedChangedFiles: changed.ok ? changed.value : [],
-            secrets,
-          });
+        : options.mode === 'edit' &&
+            (!headAfter.ok ||
+              !baseHead.ok ||
+              headAfter.value !== baseHead.value)
+          ? failure(
+              'E_WORKSPACE_STATUS',
+              'the run moved HEAD; commits made by the agent are not published',
+            )
+          : finalizeRunResult(candidate.value, {
+              useCase: options.useCase,
+              targetRepo: options.targetRepo,
+              outputContract: options.outputContract,
+              verdictItems: options.verdictItems,
+              detectedChangedFiles: changed.ok ? changed.value : [],
+              secrets,
+            });
     if (finalized.ok) {
       result = finalized.value;
     } else {
@@ -619,6 +661,33 @@ async function runInHome(
     error = { code: guarded.code, message: guarded.message };
     result = buildFailedRunResult({ ...options, ...error });
   }
+  // An edit run that changed files hands its exact changes to the publisher
+  // as changes.json, captured here because only this step holds the
+  // credential the contents are guarded against.
+  let changeSet: string | undefined;
+  if (
+    error === undefined &&
+    options.mode === 'edit' &&
+    result.ok &&
+    result.status === 'changed' &&
+    detected.length > 0
+  ) {
+    const built = await buildChangeSet({
+      root: boundaryRoot,
+      files: detected,
+      baseSha: baseHead.ok ? baseHead.value : null,
+      secrets,
+    });
+    if (built.ok) {
+      changeSet = `${JSON.stringify(built.value)}\n`;
+    } else {
+      error = {
+        code: built.code,
+        message: maskSecrets(built.message, secrets),
+      };
+      result = buildFailedRunResult({ ...options, ...error });
+    }
+  }
   log.add('run.result', {
     ok: result.ok,
     status: result.status,
@@ -643,6 +712,9 @@ async function runInHome(
     `${JSON.stringify(result, null, 2)}\n`,
     0o644,
   );
+  if (changeSet !== undefined) {
+    await writeOwnedFile(changesPath, changeSet, 0o644);
+  }
   await log.write(logPath);
 
   return success({
@@ -650,6 +722,7 @@ async function runInHome(
     resultPath,
     logPath,
     promptPath,
+    changesPath: changeSet === undefined ? null : changesPath,
     route: routeInfo,
     attempts: supervised.attempts,
     usage: outcome.usage ?? null,
