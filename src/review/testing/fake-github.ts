@@ -55,6 +55,30 @@ export class FakeGithub {
     });
   }
 
+  /** The same fake as a `fetch` for code that builds its own client. */
+  fetch(): typeof fetch {
+    const client = this.client();
+    return (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body =
+        typeof init?.body === 'string'
+          ? (JSON.parse(init.body) as unknown)
+          : undefined;
+      const response = await client.transport({
+        method: (init?.method ?? 'GET') as GithubRequest['method'],
+        path: `${url.pathname}${url.search}`,
+        ...(body === undefined ? {} : { body }),
+      });
+      return new Response(response.text === '' ? null : response.text, {
+        status: response.status,
+        headers:
+          response.header('link') === null
+            ? {}
+            : { link: response.header('link') ?? '' },
+      });
+    }) as typeof fetch;
+  }
+
   sent(method: string): GithubRequest[] {
     return this.requests.filter((request) => request.method === method);
   }

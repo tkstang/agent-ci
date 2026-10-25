@@ -664,6 +664,10 @@ export function configureRequest(input: {
   allowedModels: readonly string[];
   models: ModelsFile;
   env: Readonly<Record<string, string | undefined>>;
+  /** Local runs only: allow pool routes (always refused in CI). */
+  allowPool?: boolean;
+  /** Local runs only: allow login routes (always refused in CI). */
+  seedLogin?: boolean;
 }): ConfigureOutcome {
   const { request } = input.authorized;
   let mode: ReviewMode;
@@ -739,8 +743,8 @@ export function configureRequest(input: {
       );
     const resolved = resolveRoute(input.models, {
       model: pass.model,
-      allowPool: false,
-      seedLogin: false,
+      allowPool: input.allowPool === true,
+      seedLogin: input.seedLogin === true,
       requireCredentials: false,
       env: input.env,
     });
