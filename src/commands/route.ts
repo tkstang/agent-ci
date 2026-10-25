@@ -8,6 +8,19 @@ import { DEFAULT_MODELS_PATH } from '@agent-ci/paths.js';
 import { loadModelsFile, resolveRoute } from '@agent-ci/routing/resolve.js';
 import { HARNESS_IDS } from '@agent-ci/routing/schema.js';
 
+/**
+ * The model credentials a workflow can pass to the agent step. Workflows
+ * select one with a static expression chain over exactly these names (a
+ * dynamic `secrets[...]` lookup would make the runner receive every secret
+ * the workflow holds), so a route naming anything else is refused here.
+ */
+export const WORKFLOW_MODEL_SECRETS = [
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'OPENCODE_API_KEY',
+  'CURSOR_API_KEY',
+] as const;
+
 const USAGE = `agent-ci route — resolve the route a run would use, without running it.
 
 Applies the routing policy for this environment (pool and login routes are
@@ -24,7 +37,10 @@ Flags:
                                  billing and credential (the single credential
                                  variable name, empty for none) to
                                  $GITHUB_OUTPUT. Refuses a route that names
-                                 more than one credential.`;
+                                 more than one credential, or one outside
+                                 CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY,
+                                 OPENCODE_API_KEY and CURSOR_API_KEY (the
+                                 secrets the workflows select statically).`;
 
 export const routeCommand: CommandSpec = {
   name: 'route',
@@ -75,6 +91,19 @@ export const routeCommand: CommandSpec = {
         throw new CliError(
           'E_ROUTE_CONFIG',
           `route ${route.id} names ${route.credentials.length} credentials; a workflow passes exactly one`,
+        );
+      }
+      const credential = route.credentials[0];
+      if (
+        credential !== undefined &&
+        !(WORKFLOW_MODEL_SECRETS as readonly string[]).includes(credential)
+      ) {
+        throw new CliError(
+          'E_ROUTE_CONFIG',
+          `route ${route.id} names ${credential}, which no workflow passes to the agent`,
+          {
+            hint: `Workflows select the model credential from ${WORKFLOW_MODEL_SECRETS.join(', ')}.`,
+          },
         );
       }
       await appendGithubOutput(context.env, {

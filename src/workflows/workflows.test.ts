@@ -1,12 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { WORKFLOW_MODEL_SECRETS } from '@agent-ci/commands/route.js';
 import { PACKAGE_ROOT } from '@agent-ci/paths.js';
 import { parseModelsFile } from '@agent-ci/routing/resolve.js';
 import {
+  agentJob,
+  agentJobWorkflow,
+  INNER_READ_SCOPED,
   type Job,
   load,
   MODEL_SECRETS,
+  modelChain,
   READ_SCOPED,
   runAgent,
   secretRefs,
@@ -33,33 +38,45 @@ describe('run-agent.yml', () => {
       'agent',
       'publish',
     ]);
-    for (const job of Object.values(workflow.jobs)) {
-      expect(job['runs-on']).toBe('${{ inputs.runs_on }}');
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      if (name === 'agent') {
+        expect(job.with?.runs_on).toBe('${{ inputs.runs_on }}');
+      } else {
+        expect(job['runs-on']).toBe('${{ inputs.runs_on }}');
+      }
     }
+    expect((await agentJob())['runs-on']).toBe('${{ inputs.runs_on }}');
     expect(workflow.permissions).toEqual({ contents: 'read' });
   });
 
-  it('separates authority: a read-only agent job and a write-only publish job', async () => {
+  it('separates authority: a read-only agent workflow and a write-only publish job', async () => {
     const { jobs } = await runAgent();
+    const inner = await agentJobWorkflow();
+    expect(jobs.agent?.uses).toBe('./.github/workflows/agent-job.yml');
     expect(jobs.agent?.permissions).toEqual({ contents: 'read' });
+    expect(inner.permissions).toEqual({ contents: 'read' });
+    expect(inner.jobs.agent?.permissions).toEqual({ contents: 'read' });
     expect(jobs.publish?.permissions).toEqual({
       contents: 'write',
       'pull-requests': 'write',
     });
     expect(jobs.publish?.needs).toEqual(['resolve', 'agent']);
-    // The agent job's checkout never persists a token for the agent to read.
-    const target = step(jobs.agent ?? {}, 'Check out the target repository');
-    expect(target.with?.['persist-credentials']).toBe(false);
-    const helpers = step(jobs.agent ?? {}, 'Check out the agent-ci helpers');
-    expect(helpers.with?.['persist-credentials']).toBe(false);
+    // The agent job's checkouts never persist a token for the agent to read.
+    const agent = await agentJob();
+    for (const name of [
+      'Check out the target repository',
+      'Check out the agent-ci helpers',
+    ]) {
+      expect(step(agent, name).with?.['persist-credentials']).toBe(false);
+    }
   });
 
-  it('passes exactly one model credential, only to the agent step', async () => {
+  it('gives the agent workflow exactly one model credential, chosen by a static chain', async () => {
     const { on, jobs } = await runAgent();
     const declared = Object.keys(
       (on.workflow_call as { secrets: Record<string, unknown> }).secrets,
     );
-    // Every credential a CI-eligible route names is declared.
+    // Every credential a CI-eligible route names is declared and selectable.
     const models = parseModelsFile(
       await readFile(path.join(PACKAGE_ROOT, 'models.yaml'), 'utf8'),
     );
@@ -67,25 +84,47 @@ describe('run-agent.yml', () => {
     const ciCredentials = models.value.routes
       .filter((route) => route.account !== 'pool' && !route.login)
       .flatMap((route) => route.credentials);
-    for (const name of ciCredentials) expect(declared).toContain(name);
+    for (const name of ciCredentials) {
+      expect(declared).toContain(name);
+      expect(WORKFLOW_MODEL_SECRETS).toContain(name);
+    }
+    expect([...WORKFLOW_MODEL_SECRETS]).toEqual(MODEL_SECRETS);
 
-    const runStep = step(jobs.agent ?? {}, 'Run the agent');
-    expect(Object.keys(runStep.env ?? {})).toContain('AGENT_CI_CREDENTIAL');
-    expect(secretRefs(runStep.env)).toEqual(['[dynamic]']);
-    expect(String(runStep.env?.AGENT_CI_CREDENTIAL)).toBe(
-      "${{ steps.route.outputs.credential != '' && secrets[steps.route.outputs.credential] || '' }}",
+    // The call passes the selected credential and two read-only tokens only.
+    expect(jobs.agent?.secrets).toEqual({
+      AGENT_CI_CREDENTIAL: modelChain('needs.resolve.outputs.credential'),
+      AGENT_CI_SOURCE_TOKEN: '${{ secrets.AGENT_CI_SOURCE_TOKEN }}',
+      AGENT_CI_TARGET_READ_TOKEN: '${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}',
+    });
+    const inner = await agentJobWorkflow();
+    expect(
+      Object.keys(
+        (inner.on.workflow_call as { secrets: Record<string, unknown> })
+          .secrets,
+      ),
+    ).toEqual([
+      'AGENT_CI_CREDENTIAL',
+      'AGENT_CI_SOURCE_TOKEN',
+      'AGENT_CI_TARGET_READ_TOKEN',
+    ]);
+    const agent = await agentJob();
+    const runStep = step(agent, 'Run the agent');
+    expect(runStep.env?.AGENT_CI_CREDENTIAL).toBe(
+      '${{ secrets.AGENT_CI_CREDENTIAL }}',
     );
     expect(runStep.run).toContain('--credential-from-env');
+    for (const entry of agent.steps ?? []) {
+      if (entry === runStep) continue;
+      expect(secretRefs(entry), entry.name).not.toContain(
+        'AGENT_CI_CREDENTIAL',
+      );
+    }
 
-    // No other step, in either job, sees a model credential.
+    // No step anywhere in run-agent.yml sees a model credential.
     for (const [jobName, job] of Object.entries(jobs)) {
       for (const entry of job.steps ?? []) {
-        if (entry === runStep) continue;
         const refs = secretRefs(entry);
-        for (const ref of refs) {
-          expect(MODEL_SECRETS).not.toContain(ref);
-          expect(ref).not.toBe('[dynamic]');
-        }
+        for (const ref of refs) expect(MODEL_SECRETS).not.toContain(ref);
         if (refs.includes('AGENT_CI_NOTIFY_WEBHOOK')) {
           expect([jobName, entry.name]).toEqual(['publish', 'Notify']);
         }
@@ -96,9 +135,23 @@ describe('run-agent.yml', () => {
     }
   });
 
+  it('resolves the route once in the resolve job and re-resolves it under policy in the agent job', async () => {
+    const { jobs } = await runAgent();
+    const route = step(jobs.resolve ?? {}, 'Resolve the route');
+    expect(route.run).toBe(
+      'agent-ci route --model "$MODEL" --harness "$HARNESS" --route "$ROUTE" --github-output',
+    );
+    expect(jobs.agent?.with?.route_id).toBe(
+      '${{ needs.resolve.outputs.route_id }}',
+    );
+    const inner = step(await agentJob(), 'Resolve the route');
+    expect(inner.run).toBe('agent-ci route --route "$ROUTE" --github-output');
+    expect(inner.env?.ROUTE).toBe('${{ inputs.route_id }}');
+  });
+
   it("checks out helpers at the reusable workflow's own repository and commit by default", async () => {
     const { jobs } = await runAgent();
-    for (const job of [jobs.resolve, jobs.agent, jobs.publish]) {
+    for (const job of [jobs.resolve, await agentJob(), jobs.publish]) {
       const helpers = step(job ?? {}, 'Check out the agent-ci helpers');
       // job.workflow_*: the called workflow's own commit (verified live);
       // github.workflow_sha would be the consumer's commit.
@@ -112,10 +165,10 @@ describe('run-agent.yml', () => {
         '${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}',
       );
     }
+    for (const job of [jobs.resolve, await agentJob()]) {
+      expect(job?.steps?.[0]?.name).toBe('Require a resolvable helper ref');
+    }
     expect(JSON.stringify(jobs)).not.toContain('github.workflow_sha');
-    const guard = jobs.agent?.steps?.[0];
-    expect(guard?.name).toBe('Require a resolvable helper ref');
-    expect(guard?.run).toContain('exit 1');
   });
 
   it('builds and publishes against the same ref', async () => {
@@ -137,6 +190,7 @@ describe('run-agent.yml', () => {
     expect(resolveStep.env).toMatchObject({
       GITHUB_TOKEN: '${{ github.token }}',
       AGENT_CI_TARGET_TOKEN: '${{ secrets.AGENT_CI_TARGET_TOKEN }}',
+      AGENT_CI_TARGET_READ_TOKEN: '${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}',
       REPOSITORY: '${{ inputs.target_repository }}',
       REF: '${{ inputs.target_ref }}',
       BASE: '${{ inputs.publish_base }}',
@@ -146,15 +200,25 @@ describe('run-agent.yml', () => {
         "${{ github.head_ref || (github.ref_type == 'branch' && github.ref_name) || '' }}",
       EVENT_PR: "${{ github.event.pull_request.number || '' }}",
     });
-    for (const name of ['setup', 'agent', 'publish']) {
-      const job = jobs[name] ?? {};
-      const target = step(job, 'Check out the target repository');
+    for (const name of ['setup', 'publish']) {
+      const target = step(jobs[name] ?? {}, 'Check out the target repository');
       expect(target.with?.ref).toBe('${{ needs.resolve.outputs.sha }}');
       expect(target.with?.repository).toBe(
         '${{ needs.resolve.outputs.repository }}',
       );
-      expect(JSON.stringify(job.needs)).toContain('resolve');
     }
+    expect(jobs.agent?.with).toMatchObject({
+      repository: '${{ needs.resolve.outputs.repository }}',
+      cross: '${{ needs.resolve.outputs.cross }}',
+      sha: '${{ needs.resolve.outputs.sha }}',
+      base: '${{ needs.resolve.outputs.base }}',
+    });
+    const innerTarget = step(
+      await agentJob(),
+      'Check out the target repository',
+    );
+    expect(innerTarget.with?.ref).toBe('${{ inputs.sha }}');
+    expect(innerTarget.with?.repository).toBe('${{ inputs.repository }}');
     expect(jobs.agent?.if).toContain("needs.resolve.result == 'success'");
     const publish = step(jobs.publish ?? {}, 'Publish');
     expect(publish.env?.BASE).toBe('${{ needs.resolve.outputs.base }}');
@@ -165,7 +229,7 @@ describe('run-agent.yml', () => {
       '${{ needs.resolve.outputs.repository }}',
     );
     expect(publish.run).toContain('--repo "$TARGET_REPOSITORY"');
-    expect(step(jobs.agent ?? {}, 'Run the agent').run).toContain(
+    expect(step(await agentJob(), 'Run the agent').run).toContain(
       '--target-repo "$TARGET_REPOSITORY"',
     );
   });
@@ -181,14 +245,14 @@ describe('run-agent.yml', () => {
       ]),
     );
     expect(targetTokenUses(jobs)).toEqual(TARGET_TOKEN_USES);
-    for (const name of ['setup', 'agent']) {
-      const checkout = step(
-        jobs[name] ?? {},
-        'Check out the target repository',
-      );
-      expect(checkout.with?.token).toBe(READ_SCOPED);
-      expect(checkout.with?.['persist-credentials']).toBe(false);
-    }
+    const setup = step(jobs.setup ?? {}, 'Check out the target repository');
+    expect(setup.with?.token).toBe(READ_SCOPED);
+    expect(setup.with?.['persist-credentials']).toBe(false);
+    const inner = step(await agentJob(), 'Check out the target repository');
+    expect(inner.with?.token).toBe(INNER_READ_SCOPED);
+    expect(targetTokenUses((await agentJobWorkflow()).jobs)).toEqual({
+      'agent/Check out the target repository': ['AGENT_CI_TARGET_READ_TOKEN'],
+    });
     expect(
       step(jobs.publish ?? {}, 'Check out the target repository').with?.token,
     ).toBe(WRITE_SCOPED);
@@ -205,14 +269,18 @@ describe('run-agent.yml', () => {
     expect(inputs.prompt?.required).toBeUndefined();
     expect(inputs.model?.required).toBeUndefined();
     expect(inputs.adopt_branch?.default).toBe(false);
-    const prompt = step(jobs.agent ?? {}, 'Write the prompt');
+    const prompt = step(await agentJob(), 'Write the prompt');
     expect(prompt.run).toContain(
       'agent-ci preset prompt --preset "$PRESET" --prompt-env PROMPT',
     );
     expect(prompt.env).toMatchObject({
       PROMPT: '${{ inputs.prompt }}',
       PRESET: '${{ inputs.preset }}',
-      BASE: '${{ needs.resolve.outputs.base }}',
+      BASE: '${{ inputs.base }}',
+    });
+    expect(jobs.agent?.with).toMatchObject({
+      prompt: '${{ inputs.prompt }}',
+      preset: '${{ inputs.preset }}',
     });
     const publish = step(jobs.publish ?? {}, 'Publish');
     expect(publish.env?.PATH_POLICY).toBe(
@@ -224,8 +292,7 @@ describe('run-agent.yml', () => {
   });
 
   it('keeps the home root and outputs outside the workspace and trusts the checkout for git', async () => {
-    const { jobs } = await runAgent();
-    const agent = jobs.agent ?? {};
+    const agent = await agentJob();
     const names = (agent.steps ?? []).map((entry) => entry.name);
     const runStep = step(agent, 'Run the agent');
     expect(runStep.run).toContain('--home-root "$RUNNER_TEMP/agent-ci-home"');
@@ -248,7 +315,7 @@ describe('run-agent.yml', () => {
   it('runs the setup command in its own credential-free job and hands over only the working tree', async () => {
     const { jobs } = await runAgent();
     const setup = jobs.setup ?? {};
-    const agent = jobs.agent ?? {};
+    const agent = await agentJob();
     expect(setup.if).toBe("inputs.setup_command != ''");
     expect(setup.permissions).toEqual({ contents: 'read' });
     // Only the read-only target token, only for the checkout.
@@ -264,29 +331,32 @@ describe('run-agent.yml', () => {
     expect(
       step(setup, 'Pack the prepared working tree (without .git)').run,
     ).toContain('--exclude=.git');
-    // The agent job waits for setup but never runs the command itself.
-    expect(agent.needs).toContain('setup');
-    expect(agent.if).toContain(
+    // The agent waits for setup but never runs the command itself.
+    expect(jobs.agent?.needs).toContain('setup');
+    expect(jobs.agent?.if).toContain(
       "needs.setup.outputs.prepared_artifact_id != ''",
     );
-    expect(JSON.stringify(agent)).not.toContain('setup_command }}');
+    expect(jobs.agent?.with).toMatchObject({
+      prepared_artifact_id: '${{ needs.setup.outputs.prepared_artifact_id }}',
+      prepared_sha256: '${{ needs.setup.outputs.prepared_sha256 }}',
+    });
+    expect(JSON.stringify(jobs.agent)).not.toContain('setup_command');
     expect(JSON.stringify(agent)).not.toContain('SETUP_COMMAND');
     // No tar in the credential job: agent-ci parses the archive itself.
     for (const entry of agent.steps ?? []) {
       expect(entry.run ?? '').not.toMatch(/\btar\b/u);
     }
     const download = step(agent, 'Download the prepared working tree');
+    expect(download.if).toBe("inputs.prepared_artifact_id != ''");
     expect(download.with?.['artifact-ids']).toBe(
-      '${{ needs.setup.outputs.prepared_artifact_id }}',
+      '${{ inputs.prepared_artifact_id }}',
     );
     expect(download.with?.name).toBeUndefined();
     const restore = step(agent, 'Restore the prepared working tree');
     expect(restore.run).toBe(
       'agent-ci workspace restore --archive "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" --target target --sha256 "$PREPARED_SHA256"',
     );
-    expect(restore.env?.PREPARED_SHA256).toBe(
-      '${{ needs.setup.outputs.prepared_sha256 }}',
-    );
+    expect(restore.env?.PREPARED_SHA256).toBe('${{ inputs.prepared_sha256 }}');
     const names = (agent.steps ?? []).map((entry) => entry.name);
     expect(names.indexOf('Set up agent-ci')).toBeLessThan(
       names.indexOf('Restore the prepared working tree'),
@@ -297,8 +367,7 @@ describe('run-agent.yml', () => {
   });
 
   it('enables the Codex sandbox only on GitHub-hosted Linux runners and checks it before the agent', async () => {
-    const { jobs } = await runAgent();
-    const agent = jobs.agent ?? {};
+    const agent = await agentJob();
     const names = (agent.steps ?? []).map((entry) => entry.name);
     const enable = step(
       agent,
@@ -322,15 +391,13 @@ describe('run-agent.yml', () => {
   });
 
   it('installs repository skills only for edit runs, never for read-only runs', async () => {
-    const { jobs } = await runAgent();
-    const agent = jobs.agent ?? {};
+    const agent = await agentJob();
     const oat = step(agent, 'Install skills into the per-job home');
     expect(oat.run).not.toContain('--source');
     expect(oat.run).not.toContain('--allow-workspace-source');
     const repo = step(agent, 'Install repository skills (edit runs only)');
     expect(repo.if).toBe("inputs.skills_source != '' && inputs.mode == 'edit'");
     expect(repo.run).toContain('--allow-workspace-source');
-    // No other step can bring workspace skills in.
     for (const entry of agent.steps ?? []) {
       if (entry !== repo) {
         expect(entry.run ?? '').not.toContain('--allow-workspace-source');
@@ -355,7 +422,7 @@ describe('run-agent.yml', () => {
     expect(step(publish, 'Notify').run).toContain(
       '--result-dir "$RUNNER_TEMP/agent-ci-result"',
     );
-    const upload = step(jobs.agent ?? {}, 'Upload the run result');
+    const upload = step(await agentJob(), 'Upload the run result');
     expect(upload.with?.path).toBe('${{ runner.temp }}/agent-ci-out');
     expect(jobs.publish?.if).toBe(
       "${{ !cancelled() && needs.agent.outputs.result_artifact_id != '' }}",
@@ -364,7 +431,8 @@ describe('run-agent.yml', () => {
 
   it("publishes only the agent job's own upload, verified by digest", async () => {
     const workflow = await runAgent();
-    const agent = workflow.jobs.agent as Job & {
+    const inner = await agentJobWorkflow();
+    const agent = inner.jobs.agent as Job & {
       outputs?: Record<string, string>;
     };
     const upload = step(agent, 'Upload the run result');
@@ -376,6 +444,15 @@ describe('run-agent.yml', () => {
     expect(agent.outputs?.result_digest).toBe(
       '${{ steps.digest.outputs.digest }}',
     );
+    expect(
+      (inner.on.workflow_call as { outputs: Record<string, { value: string }> })
+        .outputs,
+    ).toMatchObject({
+      result_artifact_id: {
+        value: '${{ jobs.agent.outputs.result_artifact_id }}',
+      },
+      result_digest: { value: '${{ jobs.agent.outputs.result_digest }}' },
+    });
     expect(step(agent, 'Digest the run result').run).toBe(
       'agent-ci digest --dir "$RUNNER_TEMP/agent-ci-out" --github-output',
     );
@@ -392,25 +469,11 @@ describe('run-agent.yml', () => {
         '${{ needs.agent.outputs.result_digest }}',
       );
     }
-    // No artifact is downloaded by name anywhere.
-    for (const job of Object.values(workflow.jobs)) {
+    for (const job of [...Object.values(workflow.jobs), agent]) {
       for (const entry of job.steps ?? []) {
         if (entry.uses?.startsWith('actions/download-artifact')) {
           expect(entry.with?.name).toBeUndefined();
         }
-      }
-    }
-  });
-
-  it('keeps step logic in agent-ci subcommands and inputs out of scripts', async () => {
-    const { jobs } = await runAgent();
-    for (const job of Object.values(jobs)) {
-      for (const entry of job.steps ?? []) {
-        if (entry.run === undefined) continue;
-        // About a dozen lines at most; anything longer is a subcommand.
-        expect(entry.run.trim().split('\n').length).toBeLessThanOrEqual(12);
-        // Inputs reach scripts through env, never by expression expansion.
-        expect(entry.run).not.toContain('${{');
       }
     }
   });

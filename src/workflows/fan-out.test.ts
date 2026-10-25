@@ -97,7 +97,16 @@ describe('tools-update.yml', () => {
   it('shares the resolve job with run-agent.yml and scopes the target tokens the same way', async () => {
     const tools = await toolsUpdate();
     const agent = await runAgent();
-    expect(normalize(tools.jobs.resolve)).toBe(normalize(agent.jobs.resolve));
+    // The same job, minus the route resolution only run-agent.yml needs.
+    const resolve = structuredClone(agent.jobs.resolve) as Job & {
+      outputs?: Record<string, string>;
+    };
+    resolve.steps = (resolve.steps ?? []).filter(
+      (entry) => entry.name !== 'Resolve the route',
+    );
+    delete resolve.outputs?.route_id;
+    delete resolve.outputs?.credential;
+    expect(normalize(tools.jobs.resolve)).toBe(normalize(resolve));
     expect(targetTokenUses(tools.jobs)).toEqual({
       'resolve/Resolve the target repository, commit and base': [
         'AGENT_CI_TARGET_READ_TOKEN',
@@ -400,6 +409,57 @@ describe('workflow class sweep', () => {
         }
       }
     }
+  });
+
+  it('never looks a secret up dynamically (the runner would receive every secret the workflow holds)', async () => {
+    for (const file of await allWorkflowFiles()) {
+      const workflow = await load<Workflow>(file);
+      expect(JSON.stringify(workflow), file).not.toMatch(/secrets\s*\[/u);
+    }
+  });
+
+  it('gives jobs that run repository code or an agent no write-capable token', async () => {
+    const codeRunning =
+      /agent-ci run |agent-ci review (?:pass|adjudicate)|agent-ci tools-update|SETUP_COMMAND/u;
+    const agentRunning = /agent-ci run |agent-ci review (?:pass|adjudicate)/u;
+    const seen: string[] = [];
+    for (const file of await allWorkflowFiles()) {
+      const workflow = await load<Workflow>(file);
+      const runsAgent = Object.values(workflow.jobs).some((job) =>
+        (job.steps ?? []).some((entry) => agentRunning.test(entry.run ?? '')),
+      );
+      if (runsAgent) {
+        // The workflow that hosts an agent never even receives the write token.
+        const declared = Object.keys(
+          (
+            workflow.on.workflow_call as
+              | { secrets?: Record<string, unknown> }
+              | undefined
+          )?.secrets ?? {},
+        );
+        expect(declared, file).not.toContain('AGENT_CI_TARGET_TOKEN');
+      }
+      for (const [jobName, job] of Object.entries(workflow.jobs)) {
+        const steps = job.steps ?? [];
+        if (!steps.some((entry) => codeRunning.test(entry.run ?? ''))) continue;
+        seen.push(`${file} ${jobName}`);
+        expect(job.permissions, `${file} ${jobName}`).toEqual({
+          contents: 'read',
+        });
+        expect(secretRefs(job), `${file} ${jobName}`).not.toContain(
+          'AGENT_CI_TARGET_TOKEN',
+        );
+      }
+    }
+    // The sweep found every code-running job it is meant to cover.
+    expect(seen).toEqual(
+      expect.arrayContaining([
+        '.github/workflows/agent-job.yml agent',
+        '.github/workflows/run-agent.yml setup',
+        '.github/workflows/tools-update.yml run',
+        '.github/workflows/pr-review.yml review-primary',
+      ]),
+    );
   });
 
   it('never passes secrets: inherit to a reusable workflow', async () => {

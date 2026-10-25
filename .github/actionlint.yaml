@@ -16,3 +16,6 @@ paths:
   .github/workflows/fan-out.yml:
     ignore:
       - 'property "workflow_(sha|repository)" is not defined in object type \{check_run_id: number; container:'
+  .github/workflows/agent-job.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type \{check_run_id: number; container:'

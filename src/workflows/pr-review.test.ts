@@ -109,17 +109,21 @@ describe('pr-review.yml', () => {
     });
   });
 
-  it('gives the model credential only to the reviewer and adjudicator steps, as one mapped secret', async () => {
+  it('gives the model credential only to the reviewer and adjudicator steps, by a static chain', async () => {
+    const chain = `\${{ ${MODEL_SECRETS.map(
+      (secret) =>
+        `(steps.route.outputs.credential == '${secret}' && secrets.${secret})`,
+    ).join(' || ')} || '' }}`;
     for (const [, step] of steps(await review())) {
       const text = JSON.stringify(step);
-      const holds = text.includes('secrets[');
+      // Never a dynamic lookup: the runner would hold every secret.
+      expect(text, step.name).not.toContain('secrets[');
+      const holds = MODEL_SECRETS.some((secret) =>
+        text.includes(`secrets.${secret}`),
+      );
       expect(holds, step.name).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
-      for (const secret of MODEL_SECRETS)
-        expect(text, step.name).not.toContain(`secrets.${secret}`);
       if (holds) {
-        expect(step.env?.AGENT_CI_CREDENTIAL).toBe(
-          "${{ steps.route.outputs.credential != '' && secrets[steps.route.outputs.credential] || '' }}",
-        );
+        expect(step.env?.AGENT_CI_CREDENTIAL).toBe(chain);
         expect(step.run).toContain('--credential-from-env');
         // A step with the model credential never holds a GitHub token.
         expect(text).not.toContain('github.token');

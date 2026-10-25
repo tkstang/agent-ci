@@ -40,6 +40,18 @@ export async function load<T = Workflow>(relative: string): Promise<T> {
 }
 
 export const runAgent = () => load('.github/workflows/run-agent.yml');
+/** run-agent.yml's agent job, behind its own workflow_call boundary. */
+export const agentJobWorkflow = () => load('.github/workflows/agent-job.yml');
+export async function agentJob(): Promise<Job> {
+  return (await agentJobWorkflow()).jobs.agent ?? {};
+}
+
+/** The static model-credential chain over the four model secrets. */
+export function modelChain(source: string): string {
+  return `\${{ ${MODEL_SECRETS.map(
+    (secret) => `(${source} == '${secret}' && secrets.${secret})`,
+  ).join(' || ')} || '' }}`;
+}
 
 export function step(job: Job, name: string): Step {
   const found = job.steps?.find((entry) => entry.name === name);
@@ -57,6 +69,8 @@ export function secretRefs(value: unknown): string[] {
 
 export const WRITE_SCOPED =
   "${{ needs.resolve.outputs.cross == 'true' && secrets.AGENT_CI_TARGET_TOKEN || github.token }}";
+export const INNER_READ_SCOPED =
+  "${{ inputs.cross == 'true' && secrets.AGENT_CI_TARGET_READ_TOKEN || github.token }}";
 export const READ_SCOPED =
   "${{ needs.resolve.outputs.cross == 'true' && secrets.AGENT_CI_TARGET_READ_TOKEN || github.token }}";
 
@@ -84,7 +98,6 @@ export const TARGET_TOKEN_USES = {
     'AGENT_CI_TARGET_TOKEN',
   ],
   'setup/Check out the target repository': ['AGENT_CI_TARGET_READ_TOKEN'],
-  'agent/Check out the target repository': ['AGENT_CI_TARGET_READ_TOKEN'],
   'publish/Check out the target repository': ['AGENT_CI_TARGET_TOKEN'],
   'publish/Publish': ['AGENT_CI_TARGET_TOKEN'],
 };

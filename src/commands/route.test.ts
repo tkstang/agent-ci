@@ -148,6 +148,23 @@ describe('agent-ci route', () => {
       ctx(dir, { GITHUB_OUTPUT: output }),
     );
     expect(multi.envelope).toMatchObject({ ok: false, code: 'E_ROUTE_CONFIG' });
+    // Only the four statically selectable model secrets reach a workflow.
+    const unlisted = await run(
+      [
+        'route',
+        '--route',
+        'claude-pool',
+        '--allow-pool',
+        '--models',
+        models,
+        '--github-output',
+      ],
+      ctx(dir, { GITHUB_OUTPUT: output }),
+    );
+    expect(unlisted.envelope).toMatchObject({
+      ok: false,
+      code: 'E_ROUTE_CONFIG',
+    });
     const unset = await run(
       ['route', '--model', 'fake-echo', '--models', models, '--github-output'],
       ctx(dir, {}),
