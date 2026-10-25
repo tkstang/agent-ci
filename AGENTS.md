@@ -1,13 +1,17 @@
 # AGENTS.md
 
 Single-package TypeScript library + agent-first CLI. ESM-only, Node 24, pnpm 11,
-extra-strict TypeScript, Oxc (oxlint + oxfmt), Vitest, Zod at boundaries. The
+extra-strict TypeScript checked and emitted by `tsrs`, Oxc (oxlint + oxfmt),
+Vitest, Zod at boundaries. The
 domain layer returns a result-envelope (`Success | Failure` with closed `E_*`
 codes); boundaries throw a typed `CliError` caught by one central handler.
 
 ## Headline defaults
 
-Oxc toolchain - TypeScript 7 / ESM-only / Node 24 / pnpm 11.x (double-pinned) -
+Oxc toolchain - `tsrs` (oxc-project's Rust port of the TypeScript 7 compiler,
+exact-pinned pre-release; replaces `tsc` for `typecheck` and `build`, with
+`tsc-alias` kept for alias rewriting; TypeScript 7 `tsc` stays installed as the
+fallback) / ESM-only / Node 24 / pnpm 11.x (double-pinned) -
 Vitest 4 with co-located `*.test.ts` siblings (globals off) - Zod 4 at
 boundaries - Conventional Commits - custom git hooks in `tools/git-hooks/` (no
 husky/lefthook) - `private: true` + MIT LICENSE.
