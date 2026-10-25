@@ -9,10 +9,12 @@
 <!-- OAT DECISION-INDEX -->
 | ID | Date | Status | Title | Legacy |
 | --- | --- | --- | --- | --- |
+| DR-261025-accept-cursor-connector-tools | 2026-10-25 | accepted | Accept Cursor connector tools on headless runs | - |
 | DR-261025-bridge-verify-review-run-check | 2026-10-25 | accepted | Bridge verify-review run_check through an agent-ci MCP server | - |
 | DR-261025-build-ai-pull-request-review | 2026-10-25 | accepted | Build AI pull-request review before the use-case wrappers | - |
 | DR-261025-drive-cursor-through-the-agent | 2026-10-25 | accepted | Drive Cursor through the agent CLI, not @cursor/sdk | - |
 | DR-261025-keep-agent-ci-a-single-package | 2026-10-25 | accepted | Keep agent-ci a single package | - |
+| DR-261025-keep-claude-pool-routes | 2026-10-25 | accepted | Keep Claude pool routes refused in CI | - |
 | DR-261025-organize-the-docs-as-one-flat | 2026-10-25 | proposed | Organize the docs as one flat grouped index of reader pages | - |
 | DR-261025-port-pntr-code-where-it-fits | 2026-10-25 | accepted | Port pntr code where it fits | - |
 | DR-261025-publish-from-a-separate-job | 2026-10-25 | accepted | Publish from a separate job with GITHUB_TOKEN by default | - |
