@@ -9,7 +9,6 @@ import { createReviewCommand } from '@agent-ci/commands/review.js';
 import type { CommandContext } from '@agent-ci/commands/types.js';
 import { digestResultDir } from '@agent-ci/publish/digest.js';
 import { FakeGithub } from '@agent-ci/review/testing/fake-github.js';
-import { detectIsolation } from '@agent-ci/review/verify.js';
 import { describe, expect, it } from 'vitest';
 
 const REPO = 'tkstang/app';
@@ -775,9 +774,9 @@ describe('agent-ci review verify-review stages', () => {
       'checks',
       '--github-output',
     ];
-    if (detectIsolation() !== 'linux-namespaces') {
-      // Outside Actions, without credential isolation, the stage refuses
-      // (as `review run --verify` does) and runs nothing.
+    {
+      // Outside Actions the stage refuses on every host (no local posture is
+      // a credential boundary), as `review run --verify` does.
       const unisolated = await t.cli(verifyArgv, {
         GITHUB_TOKEN: '',
         CI: '',
@@ -902,9 +901,9 @@ describe('agent-ci review verify-review stages', () => {
       '--out',
       'local',
     ];
-    if (detectIsolation() !== 'linux-namespaces') {
-      // Without Linux namespaces (macOS, or none) the checks would run as
-      // the operator with credentials in reach: refused, nothing posted.
+    {
+      // On every host the checks would run as the operator with credentials
+      // in reach: refused without the acknowledgment, nothing posted.
       const refused = await t.cli(argv, { CI: '', GITHUB_ACTIONS: '' });
       expect(refused).toMatchObject({
         exitCode: 1,

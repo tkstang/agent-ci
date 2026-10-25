@@ -663,7 +663,7 @@ describe('secret masking and the isolation requirement', () => {
     );
   });
 
-  it('refuses local runs without credential isolation: no isolation, or the macOS sandbox', async () => {
+  it('refuses every local posture: no isolation, the macOS sandbox, Linux namespaces', async () => {
     const s = await verifyScenario(
       'version: 1\nchecks:\n  - name: test\n    command: "true"\n',
     );
@@ -695,6 +695,31 @@ describe('secret masking and the isolation requirement', () => {
       code: 'E_VERIFY_RUN',
       message: expect.stringContaining('read the environment of agent-ci'),
       hint: expect.stringContaining('--verify-trust-pr-code'),
+    });
+    // Linux namespaces with verified tools, as a non-root user, are refused
+    // too: host broker sockets stay reachable (gate H1).
+    const linux = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: path.join(s.root, 'out-linux'),
+        env: { PATH: '/usr/bin:/bin' },
+        requireCredentialIsolation: true,
+      },
+      {
+        isolation: 'linux-namespaces',
+        linuxTools: {
+          unshare: '/usr/bin/unshare',
+          mount: '/usr/bin/mount',
+          ip: null,
+        },
+        euid: 1000,
+      },
+    );
+    expect(linux).toMatchObject({
+      ok: false,
+      code: 'E_VERIFY_RUN',
+      message: expect.stringContaining('host service sockets'),
     });
   });
 });

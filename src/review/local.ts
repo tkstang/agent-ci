@@ -68,8 +68,10 @@ import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
  * default branch (or `--verify-config-ref`) run first, in their own worktree at the head, before any
  * reviewer home root exists or any harness starts
  * (DR-261025-run-verify-review-checks-where). They run the pull request's
- * code on this machine as you; containment is what the host offers
- * (`sandbox-exec` on macOS, user namespaces on Linux), recorded per check.
+ * code on this machine as you, so they need `--verify-trust-pr-code`: no
+ * local isolation is a credential boundary. What the host offers
+ * (`sandbox-exec` on macOS; namespaces with a read-only host on Linux) and
+ * the harness pinning still apply, as hygiene.
  */
 
 export type LocalReviewOptions = {

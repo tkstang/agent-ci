@@ -713,14 +713,19 @@ export type VerifyOptions = {
   /** Home roots and output directories commands must not reach. */
   readonly protectedPaths?: readonly string[];
   /**
-   * Local runs: refuse unless the commands get a containment that keeps
-   * them away from the operator's credentials. Only Linux namespaces with
-   * launcher-verified tools qualify. macOS `sandbox-exec` does not: a
-   * sandboxed command can still read the environment of agent-ci and of any
-   * other same-user non-platform process (`KERN_PROCARGS2`; no profile rule
-   * stops it, probe 2026-10-25) and still query the login Keychain through
-   * securityd. Actions' verify job is the boundary there, so it does not set
-   * this.
+   * Local runs: refuse. No local posture is a credential boundary, so a
+   * caller that sets this always gets `E_VERIFY_RUN` (the operator's
+   * `--verify-trust-pr-code` acknowledgment is the only way to run locally).
+   * - macOS `sandbox-exec`: a sandboxed command still reads the environment
+   *   of agent-ci and of other same-user non-platform processes
+   *   (`KERN_PROCARGS2`; no profile rule stops it) and queries the login
+   *   Keychain through securityd.
+   * - Linux namespaces: pathname Unix sockets stay reachable (read-only
+   *   mounts and namespaces do not stop `connect`), so a check can ask a
+   *   host broker (systemd user manager, rootless container daemon, D-Bus
+   *   services) to start a process outside the namespaces.
+   * Only Actions' credential-free, discarded verify job runs checks without
+   * this, because the job boundary is the isolation there.
    */
   readonly requireCredentialIsolation?: boolean;
   readonly git?: string;
@@ -799,16 +804,15 @@ export async function runVerify(
     detected === 'linux-namespaces' && linuxTools === undefined
       ? 'none'
       : detected;
-  if (
-    isolation !== 'linux-namespaces' &&
-    options.requireCredentialIsolation === true
-  )
+  if (options.requireCredentialIsolation === true)
     return failure(
       'E_VERIFY_RUN',
       isolation === 'macos-sandbox'
         ? "verify-review would run the pull request's code on this Mac as you. macOS sandbox-exec confines its file writes and network, but the code can still read the environment of agent-ci and of your other processes (which may hold model and GitHub credentials) and query your login Keychain"
-        : "no credential isolation is available here (Linux unprivileged user namespaces with root-owned unshare and mount, as a non-root user); without it the pull request's code would run as you, could read your processes' environments and could plant programs agent-ci or you run later",
-      'Run --verify on Linux with unprivileged user namespaces, or let the Actions verify job run the checks. Pass --verify-trust-pr-code only for pull requests whose code you would run yourself.',
+        : isolation === 'linux-namespaces'
+          ? "verify-review would run the pull request's code on this machine as you. Linux namespaces hide other processes, cut the network and make the host read-only, but host service sockets (the systemd user manager, rootless container daemons, D-Bus) stay reachable and could start a process outside them"
+          : "verify-review would run the pull request's code on this machine as you with no isolation at all (no Linux user namespaces with root-owned tools as a non-root user, and no macOS sandbox)",
+      'Let the Actions verify job run the checks (a credential-free runner that is discarded afterwards). Pass --verify-trust-pr-code only for pull requests whose code you would run yourself; agent-ci then keeps its isolation as hygiene, not as a boundary.',
     );
   const now = deps.now ?? Date.now;
   const log = options.log ?? (() => undefined);
@@ -866,7 +870,31 @@ export async function runVerify(
         ),
       ),
     ].filter((dir) => !isWithin(dir, realWork) && !isWithin(realWork, dir));
-    const hidden = [...denied, ...(await homeRoots(homeParents))];
+    // Hygiene, not a boundary (pathname sockets elsewhere stay reachable):
+    // hide the usual host broker socket directories on Linux.
+    const brokerDirs =
+      process.platform === 'linux'
+        ? [
+            ...(process.getuid === undefined
+              ? []
+              : [`/run/user/${process.getuid()}`]),
+            ...(options.env.XDG_RUNTIME_DIR === undefined ||
+            options.env.XDG_RUNTIME_DIR === ''
+              ? []
+              : [options.env.XDG_RUNTIME_DIR]),
+            '/run/dbus',
+            '/run/podman',
+            '/run/containerd',
+            '/run/docker',
+          ].filter((dir) => existsSync(dir) && statSync(dir).isDirectory())
+        : [];
+    const hidden = [
+      ...new Set([
+        ...denied,
+        ...(await homeRoots(homeParents)),
+        ...(await Promise.all(brokerDirs.map(real))),
+      ]),
+    ];
     const secrets = secretValues(options.env);
     const profile = (network: boolean) =>
       sandboxProfile({ work: realWork, denied, homeParents, network });

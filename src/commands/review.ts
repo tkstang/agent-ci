@@ -500,8 +500,8 @@ copy per check, an environment allowlist with no credential, a PATH without
 checkout entries, a deadline, a 1 MiB output capture and a process-group
 kill. The PR's code runs here: run it only where no model credential or
 other secret exists (pr-review.yml's verify job). Outside GitHub Actions it
-refuses unless Linux user namespaces (non-root) isolate the checks, or
---verify-trust-pr-code acknowledges that the PR's code runs as you.
+always refuses unless --verify-trust-pr-code acknowledges that the PR's code
+runs as you: no local isolation is a credential boundary.
 
   --spec-dir <dir> --spec-sha256 <hex>   The prepared spec (verified).
   --repo <owner/name>                    Default $GITHUB_REPOSITORY.
@@ -1102,17 +1102,18 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
                                .github/agent-ci/checks.yaml (default branch) on
                                the PR head, then give the reviewers run_check
                                (Claude or Codex routes). The PR's code runs on
-                               this machine. Only Linux user namespaces (as a
-                               non-root user) keep it away from your
-                               credentials: other processes hidden, network
-                               loopback-only, and every path but the run's
-                               own directory read-only, while the harness is
-                               pinned by absolute path and fingerprint before
-                               the checks run. On macOS (sandbox-exec cannot
-                               stop it reading other processes' environments
-                               or the Keychain) or without namespaces it is
+                               this machine as you, and no local isolation is
+                               a credential boundary (macOS: other processes'
+                               environments and the Keychain stay readable;
+                               Linux: host service sockets such as the
+                               systemd user manager stay reachable). It is
                                refused unless
   --verify-trust-pr-code       is also given: run only code you would run.
+                               agent-ci still isolates what it can (Linux
+                               namespaces with a read-only host, macOS
+                               sandbox) and pins the harness binary as
+                               hygiene. The Actions verify job is the
+                               boundary for untrusted code.
   --verify-config-ref <branch> Branch whose head holds checks.yaml (default:
                                the repository's default branch).
 
