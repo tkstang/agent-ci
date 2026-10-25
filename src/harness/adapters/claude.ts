@@ -1,13 +1,40 @@
+import path from 'node:path';
+
 import {
   compactUsage,
   interpretResultEnvelope,
   num,
 } from '@agent-ci/harness/adapters/result-envelope.js';
 import { buildChildEnv } from '@agent-ci/harness/env.js';
+import { writeOwnedFile } from '@agent-ci/harness/home.js';
 import type {
   HarnessAdapter,
   HarnessRequest,
+  ToolBridge,
 } from '@agent-ci/harness/types.js';
+
+const MCP_CONFIG_FILE = 'claude-mcp-config.json';
+
+/** Claude's name for an MCP tool: `mcp__<server>__<tool>`. */
+export function claudeBridgeTool(bridge: ToolBridge): string {
+  return `mcp__${bridge.server}__${bridge.tool}`;
+}
+
+/**
+ * The `--mcp-config` file for the tool bridge: exactly one stdio server.
+ * With `--strict-mcp-config` no other MCP configuration is loaded.
+ */
+export function claudeMcpConfig(bridge: ToolBridge): Record<string, unknown> {
+  return {
+    mcpServers: {
+      [bridge.server]: {
+        type: 'stdio',
+        command: bridge.command,
+        args: [...bridge.args],
+      },
+    },
+  };
+}
 
 /**
  * Built-in tools a read-only run may use: read, search and load installed
@@ -51,7 +78,10 @@ export function claudeSkillWriteDenials(
   const trees = [home.skillsDir, `${home.home}/.claude/skills`];
   return trees.flatMap((tree) => [`Edit(/${tree}/**)`, `Write(/${tree}/**)`]);
 }
-export function claudeArgs(request: HarnessRequest): string[] {
+export function claudeArgs(
+  request: HarnessRequest,
+  files: { readonly mcpConfig?: string } = {},
+): string[] {
   const args = [
     '-p',
     '--output-format',
@@ -71,6 +101,18 @@ export function claudeArgs(request: HarnessRequest): string[] {
       // --strict-mcp-config and user-only settings nothing else is offered.
       request.noTools === true ? '' : CLAUDE_READ_ONLY_TOOLS,
     );
+    // The tool bridge: one MCP server and an allow rule for its one tool.
+    // `--tools` limits built-in tools only; under `dontAsk` an MCP tool runs
+    // only when an allow rule names it (live probe, research
+    // `p04-tool-bridge-probes-2026-10-25.md`).
+    if (request.toolBridge !== undefined && files.mcpConfig !== undefined) {
+      args.push(
+        '--mcp-config',
+        files.mcpConfig,
+        '--allowedTools',
+        claudeBridgeTool(request.toolBridge),
+      );
+    }
   } else {
     args.push(
       '--permission-mode',
@@ -107,7 +149,16 @@ export const claudeAdapter: HarnessAdapter = {
   versionArgs: ['--version'],
   supportsResume: true,
   supportsNoTools: true,
+  supportsToolBridge: true,
   async prepare(request) {
+    let mcpConfig: string | undefined;
+    if (request.toolBridge !== undefined) {
+      mcpConfig = path.join(request.scratchDir, MCP_CONFIG_FILE);
+      await writeOwnedFile(
+        mcpConfig,
+        `${JSON.stringify(claudeMcpConfig(request.toolBridge), null, 2)}\n`,
+      );
+    }
     const settings: Record<string, string> = {
       DISABLE_AUTOUPDATER: '1',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
@@ -117,7 +168,7 @@ export const claudeAdapter: HarnessAdapter = {
     }
     return {
       command: 'claude',
-      args: claudeArgs(request),
+      args: claudeArgs(request, mcpConfig === undefined ? {} : { mcpConfig }),
       env: buildChildEnv({
         parentEnv: request.parentEnv,
         route: request.route,

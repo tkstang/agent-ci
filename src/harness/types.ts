@@ -32,10 +32,30 @@ export interface HarnessRequest {
    */
   readonly noTools?: boolean | undefined;
   /**
+   * One agent-ci MCP server the agent may call (verify-review's `run_check`
+   * bridge). Read-only mode only, never with `noTools`, and only adapters
+   * with `supportsToolBridge`; others refuse it before anything starts.
+   */
+  readonly toolBridge?: ToolBridge | undefined;
+  /**
    * The parent environment. Adapters read ONLY the route's named credentials
    * and allowlisted base variables from it (see `env.ts`).
    */
   readonly parentEnv: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * A stdio MCP server agent-ci starts for the agent, and the only tool of it
+ * the agent may call. The server is agent-ci's own code (it runs no
+ * repository code); the harness launches it with `command` and `args`.
+ */
+export interface ToolBridge {
+  /** MCP server name (`[a-z0-9-]`), as harnesses prefix its tools. */
+  readonly server: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  /** The one tool the agent may call (`[a-z0-9_]`). */
+  readonly tool: string;
 }
 
 /** A fully built process invocation. */
@@ -113,6 +133,12 @@ export interface HarnessAdapter {
   readonly supportsResume: boolean;
   /** A verified posture that removes every tool (the adjudicator). */
   readonly supportsNoTools: boolean;
+  /**
+   * A verified way to offer one agent-ci MCP server tool in read-only mode
+   * (live probe, research `p04-tool-bridge-probes-2026-10-25.md`), without
+   * loading any MCP server the repository or the home configures.
+   */
+  readonly supportsToolBridge: boolean;
   /**
    * Build argv and the child environment, and write any config or schema
    * files into the home root or scratch directory.

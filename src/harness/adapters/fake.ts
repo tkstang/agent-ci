@@ -28,6 +28,8 @@ export const fakeAdapter: HarnessAdapter = {
   // No model and no tools: resuming replays the scenario with `--resume`.
   supportsResume: true,
   supportsNoTools: true,
+  // The fake CLI calls the bridge itself (`verify-review` scenario).
+  supportsToolBridge: true,
   async prepare(request) {
     return {
       command: process.execPath,
@@ -38,6 +40,9 @@ export const fakeAdapter: HarnessAdapter = {
         ...(request.resumeSessionId === undefined
           ? []
           : ['--resume', request.resumeSessionId]),
+        ...(request.toolBridge === undefined
+          ? []
+          : ['--bridge', JSON.stringify(request.toolBridge)]),
         '--',
         request.prompt,
       ],

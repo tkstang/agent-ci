@@ -12,6 +12,7 @@ import type {
   HarnessAdapter,
   HarnessOutcome,
   HarnessRequest,
+  ToolBridge,
 } from '@agent-ci/harness/types.js';
 import type { Route } from '@agent-ci/routing/schema.js';
 
@@ -27,8 +28,9 @@ const SCHEMA_FILE = 'codex-output-schema.json';
  * Without `baseUrl` the file is empty and Codex uses its built-in provider
  * with the route's credential.
  */
-export function codexConfigToml(route: Route): string {
-  if (route.baseUrl === undefined) return '';
+export function codexConfigToml(route: Route, bridge?: ToolBridge): string {
+  const bridgeLines = bridge === undefined ? [] : codexBridgeToml(bridge);
+  if (route.baseUrl === undefined) return bridgeLines.join('\n');
   const envKey = route.credentials[0];
   return [
     `model_provider = ${JSON.stringify(CODEX_PROVIDER_ID)}`,
@@ -40,7 +42,30 @@ export function codexConfigToml(route: Route): string {
     ...(envKey === undefined ? [] : [`env_key = ${JSON.stringify(envKey)}`]),
     'supports_websockets = false',
     '',
+    ...bridgeLines,
   ].join('\n');
+}
+
+/**
+ * The tool bridge as a Codex MCP server table: one stdio server with only
+ * its one tool enabled, and that tool approved, because `codex exec` has no
+ * one to answer an approval prompt (live probe, research
+ * `p04-tool-bridge-probes-2026-10-25.md`). The isolated CODEX_HOME holds no
+ * other server.
+ */
+export function codexBridgeToml(bridge: ToolBridge): string[] {
+  const table = `mcp_servers.${bridge.server}`;
+  return [
+    `[${table}]`,
+    `command = ${JSON.stringify(bridge.command)}`,
+    `args = [${bridge.args.map((arg) => JSON.stringify(arg)).join(', ')}]`,
+    `enabled_tools = [${JSON.stringify(bridge.tool)}]`,
+    'startup_timeout_sec = 20',
+    '',
+    `[${table}.tools.${bridge.tool}]`,
+    'approval_mode = "approve"',
+    '',
+  ];
 }
 
 /**
@@ -128,13 +153,17 @@ export const codexAdapter: HarnessAdapter = {
   supportsResume: true,
   // `-s read-only` still offers a read-only shell; there is no tool-free mode.
   supportsNoTools: false,
+  supportsToolBridge: true,
   async prepare(request) {
     const codexHome = request.home.env.CODEX_HOME;
     if (codexHome === undefined) throw new Error('home root lacks CODEX_HOME');
     // Never follow a link at an agent-ci-owned path.
     await writeOwnedFile(
       path.join(codexHome, 'config.toml'),
-      codexConfigToml(request.route),
+      codexConfigToml(
+        request.route,
+        request.mode === 'read-only' ? request.toolBridge : undefined,
+      ),
     );
     const lastMessage = path.join(request.scratchDir, LAST_MESSAGE_FILE);
     await rm(lastMessage, { force: true });

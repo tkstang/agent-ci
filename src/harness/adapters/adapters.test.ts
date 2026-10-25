@@ -405,6 +405,134 @@ describe('posture guard', () => {
   });
 });
 
+const BRIDGE = {
+  server: 'agent-ci-checks',
+  command: '/usr/bin/node',
+  args: [
+    '/opt/agent-ci/dist/review/checks-mcp.js',
+    '--checks',
+    '/tmp/served.json',
+  ],
+  tool: 'run_check',
+} as const;
+
+describe('tool bridge (verify-review run_check)', () => {
+  it('claude: loads exactly one MCP server and allows only its one tool, keeping the read-only tools', async () => {
+    const route = cases[0]?.route as Route;
+    const request = await makeRequest(route, { toolBridge: BRIDGE });
+    const { observed } = await replay(claudeAdapter, request, {
+      stdout: await fixture('claude-success.json'),
+    });
+    const config = path.join(request.scratchDir, 'claude-mcp-config.json');
+    expect(observed.argv).toEqual([
+      '-p',
+      '--output-format',
+      'json',
+      '--model',
+      'claude-haiku-4-5-20251001',
+      '--setting-sources',
+      'user',
+      '--strict-mcp-config',
+      '--permission-mode',
+      'dontAsk',
+      '--tools',
+      'Read,Grep,Glob,Skill',
+      '--mcp-config',
+      config,
+      '--allowedTools',
+      'mcp__agent-ci-checks__run_check',
+      '--',
+      'Reply with exactly: agent-ci-probe-ok',
+    ]);
+    expect(JSON.parse(await readFile(config, 'utf8'))).toEqual({
+      mcpServers: {
+        'agent-ci-checks': {
+          type: 'stdio',
+          command: '/usr/bin/node',
+          args: [
+            '/opt/agent-ci/dist/review/checks-mcp.js',
+            '--checks',
+            '/tmp/served.json',
+          ],
+        },
+      },
+    });
+  });
+
+  it('codex: adds one approved MCP server table with only its one tool enabled', async () => {
+    const route = cases[1]?.route as Route;
+    const request = await makeRequest(route, { toolBridge: BRIDGE });
+    const { observed } = await replay(codexAdapter, request, {
+      stdout: await fixture('codex-success.jsonl'),
+      writeArgFile: { flag: '-o', content: 'agent-ci-probe-ok' },
+    });
+    const config = await readFile(
+      path.join(request.home.env.CODEX_HOME ?? '', 'config.toml'),
+      'utf8',
+    );
+    expect(
+      config.endsWith(
+        [
+          'supports_websockets = false',
+          '',
+          '[mcp_servers.agent-ci-checks]',
+          'command = "/usr/bin/node"',
+          'args = ["/opt/agent-ci/dist/review/checks-mcp.js", "--checks", "/tmp/served.json"]',
+          'enabled_tools = ["run_check"]',
+          'startup_timeout_sec = 20',
+          '',
+          '[mcp_servers.agent-ci-checks.tools.run_check]',
+          'approval_mode = "approve"',
+          '',
+        ].join('\n'),
+      ),
+    ).toBe(true);
+    // The sandbox stays read-only; nothing else changes in argv.
+    expect(
+      observed.argv.slice(
+        observed.argv.indexOf('-s'),
+        observed.argv.indexOf('-s') + 2,
+      ),
+    ).toEqual(['-s', 'read-only']);
+    expect(observed.argv.join(' ')).not.toContain('mcp');
+  });
+
+  it('refuses the bridge on harnesses without a verified one, outside read-only, and with no tools', async () => {
+    const opencodeRoute = cases[2]?.route as Route;
+    const cursorRoute = cases[3]?.route as Route;
+    const claudeRoute = cases[0]?.route as Route;
+    for (const [adapter, route] of [
+      [opencodeAdapter, opencodeRoute],
+      [cursorAdapter, cursorRoute],
+    ] as const) {
+      const request = await makeRequest(route, { toolBridge: BRIDGE });
+      await expect(replay(adapter, request, { stdout: '' })).rejects.toThrow(
+        'no verified read-only tool bridge',
+      );
+    }
+    const edit = await makeRequest(claudeRoute, {
+      toolBridge: BRIDGE,
+      mode: 'edit',
+    });
+    await expect(replay(claudeAdapter, edit, { stdout: '' })).rejects.toThrow(
+      'only in read-only runs',
+    );
+    const noTools = await makeRequest(claudeRoute, {
+      toolBridge: BRIDGE,
+      noTools: true,
+    });
+    await expect(
+      replay(claudeAdapter, noTools, { stdout: '' }),
+    ).rejects.toThrow('only in read-only runs');
+    const badName = await makeRequest(claudeRoute, {
+      toolBridge: { ...BRIDGE, server: 'Bad Name' },
+    });
+    await expect(
+      replay(claudeAdapter, badName, { stdout: '' }),
+    ).rejects.toThrow('invalid tool bridge name');
+  });
+});
+
 describe('codex argv, provider config and posture', () => {
   const route = cases[1]?.route as Route;
 

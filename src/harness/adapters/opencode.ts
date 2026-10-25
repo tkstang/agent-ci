@@ -113,6 +113,10 @@ export const opencodeAdapter: HarnessAdapter = {
   versionArgs: ['--version'],
   supportsResume: true,
   supportsNoTools: false,
+  // opencode v2.0.27 offers MCP tools only inside the `execute` code-mode
+  // runtime, which read-only runs deny (live probe, research
+  // `p04-tool-bridge-probes-2026-10-25.md`), so verify-review refuses it.
+  supportsToolBridge: false,
   async prepare(request) {
     const configHome = request.home.env.XDG_CONFIG_HOME;
     if (configHome === undefined)

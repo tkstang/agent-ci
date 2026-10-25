@@ -144,6 +144,10 @@ export const cursorAdapter: HarnessAdapter = {
   // mode) posture still runs shell commands its classifier allows.
   supportsResume: false,
   supportsNoTools: false,
+  // Not offered: in ask mode the agent did not call a home MCP tool, and the
+  // account's connector tools are offered whatever the home holds (live
+  // probe, research `p04-tool-bridge-probes-2026-10-25.md`).
+  supportsToolBridge: false,
   async prepare(request) {
     await assertNoCursorProjectHooks(request.cwd);
     return {

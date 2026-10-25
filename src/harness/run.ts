@@ -69,8 +69,29 @@ export class UnsupportedPostureError extends Error {
  */
 export function assertSupportedPosture(
   adapter: HarnessAdapter,
-  request: Pick<HarnessRequest, 'resumeSessionId' | 'noTools' | 'mode'>,
+  request: Pick<
+    HarnessRequest,
+    'resumeSessionId' | 'noTools' | 'mode' | 'toolBridge'
+  >,
 ): void {
+  if (request.toolBridge !== undefined) {
+    if (!adapter.supportsToolBridge) {
+      throw new UnsupportedPostureError(
+        `${adapter.id} has no verified read-only tool bridge (verify-review's run_check)`,
+      );
+    }
+    if (request.mode !== 'read-only' || request.noTools === true) {
+      throw new UnsupportedPostureError(
+        'a tool bridge is offered only in read-only runs that keep their tools',
+      );
+    }
+    if (
+      !/^[a-z0-9][a-z0-9-]{0,39}$/u.test(request.toolBridge.server) ||
+      !/^[a-z][a-z0-9_]{0,39}$/u.test(request.toolBridge.tool)
+    ) {
+      throw new UnsupportedPostureError('invalid tool bridge name');
+    }
+  }
   if (request.resumeSessionId !== undefined && !adapter.supportsResume) {
     throw new UnsupportedPostureError(
       `${adapter.id} has no verified session resume`,
