@@ -39,11 +39,18 @@ export const CLAUDE_READ_ONLY_TOOLS = 'Read,Grep,Glob,Skill';
  *   installed for this run. Skills marked `disable-model-invocation` (the
  *   OAT docs and instructions skills) cannot be loaded through `Skill`, and
  *   without the directory every read outside the workspace is refused (live
- *   probe 2026-10-25, research `p05-live-evidence-2026-10-25.md`). The
- *   directory sits inside agent-ci's own home root, which is disjoint from
- *   the workspace and re-validated after the run; nothing written there is
- *   ever published.
+ *   probe 2026-10-25, research `p05-live-evidence-2026-10-25.md`).
+ *   `--add-dir` would also allow edits there, so `--disallowedTools` denies
+ *   Edit and Write on the canonical skills directory and Claude's skills
+ *   view (live-probed: the read works, the write is refused), and the run
+ *   core fingerprints both trees and fails closed on any change.
  */
+export function claudeSkillWriteDenials(
+  home: Pick<HarnessRequest['home'], 'home' | 'skillsDir'>,
+): string[] {
+  const trees = [home.skillsDir, `${home.home}/.claude/skills`];
+  return trees.flatMap((tree) => [`Edit(/${tree}/**)`, `Write(/${tree}/**)`]);
+}
 export function claudeArgs(request: HarnessRequest): string[] {
   const args = [
     '-p',
@@ -72,6 +79,11 @@ export function claudeArgs(request: HarnessRequest): string[] {
       'none',
       '--add-dir',
       request.home.skillsDir,
+      // Read access only: deny every file-editing tool on the skill trees
+      // (`//` marks an absolute path in Claude permission rules). The run
+      // core also fingerprints the trees and fails closed on any change.
+      '--disallowedTools',
+      ...claudeSkillWriteDenials(request.home),
     );
   }
   if (

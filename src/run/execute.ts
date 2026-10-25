@@ -40,6 +40,10 @@ import {
   runHarness,
   UnsupportedPostureError,
 } from '@agent-ci/harness/run.js';
+import {
+  fingerprintSkills,
+  purgeSkills,
+} from '@agent-ci/harness/skills-integrity.js';
 import type {
   HarnessOutcome,
   RunMode,
@@ -356,6 +360,10 @@ async function runInHome(
     const seeded = await seedSkills(homeRoot, options.skillsDir);
     if (!seeded.ok) return seeded;
   }
+  // The installed skills are trusted instructions: fingerprint them before
+  // any agent turn, so a turn that changes them fails closed (below).
+  const skillsBefore = await fingerprintSkills(homeRoot);
+  if (!skillsBefore.ok) return skillsBefore;
   const seededSecrets: string[] = [];
   if (route.login) {
     const seeded = await seedLogin(homeRoot, {
@@ -727,6 +735,21 @@ async function runInHome(
     guardFailure ??= { code: homeAfter.code, message: homeAfter.message };
     log.withholdFreeText();
   }
+  // The installed skills must be byte-for-byte what the run started with;
+  // a changed skill is purged so a kept home never carries it forward.
+  const checkSkills = async (): Promise<void> => {
+    const after = await fingerprintSkills(homeRoot);
+    if (after.ok && after.value === skillsBefore.value) return;
+    await purgeSkills(homeRoot);
+    log.add('skills.changed', { purged: true });
+    guardFailure ??= {
+      code: 'E_HOME_ROOT',
+      message:
+        'the run changed the skills installed for it; they were removed from the home root',
+    };
+    log.withholdFreeText();
+  };
+  await checkSkills();
   let outcome = supervised.result.outcome;
   let result: ValidatedRunResult;
   let error: { code: ErrorCode; message: string } | undefined;
@@ -786,6 +809,7 @@ async function runInHome(
           };
           log.withholdFreeText();
         }
+        await checkSkills();
         log.add('repair', {
           harness: route.harness,
           ok: repaired.outcome.ok,

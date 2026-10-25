@@ -335,7 +335,17 @@ describe('claude argv and posture', () => {
     const addDir = observed.argv.indexOf('--add-dir');
     expect(observed.argv[addDir + 1]).toBe(request.home.skillsDir);
     expect(observed.argv.filter((arg) => arg === '--add-dir')).toHaveLength(1);
-    expect(observed.argv.indexOf('--')).toBeGreaterThan(addDir + 1);
+    // ... read-only: every file-editing tool is denied on both skill trees.
+    const denied = observed.argv.indexOf('--disallowedTools');
+    expect(denied).toBe(addDir + 2);
+    expect(observed.argv.slice(denied + 1, denied + 5)).toEqual([
+      `Edit(/${request.home.skillsDir}/**)`,
+      `Write(/${request.home.skillsDir}/**)`,
+      `Edit(/${request.home.home}/.claude/skills/**)`,
+      `Write(/${request.home.home}/.claude/skills/**)`,
+    ]);
+    expect(observed.argv[denied + 1]?.startsWith('Edit(//')).toBe(true);
+    expect(observed.argv.indexOf('--')).toBeGreaterThan(denied + 4);
     const index = observed.argv.indexOf('--json-schema');
     expect(JSON.parse(observed.argv[index + 1] ?? '')).toEqual(schema);
     expect(run.outcome).toMatchObject({ ok: true, structured: { ok: true } });
