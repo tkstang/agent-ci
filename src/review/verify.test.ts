@@ -34,8 +34,10 @@ import {
   resolveLinuxTools,
   runVerify,
   sandboxProfile,
+  sanitizedTail,
   secretValues,
   trustedSystemBinary,
+  utf8Tail,
 } from '@agent-ci/review/verify.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -549,6 +551,71 @@ describe('isolation tools come only from verified root-owned paths', () => {
       expect(ran.value.evidence.entries[0]?.isolation).toBe('none');
     }
     expect(existsSync(path.join(planted, 'RAN'))).toBe(false);
+  });
+});
+
+describe('bounded, sanitized output tails', () => {
+  it('keeps 16 KiB of invalid UTF-8 and heavy redaction within the bound, with the raw digest', async () => {
+    const s = await verifyScenario(
+      [
+        'version: 1',
+        'checks:',
+        '  - name: binary',
+        "    command: head -c 16384 /dev/zero | tr '\\0' '\\377'",
+        '  - name: redacted',
+        '    command: for i in $(seq 2048); do printf Syn7hEtk; done',
+      ].join('\n'),
+    );
+    const ran = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: s.out,
+        env: { PATH: '/usr/bin:/bin', GITHUB_TOKEN: 'Syn7hEtk' },
+      },
+      { isolation: 'none' },
+    );
+    expect(ran.ok).toBe(true);
+    if (!ran.ok) return;
+    const [binary, redacted] = ran.value.evidence.entries;
+    expect(
+      Buffer.byteLength(binary?.output_tail ?? '', 'utf8'),
+    ).toBeLessThanOrEqual(16 * 1024);
+    expect(binary?.output_tail).toMatch(/^�+$/u);
+    expect(binary?.output_sha256).toBe(sha256(Buffer.alloc(16384, 0xff)));
+    expect(
+      Buffer.byteLength(redacted?.output_tail ?? '', 'utf8'),
+    ).toBeLessThanOrEqual(16 * 1024);
+    expect(redacted?.output_tail).toContain('[REDACTED]');
+    expect(redacted?.output_tail).not.toContain('Syn7hEtk');
+    expect(redacted?.output_sha256).toBe(sha256('Syn7hEtk'.repeat(2048)));
+  });
+
+  it('never splits a character, masks a secret cut by the capture limit, and the validator refuses an over-limit tail', () => {
+    expect(utf8Tail('aé€😀', 4)).toBe('😀');
+    expect(utf8Tail('aé€😀', 5)).toBe('😀');
+    expect(utf8Tail('aé€😀', 7)).toBe('€😀');
+    // The capture stopped inside a secret: its prefix is masked.
+    expect(
+      sanitizedTail(Buffer.from('log line synthetic-sec'), true, [
+        'synthetic-secret-value',
+      ]),
+    ).toBe('log line [REDACTED]');
+    // Not cut: text that only starts like a secret stays as it is.
+    expect(
+      sanitizedTail(Buffer.from('log line synthetic-sec'), false, [
+        'synthetic-secret-value',
+      ]),
+    ).toBe('log line synthetic-sec');
+    const value = structuredClone(evidence());
+    value.entries[0]!.output_tail = 'x'.repeat(16 * 1024 + 1);
+    expect(() =>
+      validateChecksEvidence(value, {
+        repository: REPO,
+        head_sha: HEAD,
+        verify: verifySpecFromText(CONFIG_TEXT, TEST_SOURCE),
+      }),
+    ).toThrow(expect.objectContaining({ code: 'E_VERIFY_EVIDENCE' }));
   });
 });
 

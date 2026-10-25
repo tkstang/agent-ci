@@ -246,7 +246,7 @@ export type CommandRecord = {
   /** True when the output capture was cut at `outputBytes`. */
   truncated: boolean;
   output_sha256: string;
-  /** The last `tailBytes` of the captured output, decoded as UTF-8. */
+  /** At most `tailBytes` of UTF-8: the end of the decoded, masked output. */
   output_tail: string;
   duration_ms: number;
   isolation: Isolation;
@@ -314,7 +314,7 @@ function commandRecord(value: unknown, at: string): CommandRecord {
     typeof value.truncated !== 'boolean' ||
     !isHex64(value.output_sha256) ||
     typeof value.output_tail !== 'string' ||
-    Buffer.byteLength(value.output_tail, 'utf8') > CHECK_LIMITS.tailBytes + 4 ||
+    Buffer.byteLength(value.output_tail, 'utf8') > CHECK_LIMITS.tailBytes ||
     !Number.isSafeInteger(value.duration_ms) ||
     (value.duration_ms as number) < 0 ||
     !(ISOLATIONS as readonly unknown[]).includes(value.isolation)

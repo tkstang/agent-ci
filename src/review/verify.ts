@@ -650,6 +650,40 @@ export function secretValues(
   ].toSorted((a, b) => b.length - a.length);
 }
 
+/** The last `maxBytes` of `text` as UTF-8, never splitting a character. */
+export function utf8Tail(text: string, maxBytes: number): string {
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length <= maxBytes) return text;
+  let start = bytes.length - maxBytes;
+  while (start < bytes.length && ((bytes[start] ?? 0) & 0xc0) === 0x80)
+    start += 1;
+  return bytes.subarray(start).toString('utf8');
+}
+
+/**
+ * The output tail the evidence keeps. The WHOLE capture is decoded and
+ * masked first (so a secret is never cut in half at the tail's start); when
+ * the capture was cut at its byte limit, a trailing prefix of a secret is
+ * masked too; then the sanitized text is bounded to `tailBytes` of UTF-8.
+ * Invalid bytes become U+FFFD and `[REDACTED]` may be longer than what it
+ * replaces, so the bound applies after both, never before.
+ */
+export function sanitizedTail(
+  output: Buffer,
+  truncated: boolean,
+  secrets: readonly string[],
+): string {
+  let text = maskSecrets(decoder.decode(output), secrets);
+  if (truncated)
+    for (const secret of secrets)
+      for (let length = secret.length - 1; length >= 4; length -= 1)
+        if (text.endsWith(secret.slice(0, length))) {
+          text = `${text.slice(0, text.length - length)}[REDACTED]`;
+          break;
+        }
+  return utf8Tail(text, CHECK_LIMITS.tailBytes);
+}
+
 function record(
   command: string,
   result: ExecResult,
@@ -657,16 +691,13 @@ function record(
   isolation: IsolationKind,
   secrets: readonly string[],
 ): CommandRecord {
-  const tail = result.output.subarray(
-    Math.max(0, result.output.length - CHECK_LIMITS.tailBytes),
-  );
   return {
     command,
     exit_code: result.exitCode,
     timed_out: result.timedOut,
     truncated: result.truncated,
     output_sha256: createHash('sha256').update(result.output).digest('hex'),
-    output_tail: maskSecrets(decoder.decode(tail), secrets),
+    output_tail: sanitizedTail(result.output, result.truncated, secrets),
     duration_ms: Math.max(0, Math.round(durationMs)),
     isolation,
   };
