@@ -35,6 +35,14 @@ export const CLAUDE_READ_ONLY_TOOLS = 'Read,Grep,Glob,Skill';
  *   rules; `--strict-mcp-config` ignores every MCP config not passed here.
  * - read-only: `--permission-mode dontAsk` with read/search tools only;
  *   edit: `--permission-mode acceptEdits` with prompts answered by nobody.
+ * - edit: `--add-dir <home>/.agents/skills` lets the agent read the skills
+ *   installed for this run. Skills marked `disable-model-invocation` (the
+ *   OAT docs and instructions skills) cannot be loaded through `Skill`, and
+ *   without the directory every read outside the workspace is refused (live
+ *   probe 2026-10-25, research `p05-live-evidence-2026-10-25.md`). The
+ *   directory sits inside agent-ci's own home root, which is disjoint from
+ *   the workspace and re-validated after the run; nothing written there is
+ *   ever published.
  */
 export function claudeArgs(request: HarnessRequest): string[] {
   const args = [
@@ -62,6 +70,8 @@ export function claudeArgs(request: HarnessRequest): string[] {
       'acceptEdits',
       '--permission-prompts',
       'none',
+      '--add-dir',
+      request.home.skillsDir,
     );
   }
   if (

@@ -87,17 +87,30 @@ function footer(context: PromptContext): string[] {
   ];
 }
 
+/**
+ * The OAT skills are user-invocable only (`disable-model-invocation`), so a
+ * harness may refuse to load them as tools; the agent reads them as files
+ * from the per-run home instead (pntr's Cursor runs read them the same way).
+ */
+function skillsSection(names: readonly string[]): string[] {
+  return [
+    'Skills:',
+    `- ${names.join(' and ')} are installed for this run at user scope.`,
+    `- Read each one's instructions from $HOME/.agents/skills/<skill>/SKILL.md (its references/ and scripts/ sit beside it) and follow them directly; they are user-invocable only, so do not wait for a skill tool to load them.`,
+    '- A missing repository copy under .agents/skills is expected.',
+    '- When a step needs a command you are not allowed to run, do that step from the repository files instead and report what you skipped in the structured result.',
+  ];
+}
+
 function docsUpdatePrompt(context: PromptContext): string {
   return [
     'Run the OAT docs update maintenance workflow for this checked-out repository.',
     '',
     'Sequence:',
-    '1. Use the oat-docs-analyze skill first and write its analysis artifact. Use subagents when appropriate for parallelization.',
-    '2. Then use the oat-docs-apply skill against the analysis artifact from step 1.',
+    '1. Follow the oat-docs-analyze skill first and write its analysis artifact. Use subagents when appropriate for parallelization.',
+    '2. Then follow the oat-docs-apply skill against the analysis artifact from step 1.',
     '',
-    'Skills:',
-    '- oat-docs-analyze and oat-docs-apply are installed for this run at user scope.',
-    '- Use those installed skills. A missing repository copy under .agents/skills is expected.',
+    ...skillsSection(['oat-docs-analyze', 'oat-docs-apply']),
     '',
     ...TRACKING,
     '',
@@ -124,12 +137,13 @@ function instructionsUpdatePrompt(context: PromptContext): string {
     'Run the OAT agent instructions maintenance workflow for this checked-out repository.',
     '',
     'Sequence:',
-    '1. Use the oat-agent-instructions-analyze skill first and write its analysis artifact and companion bundle.',
-    '2. Then use the oat-agent-instructions-apply skill against the companion bundle written in step 1.',
+    '1. Follow the oat-agent-instructions-analyze skill first and write its analysis artifact and companion bundle.',
+    '2. Then follow the oat-agent-instructions-apply skill against the companion bundle written in step 1.',
     '',
-    'Skills:',
-    '- oat-agent-instructions-analyze and oat-agent-instructions-apply are installed for this run at user scope.',
-    '- Use those installed skills. A missing repository copy under .agents/skills is expected.',
+    ...skillsSection([
+      'oat-agent-instructions-analyze',
+      'oat-agent-instructions-apply',
+    ]),
     '',
     ...TRACKING,
     '',

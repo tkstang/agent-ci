@@ -331,6 +331,11 @@ describe('claude argv and posture', () => {
     });
     expect(observed.argv).toContain('acceptEdits');
     expect(observed.argv).not.toContain('--tools');
+    // The run's own installed skills are readable; nothing else is added.
+    const addDir = observed.argv.indexOf('--add-dir');
+    expect(observed.argv[addDir + 1]).toBe(request.home.skillsDir);
+    expect(observed.argv.filter((arg) => arg === '--add-dir')).toHaveLength(1);
+    expect(observed.argv.indexOf('--')).toBeGreaterThan(addDir + 1);
     const index = observed.argv.indexOf('--json-schema');
     expect(JSON.parse(observed.argv[index + 1] ?? '')).toEqual(schema);
     expect(run.outcome).toMatchObject({ ok: true, structured: { ok: true } });
