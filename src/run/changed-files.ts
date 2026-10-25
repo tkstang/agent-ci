@@ -110,8 +110,14 @@ async function listChanges(
           if (entry.length < 4) continue;
           const status = entry.slice(0, 2);
           files.push(entry.slice(3));
-          // Renames and copies carry the source path as the next entry.
-          if (status.includes('R') || status.includes('C')) index += 1;
+          // Renames and copies carry the source path as the next entry. A
+          // rename removed its source, so the source changed too (its
+          // deletion must be promoted and published); a copy kept it.
+          if (status.includes('R') || status.includes('C')) {
+            index += 1;
+            const source = entries[index] ?? '';
+            if (status.includes('R') && source !== '') files.push(source);
+          }
         }
         resolve(
           success({

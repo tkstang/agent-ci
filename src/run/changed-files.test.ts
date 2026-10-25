@@ -48,9 +48,11 @@ describe('detectChangedFiles', () => {
     const files = await detectChangedFiles(repo, [
       path.join(repo, '.agent-ci'),
     ]);
+    // A staged rename reports both sides: the source was deleted.
     expect(files.ok && files.value.toSorted()).toEqual([
       'a.txt',
       'new file.txt',
+      'old.txt',
       'renamed.txt',
     ]);
   });

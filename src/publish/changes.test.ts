@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rm,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -16,6 +17,10 @@ import {
   isSafeRepoPath,
   parseChangeSet,
 } from '@agent-ci/publish/changes.js';
+import {
+  changedSince,
+  snapshotWorkspace,
+} from '@agent-ci/run/changed-files.js';
 import { type RunOptions, runAgent } from '@agent-ci/run/execute.js';
 import { describe, expect, it } from 'vitest';
 
@@ -292,5 +297,47 @@ describe('agent-ci run writes changes.json for edit runs', () => {
     const summary = await runAgent(options);
     expect(summary.ok && summary.value.changesPath).toBeNull();
     await expect(readFile(path.join(out, 'changes.json'))).rejects.toThrow();
+  });
+});
+
+describe('change set for a staged rename', () => {
+  it('publishes the rename as a write of the new path and a delete of the old', async () => {
+    const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-rename-'));
+    const run = (...args: string[]) =>
+      execFileSync('git', args, {
+        cwd: repo,
+        stdio: 'ignore',
+        env: {
+          PATH: process.env.PATH ?? '/usr/bin:/bin',
+          GIT_AUTHOR_NAME: 't',
+          GIT_AUTHOR_EMAIL: 't@example.com',
+          GIT_COMMITTER_NAME: 't',
+          GIT_COMMITTER_EMAIL: 't@example.com',
+        },
+      });
+    try {
+      run('init', '-q');
+      await writeFile(path.join(repo, 'old.txt'), 'content\n');
+      run('add', '.');
+      run('commit', '-qm', 'init');
+      const before = await snapshotWorkspace(repo);
+      if (!before.ok) throw new Error(before.message);
+      run('mv', 'old.txt', 'new.txt');
+      const changed = await changedSince(repo, before.value);
+      expect(changed.ok && changed.value).toEqual(['new.txt', 'old.txt']);
+      if (!changed.ok) return;
+      const set = await buildChangeSet({
+        root: repo,
+        files: changed.value,
+        baseSha: 'a'.repeat(40),
+        secrets: [],
+      });
+      expect(set.ok && set.value.files.map((f) => [f.path, f.action])).toEqual([
+        ['new.txt', 'write'],
+        ['old.txt', 'delete'],
+      ]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
   });
 });
