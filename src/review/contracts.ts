@@ -392,14 +392,15 @@ export function isRepository(value: unknown): value is string {
 }
 
 /**
- * Split file text into lines. CRLF and CR are normalized to LF and a final
- * newline does not create an extra empty line, so `lines[n - 1]` is line `n`.
+ * Split file text into lines the way git and the unified diff number them:
+ * only LF ends a line, one trailing CR is dropped from each line (CRLF
+ * files), and a lone CR inside a line is line content. A final newline does
+ * not create an extra empty line, so `lines[n - 1]` is line `n`.
  */
 export function splitLines(source: string): string[] {
-  const normalized = source.replace(/\r\n?/gu, '\n');
-  if (normalized === '') return [];
-  const lines = normalized.split('\n');
-  if (normalized.endsWith('\n')) lines.pop();
+  if (source === '') return [];
+  const lines = source.split('\n').map((line) => line.replace(/\r$/u, ''));
+  if (source.endsWith('\n')) lines.pop();
   return lines;
 }
 /** Lines `line..endLine` (1-based, inclusive) joined by LF, or `null`. */

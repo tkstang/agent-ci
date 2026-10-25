@@ -308,3 +308,113 @@ describe('rename anchors through API source collection', () => {
     },
   );
 });
+
+describe('line numbering with carriage returns', () => {
+  it.each([
+    [
+      'a lone CR before the anchor',
+      'p\rq\nsecond\nthird\n',
+      'p\rq\nsecond\nTHIRD\n',
+      3,
+      'THIRD',
+    ],
+    [
+      'CRLF line endings (control)',
+      'one\r\ntwo\r\nthree\r\n',
+      'one\r\nTWO\r\nthree\r\n',
+      2,
+      'TWO',
+    ],
+  ])(
+    'posts a finding after %s, numbered as git numbers it',
+    async (_name, before, after, line, text) => {
+      const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-cr-'));
+      const run = (...args: string[]) =>
+        execFileSync(
+          'git',
+          [
+            '-c',
+            'user.name=t',
+            '-c',
+            'user.email=t@example.com',
+            '-c',
+            'core.autocrlf=false',
+            ...args,
+          ],
+          {
+            cwd: repo,
+            encoding: 'utf8',
+          },
+        ).trim();
+      run('init', '-q');
+      await writeFile(path.join(repo, 'f.txt'), before);
+      run('add', '.');
+      run('commit', '-qm', 'base');
+      const base = run('rev-parse', 'HEAD');
+      await writeFile(path.join(repo, 'f.txt'), after);
+      run('commit', '-qam', 'head');
+      const head = run('rev-parse', 'HEAD');
+      const diff = parseUnifiedDiff(
+        `${run('diff', '--no-color', `${base}...${head}`)}\n`,
+      );
+      const review = {
+        version: 1,
+        mode: 'review',
+        pass: 'primary',
+        base_sha: base,
+        merge_base_sha: base,
+        head_sha: head,
+        summary: 's',
+        findings: [
+          {
+            id: 'f1',
+            severity: 'medium',
+            category: 'correctness',
+            rule_id: null,
+            title: 'Changed line',
+            body: 'Body.',
+            path: 'f.txt',
+            line,
+            end_line: line,
+            side: 'RIGHT',
+            original_code: text,
+            suggestion: `${text.toLowerCase()}`,
+            evidence: [
+              {
+                kind: 'code',
+                path: 'f.txt',
+                line,
+                end_line: line,
+                side: 'RIGHT',
+                quote_sha256: quoteSha256(text),
+              },
+            ],
+          },
+        ],
+      };
+      const gated = gateReview({
+        identity: {
+          repository: 'tkstang/app',
+          workflow: 'agent-ci-pr-review',
+          pr_number: 7,
+          scope: 'default',
+          run_id: '1',
+          run_attempt: '1',
+        },
+        mode: 'review',
+        base_sha: base,
+        merge_base_sha: base,
+        head_sha: head,
+        diff,
+        read: gitSourceReader(repo, { RIGHT: head, LEFT: base }),
+        passes: [{ pass: 'primary', enabled: true, attempt: '1', review }],
+        adjudication: { enabled: false, value: null },
+      });
+      expect(gated.candidates.map((c) => c.disposition)).toEqual(['posted']);
+      expect(gated.findings[0]).toMatchObject({
+        code: text,
+        suggestion_status: 'kept',
+      });
+    },
+  );
+});

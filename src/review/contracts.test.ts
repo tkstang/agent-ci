@@ -2,6 +2,7 @@ import {
   LIMITS,
   quoteSha256,
   sliceLines,
+  splitLines,
   validateAdjudicationEnvelope,
   validateAdjudicationOperation,
   validateFinding,
@@ -190,6 +191,12 @@ describe('quote digest and line slicing', () => {
     expect(quoteSha256('a\nb')).toBe(literal);
     expect(quoteSha256('a\r\nb\r\n')).toBe(literal);
     expect(quoteSha256('a\nb\n\n')).not.toBe(literal);
+  });
+
+  it('splits lines only on LF, as git and the diff do', () => {
+    expect(splitLines('a\rb\nc\r\nd')).toEqual(['a\rb', 'c', 'd']);
+    expect(splitLines('one\r\ntwo\r\n')).toEqual(['one', 'two']);
+    expect(sliceLines('p\rq\nsecond\nthird\n', 3, 3)).toBe('third');
   });
 
   it('slices 1-based inclusive ranges and refuses out-of-range lines', () => {

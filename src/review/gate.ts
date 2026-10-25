@@ -172,14 +172,16 @@ function admit(
 
 /**
  * True when the agent's `original_code` is exactly the trusted lines of the
- * cited range. Line endings are normalized on both sides, and one final
+ * cited range. Both are split as git numbers lines (LF only, a trailing CR
+ * dropped), and one final
  * line terminator on the original is accepted, but a blank line that is
  * part of the range must be present: the comparison is line by line, never
  * a blind trim.
  */
 function sameLines(original: string, code: string): boolean {
   const expected = code.split('\n');
-  const actual = original.replace(/\r\n?/gu, '\n').split('\n');
+  // Lines as git counts them: LF ends a line, a trailing CR is dropped.
+  const actual = original.split('\n').map((line) => line.replace(/\r$/u, ''));
   if (actual.length === expected.length + 1 && actual.at(-1) === '')
     actual.pop();
   return (
