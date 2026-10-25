@@ -111,3 +111,15 @@ hand-assemble the OAT layer.
 - Run `oat pjm doctor --json` and inspect `adoption.state` before any decision write.
 - If the decision surface is missing, repository adoption is absent or partial; stop and initialize it with `oat pjm init`.
 <!-- END OAT decisions -->
+
+<!-- OAT docs -->
+## Documentation
+
+- **Docs root:** `docs`
+- **Tooling:** Markdown
+- **Authored index:** `docs/index.md`
+- **Contributing:** `docs/contributing.md`
+
+Keep authored context, title/description metadata, and Contents maps with relative Markdown links current. Preserve local instructions; asset-only directories are exempt from indexes.
+Use `oat-docs-analyze` to audit gaps and `oat-docs-apply` for approved repairs. Optional generated inventories belong outside the content tree and do not replace the authored index.
+<!-- END OAT docs -->
