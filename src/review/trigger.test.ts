@@ -419,6 +419,20 @@ describe('configureRequest', () => {
     });
   });
 
+  it('blames the requester for a model name with invalid syntax', () => {
+    for (const command of [
+      '/agent-ci-review reviewer_model=bad!name',
+      '/agent-ci-review adjudicator_model=x[y]',
+    ])
+      expect(configure(command)).toMatchObject({
+        status: 'failed',
+        failure: {
+          route: 'command',
+          detail: expect.stringContaining('is not a model name'),
+        },
+      });
+  });
+
   it('reports a malformed command to the requester', () => {
     expect(configure('/agent-ci-review bogus=1')).toMatchObject({
       status: 'failed',

@@ -67,6 +67,11 @@ describe('parseReviewCommand', () => {
       '/agent-ci-review adjudicator=off adjudicator_model=claude-haiku-4-5',
       'turns the pass off',
     ],
+    ['/agent-ci-review reviewer_model=bad!name', 'is not a model name'],
+    [
+      '/agent-ci-review second_reviewer_model=opus[effort=high]',
+      'is not a model name',
+    ],
     ['/agent-ci-review reviewer_model=a\u200bb', 'invisible or control'],
     ['/agent-ci-review\u00a0reviewer_model=a', 'invisible or control'],
   ])('rejects %j', (body, message) => {

@@ -1,5 +1,6 @@
 import { ReviewError, type ReviewMode } from '@agent-ci/review/contracts.js';
 import {
+  MODEL_NAME,
   REQUEST_LIMITS,
   type ResolvedRequestConfig,
   validateRequestConfig,
@@ -225,6 +226,13 @@ export function parseReviewCommand(body: unknown): CommandParse {
         );
       (options as Record<string, boolean>)[optionKey] = TRUE_VALUES.has(value);
     } else {
+      // Model names are checked here, so a malformed one is answered as the
+      // commenter's mistake, not a workflow misconfiguration.
+      if (!MODEL_NAME.test(value))
+        throw commandError(
+          command,
+          `${inlineCode(value)} is not a model name for \`${key}\`. Use a model from allowed_models, for example \`${key}=claude-haiku-4-5\`.`,
+        );
       (options as Record<string, string>)[optionKey] = value;
     }
     cursor += token.length;
