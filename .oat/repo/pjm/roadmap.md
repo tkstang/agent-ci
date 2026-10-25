@@ -10,18 +10,18 @@ bullet lines over rewriting whole sections, and reference backlog records by ID
 <!-- Add active work here. Format:
 - **BL-YYMMDD-slug: {title}** — brief description. Project: {name} (if linked)
 -->
-- **BL-261025-reusable-run-agent-workflow: Reusable run-agent workflow and publishers** — `run-agent.yml`, publish job, consumer template. Project: agent-ci-v1 (p02)
-- **BL-261025-ai-pull-request-review: AI pull-request review workflow** — the flagship workflow. Project: agent-ci-v1 (p03)
+- **BL-261025-documentation-tree-and-docs: Documentation tree and docs check** — `docs/` and `pnpm docs:check`, then the agent-ci-v1 delivery pull request. Project: agent-ci-v1 (p06)
 
 ## Next (Planned)
 
 <!-- Add planned work here. Format:
 - **BL-YYMMDD-slug: {title}** — brief description. Project: {name} (if linked)
 -->
-- **BL-261025-verify-review-run-check-tool: Verify-review run_check tool bridge** — controlled repository checks for the reviewer. Project: agent-ci-v1 (p04)
-- **BL-261025-use-case-wrappers-and-multi: Use-case wrappers and multi-repo fan-out** — docs, instructions and tools updates; `targets.yaml`. Project: agent-ci-v1 (p05)
-- **BL-261025-documentation-tree-and-docs: Documentation tree and docs check** — `docs/` and `pnpm docs:check`. Project: agent-ci-v1 (p06)
-- **BL-261025-qualify-the-ci-routes-live: Qualify the CI routes live** — routes still marked `qualified: null`.
+- **BL-261025-qualify-the-ci-routes-live: Qualify the CI routes live** — `claude-haiku-4-5-personal` and `grok-4.7-opencode` still `qualified: null`; needs the operator's credentials.
+- **BL-261025-close-remaining-claude-only: Close remaining Claude-only policy name-check gaps** — before adding a Cursor `auto` or separator-less Claude-like route.
+- Release tag for consumer pins — the templates show `@v0.1.0`/`@main`, and no tag exists yet.
+
+Shipped on `feat/agent-ci-v1` (archived backlog items): BL-261025-reusable-run-agent-workflow (p02), BL-261025-ai-pull-request-review (p03), BL-261025-verify-review-run-check-tool (p04), BL-261025-use-case-wrappers-and-multi (p05).
 
 ## Later (Directional Intent)
 

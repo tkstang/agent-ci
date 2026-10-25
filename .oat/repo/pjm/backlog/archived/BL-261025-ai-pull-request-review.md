@@ -1,7 +1,7 @@
 ---
 id: BL-261025-ai-pull-request-review
 title: AI pull-request review workflow
-status: open
+status: closed
 priority: high
 scope: feature
 scope_estimate: XL
@@ -10,7 +10,7 @@ labels:
   - workflows
 assignee: null
 created: 2026-10-25T05:50:35.678Z
-updated: 2026-10-25T13:05:00.000Z
+updated: '2026-10-25T20:27:30Z'
 associated_issues: []
 external_plans: []
 ---

@@ -1,7 +1,7 @@
 ---
 id: BL-261025-reusable-run-agent-workflow
 title: Reusable run-agent workflow and publishers
-status: open
+status: closed
 priority: high
 scope: feature
 scope_estimate: L
@@ -11,7 +11,7 @@ labels:
   - publish
 assignee: null
 created: 2026-10-25T05:50:35.477Z
-updated: 2026-10-25T05:50:35.477Z
+updated: '2026-10-25T20:27:29Z'
 associated_issues: []
 external_plans: []
 ---

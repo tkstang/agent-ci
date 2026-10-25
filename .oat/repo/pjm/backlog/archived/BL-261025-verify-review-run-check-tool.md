@@ -1,7 +1,7 @@
 ---
 id: BL-261025-verify-review-run-check-tool
 title: Verify-review run_check tool bridge
-status: open
+status: closed
 priority: medium
 scope: feature
 scope_estimate: L
@@ -9,7 +9,7 @@ labels:
   - review
 assignee: null
 created: 2026-10-25T05:50:35.879Z
-updated: 2026-10-25T05:50:35.879Z
+updated: '2026-10-25T20:27:30Z'
 associated_issues: []
 external_plans: []
 ---
