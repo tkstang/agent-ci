@@ -1079,10 +1079,13 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
                                .github/agent-ci/checks.yaml (base commit) on
                                the PR head, then give the reviewers run_check
                                (Claude or Codex routes). The PR's code runs on
-                               this machine as you, sandboxed where the host
-                               allows (sandbox-exec, user namespaces);
-                               refused where neither exists unless
-  --allow-unisolated-checks    is also given.
+                               this machine as you: only Linux user namespaces
+                               keep it away from your credentials, so on macOS
+                               (sandbox-exec cannot stop it reading other
+                               processes' environments or the Keychain) or
+                               without namespaces it is refused unless
+  --verify-trust-pr-code       is also given: run only code you would run.
+
   --scope <scope>              Marker scope (default local).
   --out <dir>                  Keep the stage artifacts here.
   --timeout-minutes <n>        Per stage (default 30).
@@ -1110,7 +1113,7 @@ async function runLocal(
       'seed-login': { type: 'boolean' },
       publish: { type: 'boolean' },
       verify: { type: 'boolean' },
-      'allow-unisolated-checks': { type: 'boolean' },
+      'verify-trust-pr-code': { type: 'boolean' },
       scope: { type: 'string' },
       out: { type: 'string' },
       'timeout-minutes': { type: 'string' },
@@ -1137,7 +1140,7 @@ async function runLocal(
     seedLogin: flags['seed-login'] === true,
     publish: flags.publish === true,
     verify: flags.verify === true,
-    allowUnisolatedChecks: flags['allow-unisolated-checks'] === true,
+    trustPrCode: flags['verify-trust-pr-code'] === true,
     scope,
     policy: {
       failOnSeverity: flags['fail-on-severity'],

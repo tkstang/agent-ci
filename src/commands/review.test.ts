@@ -9,6 +9,7 @@ import { createReviewCommand } from '@agent-ci/commands/review.js';
 import type { CommandContext } from '@agent-ci/commands/types.js';
 import { digestResultDir } from '@agent-ci/publish/digest.js';
 import { FakeGithub } from '@agent-ci/review/testing/fake-github.js';
+import { detectIsolation } from '@agent-ci/review/verify.js';
 import { describe, expect, it } from 'vitest';
 
 const REPO = 'tkstang/app';
@@ -855,24 +856,38 @@ describe('agent-ci review verify-review stages', () => {
     const clone = path.join(t.root, 'clone');
     git(t.root, 'clone', '-q', origin, clone);
     t.fake.on('GET', '/user', { body: { login: 'maintainer', type: 'User' } });
-    const result = await t.cli(
-      [
-        'run',
-        '--pr',
-        '7',
-        '--cwd',
-        'clone',
-        '--model',
-        'fake-verify-review',
-        '--models',
-        t.modelsPath,
-        '--verify',
-        '--publish',
-        '--out',
-        'local',
-      ],
-      { CI: '', GITHUB_ACTIONS: '' },
-    );
+    const argv = [
+      'run',
+      '--pr',
+      '7',
+      '--cwd',
+      'clone',
+      '--model',
+      'fake-verify-review',
+      '--models',
+      t.modelsPath,
+      '--verify',
+      '--publish',
+      '--out',
+      'local',
+    ];
+    if (detectIsolation() !== 'linux-namespaces') {
+      // Without Linux namespaces (macOS, or none) the checks would run as
+      // the operator with credentials in reach: refused, nothing posted.
+      const refused = await t.cli(argv, { CI: '', GITHUB_ACTIONS: '' });
+      expect(refused).toMatchObject({
+        exitCode: 1,
+        envelope: { ok: false, code: 'E_VERIFY_RUN' },
+      });
+      expect(t.fake.sent('POST')).toEqual([]);
+      expect(git(clone, 'worktree', 'list').split('\n')).toHaveLength(1);
+    }
+    // A fresh output directory: the refused run kept its spec.
+    argv[argv.length - 1] = 'local-trusted';
+    const result = await t.cli([...argv, '--verify-trust-pr-code'], {
+      CI: '',
+      GITHUB_ACTIONS: '',
+    });
     expect(result).toMatchObject({
       exitCode: 0,
       envelope: {
@@ -881,7 +896,7 @@ describe('agent-ci review verify-review stages', () => {
       },
     });
     expect(
-      existsSync(path.join(t.root, 'local', 'checks', 'checks.json')),
+      existsSync(path.join(t.root, 'local-trusted', 'checks', 'checks.json')),
     ).toBe(true);
     // Neither the verify worktree nor the review worktree is left behind.
     expect(git(clone, 'worktree', 'list').split('\n')).toHaveLength(1);

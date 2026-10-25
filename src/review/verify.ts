@@ -420,7 +420,11 @@ export const LINUX_INIT = [
   'exec "$unshare_bin" --user --map-root-user --mount -- /bin/bash -c "$cmd"',
 ].join('\n');
 
-/** Real-home paths a macOS-sandboxed command may not read or write. */
+/**
+ * Real-home paths a command may not read or write (denied by the macOS
+ * profile, mounted over on Linux). Hygiene on macOS, where the sandbox is
+ * not a credential boundary (see `requireCredentialIsolation`).
+ */
 export function credentialStorePaths(realHome: string): string[] {
   return [
     '.ssh',
@@ -438,6 +442,16 @@ export function credentialStorePaths(realHome: string): string[] {
     '.docker',
     '.kube',
     'Library/Keychains',
+    // Shell startup and history files often export or echo tokens.
+    '.zshrc',
+    '.zshenv',
+    '.zprofile',
+    '.zlogin',
+    '.zsh_history',
+    '.bashrc',
+    '.bash_profile',
+    '.bash_history',
+    '.profile',
   ].map((entry) => path.join(realHome, entry));
 }
 
@@ -640,10 +654,16 @@ export type VerifyOptions = {
   /** Home roots and output directories commands must not reach. */
   readonly protectedPaths?: readonly string[];
   /**
-   * Refuse to run commands without isolation (local runs: the operator's
-   * machine has no job boundary). Actions' verify job is the boundary there.
+   * Local runs: refuse unless the commands get a containment that keeps
+   * them away from the operator's credentials. Only Linux namespaces with
+   * launcher-verified tools qualify. macOS `sandbox-exec` does not: a
+   * sandboxed command can still read the environment of agent-ci and of any
+   * other same-user non-platform process (`KERN_PROCARGS2`; no profile rule
+   * stops it, probe 2026-10-25) and still query the login Keychain through
+   * securityd. Actions' verify job is the boundary there, so it does not set
+   * this.
    */
-  readonly requireIsolation?: boolean;
+  readonly requireCredentialIsolation?: boolean;
   readonly git?: string;
   readonly log?: (message: string) => void;
 };
@@ -713,11 +733,16 @@ export async function runVerify(
     detected === 'linux-namespaces' && linuxTools === undefined
       ? 'none'
       : detected;
-  if (isolation === 'none' && options.requireIsolation === true)
+  if (
+    isolation !== 'linux-namespaces' &&
+    options.requireCredentialIsolation === true
+  )
     return failure(
       'E_VERIFY_RUN',
-      'no command isolation is available here (macOS sandbox-exec, or Linux unprivileged user namespaces); refusing to run pull-request code on this machine without it',
-      'Enable unprivileged user namespaces (Linux), or pass --allow-unisolated-checks to run the checks with no containment.',
+      isolation === 'macos-sandbox'
+        ? "verify-review would run the pull request's code on this Mac as you. macOS sandbox-exec confines its file writes and network, but the code can still read the environment of agent-ci and of your other processes (which may hold model and GitHub credentials) and query your login Keychain"
+        : "no command isolation is available here (Linux unprivileged user namespaces with root-owned unshare and mount); the pull request's code would run as you with full access",
+      'Run --verify on Linux with unprivileged user namespaces, or let the Actions verify job run the checks. Pass --verify-trust-pr-code only for pull requests whose code you would run yourself.',
     );
   const now = deps.now ?? Date.now;
   const log = options.log ?? (() => undefined);

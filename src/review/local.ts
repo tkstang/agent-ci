@@ -75,8 +75,11 @@ export type LocalReviewOptions = {
   readonly publish: boolean;
   /** Run as verify-review (checks first, then reviewers with run_check). */
   readonly verify?: boolean;
-  /** Run the checks even where no isolation is available (off: refuse). */
-  readonly allowUnisolatedChecks?: boolean;
+  /**
+   * Run the checks without credential isolation (macOS, or Linux without
+   * user namespaces): the operator acknowledges the PR code runs as them.
+   */
+  readonly trustPrCode?: boolean;
   readonly scope: string;
   readonly policy: ReviewPolicyInputs;
   readonly outDir?: string | undefined;
@@ -269,6 +272,10 @@ async function localReview(
     }
     try {
       log('agent-ci review: running the configured checks (verify-review)');
+      if (options.trustPrCode === true)
+        log(
+          "agent-ci review: --verify-trust-pr-code: the pull request's code runs as you; without Linux user namespaces it can read your processes' environments and your Keychain",
+        );
       checksDir = path.join(outDir, 'checks');
       const verified = await runVerify({
         cwd: verifyTree,
@@ -276,7 +283,7 @@ async function localReview(
         outDir: checksDir,
         env: options.env,
         protectedPaths: [outDir, root.value.root],
-        requireIsolation: options.allowUnisolatedChecks !== true,
+        requireCredentialIsolation: options.trustPrCode !== true,
         log,
         ...(options.git === undefined ? {} : { git: options.git }),
       });

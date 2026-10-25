@@ -539,7 +539,7 @@ describe('secret masking and the isolation requirement', () => {
     );
   });
 
-  it('refuses to run unisolated when isolation is required (local runs)', async () => {
+  it('refuses local runs without credential isolation: no isolation, or the macOS sandbox', async () => {
     const s = await verifyScenario(
       'version: 1\nchecks:\n  - name: test\n    command: "true"\n',
     );
@@ -549,11 +549,29 @@ describe('secret masking and the isolation requirement', () => {
         spec: s.spec,
         outDir: s.out,
         env: { PATH: '/usr/bin:/bin' },
-        requireIsolation: true,
+        requireCredentialIsolation: true,
       },
       { isolation: 'none' },
     );
     expect(ran).toMatchObject({ ok: false, code: 'E_VERIFY_RUN' });
+    // macOS sandbox-exec is not a credential boundary: refused the same way,
+    // and nothing ran.
+    const mac = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: path.join(s.root, 'out-mac'),
+        env: { PATH: '/usr/bin:/bin' },
+        requireCredentialIsolation: true,
+      },
+      { isolation: 'macos-sandbox' },
+    );
+    expect(mac).toMatchObject({
+      ok: false,
+      code: 'E_VERIFY_RUN',
+      message: expect.stringContaining('read the environment of agent-ci'),
+      hint: expect.stringContaining('--verify-trust-pr-code'),
+    });
   });
 });
 
@@ -728,6 +746,8 @@ describe('runVerify', () => {
           '    command: echo x > "$OUTSIDE/escape.txt" && echo wrote || echo write-denied',
           '  - name: read',
           '    command: cat "$PROTECTED/token" || echo read-denied',
+          '  - name: rc',
+          '    command: cat "$REALHOME/.zshrc" || echo rc-denied',
           '  - name: background',
           '    command: (sleep 2; echo late > "$OUTSIDE/late.txt") & disown; setsid sleep 0 2>/dev/null; echo started',
         ].join('\n'),
@@ -735,20 +755,30 @@ describe('runVerify', () => {
       const outside = await tempDir('agent-ci-outside-');
       const protectedDir = await tempDir('agent-ci-protected-');
       await writeFile(path.join(protectedDir, 'token'), 'synthetic-protected');
+      // A stand-in operator home whose shell rc file exports a token.
+      const realHome = await tempDir('agent-ci-realhome-');
+      await writeFile(
+        path.join(realHome, '.zshrc'),
+        'export SYNTHETIC_RC_TOKEN=synthetic-rc-value\n',
+      );
       // The command reads OUTSIDE and PROTECTED from its own text: pass them
       // as allowlisted-free literals by rewriting the config commands.
       const verify = s.spec.spec.verify!;
       for (const check of verify.config.checks)
         check.command = check.command
           .replaceAll('$OUTSIDE', outside)
-          .replaceAll('$PROTECTED', protectedDir);
-      const ran = await runVerify({
-        cwd: s.repo,
-        spec: s.spec,
-        outDir: s.out,
-        env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
-        protectedPaths: [protectedDir],
-      });
+          .replaceAll('$PROTECTED', protectedDir)
+          .replaceAll('$REALHOME', realHome);
+      const ran = await runVerify(
+        {
+          cwd: s.repo,
+          spec: s.spec,
+          outDir: s.out,
+          env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+          protectedPaths: [protectedDir],
+        },
+        { realHome },
+      );
       expect(ran.ok).toBe(true);
       if (!ran.ok) return;
       const byName = new Map(
@@ -762,6 +792,8 @@ describe('runVerify', () => {
       expect(byName.get('read')?.output_tail).not.toContain(
         'synthetic-protected',
       );
+      expect(byName.get('rc')?.output_tail).toContain('rc-denied');
+      expect(byName.get('rc')?.output_tail).not.toContain('synthetic-rc-value');
       if (isolation === 'macos-sandbox') {
         expect(byName.get('write')?.output_tail).toContain('write-denied');
         expect(existsSync(path.join(outside, 'escape.txt'))).toBe(false);
