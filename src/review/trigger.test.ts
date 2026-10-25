@@ -417,6 +417,22 @@ describe('configureRequest', () => {
     });
   });
 
+  it('answers a verify-review request on a repository without verify as not enabled, even with the pool opt-in', () => {
+    expect(
+      configure('/agent-ci-verify-review', {
+        verifyEnabled: false,
+        allowPool: true,
+        env: { ...CI_ENV, RUNNER_ENVIRONMENT: 'self-hosted' },
+      }),
+    ).toMatchObject({
+      status: 'failed',
+      failure: {
+        route: 'command',
+        detail: expect.stringContaining('not enabled'),
+      },
+    });
+  });
+
   it('refuses verify-review with the pool opt-in in CI, but not locally', () => {
     expect(
       configure('/agent-ci-verify-review', {

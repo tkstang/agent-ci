@@ -729,6 +729,11 @@ export function configureRequest(input: {
       return fail('command', error.message);
     }
   }
+  if (mode === 'verify-review' && input.verifyEnabled !== true)
+    return fail(
+      'command',
+      'verify-review is not enabled for this repository (the review workflow sets `verify: true` to allow it); request `/agent-ci-review` or the `agent-ci:review` label instead.',
+    );
   if (
     mode === 'verify-review' &&
     input.allowPool === true &&
@@ -737,11 +742,6 @@ export function configureRequest(input: {
     return fail(
       'configuration',
       'verify-review is refused in CI when `allow_pool` is on: pool routes need the self-hosted proxy host, and the pull request code the verify job runs must not run there.',
-    );
-  if (mode === 'verify-review' && input.verifyEnabled !== true)
-    return fail(
-      'command',
-      'verify-review is not enabled for this repository (the review workflow sets `verify: true` to allow it); request `/agent-ci-review` or the `agent-ci:review` label instead.',
     );
   let config: ResolvedRequestConfig;
   try {
