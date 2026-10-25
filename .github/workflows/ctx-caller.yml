@@ -1,0 +1,10 @@
+name: ctx probe (caller)
+on:
+  pull_request:
+    branches: [feat/agent-ci-v1]
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.head_ref == 'test/p02-ctx'
+    uses: tkstang/agent-ci/.github/workflows/ctx-called.yml@d052cb3e809951fe3c5e82bbd84455abbfe54880
