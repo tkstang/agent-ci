@@ -6,6 +6,7 @@ import {
   oneOf,
   optional,
   parseFlags,
+  poolOptIn,
   positiveInt,
 } from '@agent-ci/commands/flags.js';
 import type { CommandContext, CommandSpec } from '@agent-ci/commands/types.js';
@@ -27,7 +28,10 @@ Model selection:
   --harness <id>             Pin a harness: claude | codex | opencode | cursor | fake.
   --route <id>               Pick an exact route (the only way to use a paid
                              route or skip the fallback rules).
-  --allow-pool               Allow a local proxy-pool route (refused in CI).
+  --allow-pool               Allow a proxy-pool route (in CI only on a
+                             self-hosted runner, never a Claude model).
+  --allow-pool-value <true|false>
+                             The same as a value (workflow inputs).
   --seed-login               Seed your existing harness login into the
                              isolated home for login routes (local only).
   --models <path>            Routing table (default: packaged models.yaml).
@@ -63,6 +67,7 @@ const FLAGS = {
   harness: { type: 'string' },
   route: { type: 'string' },
   'allow-pool': { type: 'boolean' },
+  'allow-pool-value': { type: 'string' },
   'seed-login': { type: 'boolean' },
   models: { type: 'string' },
   prompt: { type: 'string' },
@@ -146,7 +151,7 @@ export function createRunCommand(deps: RunDeps = {}): CommandSpec {
             : { targetPaths: flags['target-path'] }),
           mode:
             oneOf(flags.mode, '--mode', RUN_MODES, 'read-only') ?? 'read-only',
-          allowPool: flags['allow-pool'] === true,
+          allowPool: poolOptIn(flags),
           seedLogin: flags['seed-login'] === true,
           skillsDir: resolvePath(flags['skills-dir']),
           homeRoot: resolvePath(flags['home-root']),

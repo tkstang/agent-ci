@@ -90,3 +90,22 @@ export function oneOf<T extends string>(
   }
   return value as T;
 }
+
+/**
+ * The pool opt-in: `--allow-pool`, or its workflow form
+ * `--allow-pool-value <true|false>` (a workflow passes its boolean
+ * `allow_pool` input unconditionally; empty means false).
+ */
+export function poolOptIn(flags: {
+  readonly 'allow-pool'?: boolean | undefined;
+  readonly 'allow-pool-value'?: string | undefined;
+}): boolean {
+  const value = optional(flags['allow-pool-value']);
+  if (value !== undefined && !['true', 'false'].includes(value)) {
+    throw new CliError(
+      'E_INVALID_INPUT',
+      '--allow-pool-value must be true or false',
+    );
+  }
+  return flags['allow-pool'] === true || value === 'true';
+}

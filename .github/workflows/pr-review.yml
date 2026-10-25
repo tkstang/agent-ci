@@ -103,6 +103,13 @@ on:
           Login the publishing token acts as. Empty means github-actions[bot] (GITHUB_TOKEN).
         type: string
         default: ''
+      allow_pool:
+        description: >-
+          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
+          on a self-hosted runner whose host serves the loopback proxy, and never
+          for a Claude model; set true there to opt in.
+        type: boolean
+        default: false
       runs_on:
         description: Runner label for every job.
         type: string
@@ -134,6 +141,9 @@ on:
       OPENCODE_API_KEY:
         required: false
       CURSOR_API_KEY:
+        required: false
+      AGENT_CI_PROXY_API_KEY:
+        description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
         required: false
 
 permissions:
@@ -286,7 +296,8 @@ jobs:
         id: route
         env:
           MODEL: ${{ needs.gate.outputs.reviewer_model }}
-        run: agent-ci route --model "$MODEL" --github-output
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Install the harness
         env:
@@ -313,13 +324,15 @@ jobs:
           # static chain. Step expressions are evaluated on the runner, so this
           # job's runner still holds every model secret the caller passes:
           # pass only the one your route uses (Deferred Findings, p05).
-          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || '' }}
+          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
         run: >-
           agent-ci review pass --pass primary --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
           --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
+          --allow-pool-value "$ALLOW_POOL"
           --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
 
       - name: Check for pass outputs
@@ -392,7 +405,8 @@ jobs:
         id: route
         env:
           MODEL: ${{ needs.gate.outputs.second_reviewer_model }}
-        run: agent-ci route --model "$MODEL" --github-output
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Install the harness
         env:
@@ -415,13 +429,15 @@ jobs:
 
       - name: Run the second reviewer
         env:
-          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || '' }}
+          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
         run: >-
           agent-ci review pass --pass second --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
           --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
+          --allow-pool-value "$ALLOW_POOL"
           --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
 
       - name: Check for pass outputs
@@ -520,7 +536,8 @@ jobs:
         id: route
         env:
           MODEL: ${{ needs.gate.outputs.adjudicator_model }}
-        run: agent-ci route --model "$MODEL" --github-output
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Install the harness
         env:
@@ -531,7 +548,7 @@ jobs:
       # the step gets the route's); no GitHub token.
       - name: Run the adjudicator
         env:
-          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || '' }}
+          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           PRIMARY_DIR: ${{ needs.review-primary.outputs.artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
@@ -540,12 +557,14 @@ jobs:
           SECOND_DIGEST: ${{ needs.review-second.outputs.digest }}
           FAIL_ON: ${{ inputs.fail_on_severity }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
         run: >-
           agent-ci review adjudicate --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
           --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
           --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
           --sources-dir "$RUNNER_TEMP/review-sources" --fail-on-severity "$FAIL_ON"
           --out "$RUNNER_TEMP/review-adjudication" --route "$ROUTE_ID" --credential-from-env
+          --allow-pool-value "$ALLOW_POOL"
           --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
 
       - name: Check for adjudication outputs

@@ -6,6 +6,7 @@ import {
   oneOf,
   optional,
   parseFlags,
+  poolOptIn,
   positiveInt,
 } from '@agent-ci/commands/flags.js';
 import { appendGithubOutput } from '@agent-ci/commands/github.js';
@@ -34,12 +35,15 @@ const USAGE = `agent-ci targets — multi-repository fan-out targets.
                           [--file targets.yaml] [--root <dir>]
                           [--target all|<id>|<owner/name>] [--reset <true|false>]
                           [--base <branch>] [--model <name>]
-                          [--max-targets <n>] [--models <path>] [--github-output]
+                          [--max-targets <n>] [--allow-pool-value <true|false>]
+                          [--models <path>] [--github-output]
       Emit the bounded GitHub Actions matrix ({"include": [...]}) for one
       preset: one entry per target, every field a reusable-workflow input.
       --reset (replace the static branch content whoever made its head,
       history kept) needs one selected target. --base and --model override
       every selected target. At most ${MAX_TARGETS} targets.
+      --allow-pool-value true lets a pool route resolve (in CI only on a
+      self-hosted runner, never a Claude model).
       --github-output writes matrix and count.
 
   agent-ci targets resolve [--repository <owner/name>] [--ref <ref>] [--base <branch>]
@@ -175,6 +179,7 @@ async function matrix(argv: readonly string[], context: CommandContext) {
       reset: { type: 'string' },
       base: { type: 'string' },
       model: { type: 'string' },
+      'allow-pool-value': { type: 'string' },
       'max-targets': { type: 'string' },
       models: { type: 'string' },
       'github-output': { type: 'boolean' },
@@ -208,6 +213,7 @@ async function matrix(argv: readonly string[], context: CommandContext) {
     ),
     base: optional(flags.base),
     model,
+    allowPool: poolOptIn(flags),
     models: await models(flags.models, context),
     env: context.env,
   });

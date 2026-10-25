@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { WORKFLOW_MODEL_SECRETS } from '@agent-ci/commands/route.js';
 import { PACKAGE_ROOT } from '@agent-ci/paths.js';
+import { isClaudeModel } from '@agent-ci/routing/policy.js';
 import { parseModelsFile } from '@agent-ci/routing/resolve.js';
 import {
   agentJob,
@@ -81,9 +82,16 @@ describe('run-agent.yml', () => {
       await readFile(path.join(PACKAGE_ROOT, 'models.yaml'), 'utf8'),
     );
     if (!models.ok) throw new Error(models.message);
+    // CI may use non-login routes, and pool routes only for non-Claude
+    // models (on self-hosted runners with allow_pool).
     const ciCredentials = models.value.routes
-      .filter((route) => route.account !== 'pool' && !route.login)
+      .filter(
+        (route) =>
+          !route.login && (route.account !== 'pool' || !isClaudeModel(route)),
+      )
       .flatMap((route) => route.credentials);
+    expect(ciCredentials).toContain('AGENT_CI_PROXY_API_KEY');
+    expect(ciCredentials).not.toContain('ANTHROPIC_AUTH_TOKEN');
     for (const name of ciCredentials) {
       expect(declared).toContain(name);
       expect(WORKFLOW_MODEL_SECRETS).toContain(name);
@@ -139,13 +147,18 @@ describe('run-agent.yml', () => {
     const { jobs } = await runAgent();
     const route = step(jobs.resolve ?? {}, 'Resolve the route');
     expect(route.run).toBe(
-      'agent-ci route --model "$MODEL" --harness "$HARNESS" --route "$ROUTE" --github-output',
+      'agent-ci route --model "$MODEL" --harness "$HARNESS" --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output',
     );
     expect(jobs.agent?.with?.route_id).toBe(
       '${{ needs.resolve.outputs.route_id }}',
     );
     const inner = step(await agentJob(), 'Resolve the route');
-    expect(inner.run).toBe('agent-ci route --route "$ROUTE" --github-output');
+    expect(inner.run).toBe(
+      'agent-ci route --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output',
+    );
+    expect(inner.env?.ALLOW_POOL).toBe('${{ inputs.allow_pool }}');
+    expect(jobs.agent?.with?.allow_pool).toBe('${{ inputs.allow_pool }}');
+    expect(route.env?.ALLOW_POOL).toBe('${{ inputs.allow_pool }}');
     expect(inner.env?.ROUTE).toBe('${{ inputs.route_id }}');
   });
 

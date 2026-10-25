@@ -36,6 +36,10 @@ on:
         description: Route resolved by run-agent.yml; re-resolved here under the CI policy.
         type: string
         required: true
+      allow_pool:
+        description: The caller's pool opt-in (see run-agent.yml).
+        type: boolean
+        default: false
       mode:
         type: string
         required: true
@@ -168,7 +172,8 @@ jobs:
         id: route
         env:
           ROUTE: ${{ inputs.route_id }}
-        run: agent-ci route --route "$ROUTE" --github-output
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Install the harness
         env:
@@ -233,8 +238,9 @@ jobs:
           USE_CASE: ${{ inputs.use_case }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
           ATTEMPTS: ${{ inputs.max_attempts }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
         run: >-
-          agent-ci run --route "$ROUTE_ID" --credential-from-env
+          agent-ci run --route "$ROUTE_ID" --credential-from-env --allow-pool-value "$ALLOW_POOL"
           --cwd target --out "$RUNNER_TEMP/agent-ci-out" --home-root "$RUNNER_TEMP/agent-ci-home"
           --prompt-file "$RUNNER_TEMP/agent-ci-prompt.md" --mode "$MODE" --contract "$CONTRACT"
           --use-case "$USE_CASE" --target-repo "$TARGET_REPOSITORY"

@@ -462,6 +462,58 @@ describe('workflow class sweep', () => {
     );
   });
 
+  it('opts into pool routes only through an allow_pool input that defaults to false', async () => {
+    const routing =
+      /agent-ci (?:route|run|review (?:pass|adjudicate)|targets matrix)/u;
+    for (const file of await allWorkflowFiles()) {
+      const workflow = await load<Workflow>(file);
+      const inputs =
+        (
+          workflow.on.workflow_call as
+            | { inputs?: Record<string, { type?: string; default?: unknown }> }
+            | undefined
+        )?.inputs ?? {};
+      for (const [jobName, job] of Object.entries(workflow.jobs)) {
+        for (const entry of job.steps ?? []) {
+          const run = entry.run ?? '';
+          const where = `${file} ${jobName}/${entry.name ?? ''}`;
+          // Never the unconditional flag in a workflow.
+          for (const flag of run.match(/--allow-pool\S*/gu) ?? []) {
+            expect(flag, where).toBe('--allow-pool-value');
+          }
+          if (!routing.test(run)) continue;
+          expect(run, where).toContain('--allow-pool-value "$ALLOW_POOL"');
+          expect(entry.env?.ALLOW_POOL, where).toBe('${{ inputs.allow_pool }}');
+          expect(inputs.allow_pool, where).toMatchObject({
+            type: 'boolean',
+            default: false,
+          });
+        }
+        // Call jobs forward the caller's opt-in, never a constant.
+        if (
+          job.uses?.startsWith('./') === true &&
+          job.with?.allow_pool !== undefined
+        ) {
+          expect(job.with.allow_pool, `${file} ${jobName}`).toBe(
+            '${{ inputs.allow_pool }}',
+          );
+        }
+      }
+    }
+    for (const wrapper of [
+      '.github/workflows/docs-update.yml',
+      '.github/workflows/instructions-update.yml',
+      '.github/workflows/fan-out.yml',
+      '.github/workflows/run-agent.yml',
+    ]) {
+      const workflow = await load<Workflow>(wrapper);
+      const forwards = Object.values(workflow.jobs).some(
+        (job) => job.with?.allow_pool === '${{ inputs.allow_pool }}',
+      );
+      expect(forwards, wrapper).toBe(true);
+    }
+  });
+
   it('never passes secrets: inherit to a reusable workflow', async () => {
     for (const file of await allWorkflowFiles()) {
       const text = await readFile(path.join(PACKAGE_ROOT, file), 'utf8');

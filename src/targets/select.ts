@@ -67,6 +67,8 @@ export interface SelectOptions {
   /** Override every selected target's model (agent presets). */
   readonly model?: string;
   readonly models: ModelsFile;
+  /** The pool opt-in (see checkPoolPolicy). */
+  readonly allowPool?: boolean;
   /** Environment for the routing policy (CI refuses pool and login routes). */
   readonly env: Readonly<Record<string, string | undefined>>;
 }
@@ -176,7 +178,7 @@ export function selectTargets(
         model: model === '' ? undefined : model,
         routeId: route === '' ? undefined : route,
         harness: harness === '' ? undefined : (harness as Target['harness']),
-        allowPool: false,
+        allowPool: options.allowPool === true,
         seedLogin: false,
         requireCredentials: false,
         env: options.env,

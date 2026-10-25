@@ -73,6 +73,13 @@ on:
         description: Targets running at the same time.
         type: number
         default: 4
+      allow_pool:
+        description: >-
+          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
+          on a self-hosted runner whose host serves the loopback proxy, and never
+          for a Claude model; set true there to opt in.
+        type: boolean
+        default: false
       runs_on:
         description: Runner label for every job.
         type: string
@@ -110,6 +117,9 @@ on:
       OPENCODE_API_KEY:
         required: false
       CURSOR_API_KEY:
+        required: false
+      AGENT_CI_PROXY_API_KEY:
+        description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
         required: false
       AGENT_CI_NOTIFY_WEBHOOK:
         required: false
@@ -165,10 +175,12 @@ jobs:
           BASE: ${{ inputs.base }}
           MODEL: ${{ inputs.model }}
           MAX_TARGETS: ${{ inputs.max_targets }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
         run: >-
           agent-ci targets matrix --root caller --file "$TARGETS_FILE"
           --preset "$PRESET" --target "$TARGET" --reset "$RESET" --base "$BASE"
-          --model "$MODEL" --max-targets "$MAX_TARGETS" --github-output
+          --model "$MODEL" --max-targets "$MAX_TARGETS" --allow-pool-value "$ALLOW_POOL"
+          --github-output
 
   agent:
     name: ${{ matrix.preset }} (${{ matrix.id }})
@@ -207,6 +219,7 @@ jobs:
       adopt_branch: ${{ matrix.adopt_branch }}
       artifact_name: ${{ matrix.artifact_name }}
       runs_on: ${{ inputs.runs_on }}
+      allow_pool: ${{ inputs.allow_pool }}
       publisher_login: ${{ inputs.publisher_login }}
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
       agent_ci_ref: ${{ inputs.agent_ci_ref }}
@@ -218,6 +231,7 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
       AGENT_CI_NOTIFY_WEBHOOK: ${{ secrets.AGENT_CI_NOTIFY_WEBHOOK }}
 
   tools:

@@ -52,6 +52,7 @@ const MODEL_SECRETS = [
   'ANTHROPIC_API_KEY',
   'OPENCODE_API_KEY',
   'CURSOR_API_KEY',
+  'AGENT_CI_PROXY_API_KEY',
 ];
 const CREDENTIAL_STEPS = new Set([
   'Run the primary reviewer',
@@ -161,8 +162,28 @@ describe('pr-review.yml', () => {
     const text = JSON.stringify(await review());
     expect(text).not.toContain('setup_command');
     expect(text).not.toContain('skills install');
-    expect(text).not.toContain('--allow-pool');
     expect(text).not.toContain('--seed-login');
+  });
+
+  it('opts into a pool route only through the allow_pool input (default false)', async () => {
+    const workflow = await review();
+    const inputs = (
+      workflow.on.workflow_call as {
+        inputs: Record<string, { type?: string; default?: unknown }>;
+      }
+    ).inputs;
+    expect(inputs.allow_pool).toMatchObject({
+      type: 'boolean',
+      default: false,
+    });
+    for (const [, step] of steps(workflow)) {
+      const run = step.run ?? '';
+      if (!run.includes('--allow-pool')) continue;
+      // Never the unconditional flag: always the input's value.
+      expect(run.match(/--allow-pool\S*/gu)).toEqual(['--allow-pool-value']);
+      expect(run).toContain('--allow-pool-value "$ALLOW_POOL"');
+      expect(step.env?.ALLOW_POOL).toBe('${{ inputs.allow_pool }}');
+    }
   });
 
   it('keeps every expression out of run scripts (inputs and outputs travel through env)', async () => {

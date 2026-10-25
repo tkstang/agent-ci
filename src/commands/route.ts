@@ -1,6 +1,11 @@
 import path from 'node:path';
 
-import { oneOf, optional, parseFlags } from '@agent-ci/commands/flags.js';
+import {
+  oneOf,
+  optional,
+  parseFlags,
+  poolOptIn,
+} from '@agent-ci/commands/flags.js';
 import { appendGithubOutput } from '@agent-ci/commands/github.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { CliError } from '@agent-ci/errors.js';
@@ -13,12 +18,16 @@ import { HARNESS_IDS } from '@agent-ci/routing/schema.js';
  * select one with a static expression chain over exactly these names (a
  * dynamic `secrets[...]` lookup would make the runner receive every secret
  * the workflow holds), so a route naming anything else is refused here.
+ * `AGENT_CI_PROXY_API_KEY` serves non-Claude pool routes on self-hosted
+ * runners only (see checkPoolPolicy); the Claude pool credential
+ * (`ANTHROPIC_AUTH_TOKEN`) is deliberately not wired.
  */
 export const WORKFLOW_MODEL_SECRETS = [
   'CLAUDE_CODE_OAUTH_TOKEN',
   'ANTHROPIC_API_KEY',
   'OPENCODE_API_KEY',
   'CURSOR_API_KEY',
+  'AGENT_CI_PROXY_API_KEY',
 ] as const;
 
 const USAGE = `agent-ci route — resolve the route a run would use, without running it.
@@ -31,7 +40,10 @@ only that credential to the agent step.
 Flags:
   --model <key> | --route <id>   What to resolve (one required).
   --harness <id>                 Pin a harness.
-  --allow-pool                   Allow a local proxy-pool route (refused in CI).
+  --allow-pool                   Allow a proxy-pool route (in CI only on a
+                                 self-hosted runner, never a Claude model).
+  --allow-pool-value <true|false>
+                                 The same as a value (workflow inputs).
   --models <path>                Routing table (default: packaged models.yaml).
   --github-output                Also write route_id, model, harness, account,
                                  billing and credential (the single credential
@@ -39,8 +51,9 @@ Flags:
                                  $GITHUB_OUTPUT. Refuses a route that names
                                  more than one credential, or one outside
                                  CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY,
-                                 OPENCODE_API_KEY and CURSOR_API_KEY (the
-                                 secrets the workflows select statically).`;
+                                 OPENCODE_API_KEY, CURSOR_API_KEY and
+                                 AGENT_CI_PROXY_API_KEY (the secrets the
+                                 workflows select statically).`;
 
 export const routeCommand: CommandSpec = {
   name: 'route',
@@ -54,6 +67,7 @@ export const routeCommand: CommandSpec = {
         route: { type: 'string' },
         harness: { type: 'string' },
         'allow-pool': { type: 'boolean' },
+        'allow-pool-value': { type: 'string' },
         models: { type: 'string' },
         'github-output': { type: 'boolean' },
       },
@@ -79,7 +93,7 @@ export const routeCommand: CommandSpec = {
       model: flags.model,
       routeId: flags.route,
       harness: oneOf(flags.harness, '--harness', HARNESS_IDS),
-      allowPool: flags['allow-pool'] === true,
+      allowPool: poolOptIn(flags),
       seedLogin: false,
       requireCredentials: false,
       env: context.env,

@@ -8,7 +8,8 @@ import type { Route } from '@agent-ci/routing/schema.js';
  * - Claude models run only in the Claude Code harness.
  * - No automatic fallback from a subscription route to paid API billing.
  * - No automatic fallback into a work account.
- * - `pool` routes need an explicit opt-in and are refused under CI.
+ * - `pool` routes need an explicit opt-in; under CI they are allowed only on
+ *   a self-hosted runner and never for a Claude model ({@link checkPoolPolicy}).
  * - Login-seeded routes are local only.
  */
 
@@ -44,6 +45,57 @@ export function isCiEnvironment(
     const value = env[name];
     return value !== undefined && value !== '';
   });
+}
+
+/**
+ * Whether a Claude-family pool route may run under CI. The single policy
+ * point for that question: false until the operator decides
+ * (DR-261025-use-the-local-proxy-pool, amendment 2026-10-25).
+ */
+export const CI_POOL_ALLOWS_CLAUDE = false;
+
+/**
+ * The pool policy, in one place. A pool route spends the operator's local
+ * CLIProxyAPI pool through a loopback `baseUrl`, so:
+ * - it always needs the explicit opt-in (`--allow-pool`, or the workflows'
+ *   `allow_pool` input);
+ * - under CI, never for a Claude model (while {@link CI_POOL_ALLOWS_CLAUDE}
+ *   is false);
+ * - under CI, only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`,
+ *   set by the Actions runner), whose host runs the proxy; a GitHub-hosted
+ *   runner has no loopback proxy and would never reach it.
+ */
+export function checkPoolPolicy(
+  route: Route,
+  request: Pick<EligibilityRequest, 'allowPool' | 'env'>,
+): Result<void> {
+  if (route.account !== 'pool') return success(undefined);
+  if (isCiEnvironment(request.env)) {
+    if (isClaudeModel(route) && !CI_POOL_ALLOWS_CLAUDE) {
+      return failure(
+        'E_POLICY_POOL_CI',
+        `route ${route.id} spends the local proxy pool for a Claude model, which is refused when CI or GITHUB_ACTIONS is set`,
+        'Use a personal Claude route with its own credential in CI.',
+      );
+    }
+    if (request.env.RUNNER_ENVIRONMENT !== 'self-hosted') {
+      return failure(
+        'E_POLICY_POOL_CI',
+        `route ${route.id} spends the local proxy pool, which CI allows only on a self-hosted runner (RUNNER_ENVIRONMENT is ${JSON.stringify(request.env.RUNNER_ENVIRONMENT ?? '')})`,
+        'Run on a self-hosted runner whose host serves the proxy, with allow_pool: true, or use a personal route.',
+      );
+    }
+  }
+  if (!request.allowPool) {
+    return failure(
+      'E_POLICY_POOL',
+      `route ${route.id} spends the local proxy pool`,
+      isCiEnvironment(request.env)
+        ? 'Set the allow_pool workflow input to true to opt in on this self-hosted runner.'
+        : 'Pass --allow-pool to opt in for this local run.',
+    );
+  }
+  return success(undefined);
 }
 
 /** Load-time checks for one route. */
@@ -115,22 +167,8 @@ export function checkEligibility(
   request: EligibilityRequest,
 ): Result<Route> {
   const ci = isCiEnvironment(request.env);
-  if (route.account === 'pool') {
-    if (ci) {
-      return failure(
-        'E_POLICY_POOL_CI',
-        `route ${route.id} spends the local proxy pool, which is refused when CI or GITHUB_ACTIONS is set`,
-        'Use a personal route with its own credential in CI.',
-      );
-    }
-    if (!request.allowPool) {
-      return failure(
-        'E_POLICY_POOL',
-        `route ${route.id} spends the local proxy pool`,
-        'Pass --allow-pool to opt in for this local run.',
-      );
-    }
-  }
+  const pool = checkPoolPolicy(route, request);
+  if (!pool.ok) return pool;
   if (route.login) {
     if (ci) {
       return failure(

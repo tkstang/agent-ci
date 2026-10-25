@@ -59,6 +59,17 @@ routes:
     account: personal
     structuredOutput: prompt
     qualified: null
+  - id: codex-pool
+    model: codex-pool-model
+    harness: codex
+    family: openai
+    providerModel: gpt-x
+    credentials: [AGENT_CI_PROXY_API_KEY]
+    baseUrl: http://127.0.0.1:8317/v1
+    billing: subscription
+    account: pool
+    structuredOutput: output-schema
+    qualified: null
   - id: fake-echo
     model: fake-echo
     harness: fake
@@ -173,6 +184,51 @@ describe('agent-ci route', () => {
       ok: false,
       code: 'E_INVALID_INPUT',
     });
+  });
+});
+
+describe('route pool opt-in in workflows', () => {
+  it('resolves a non-Claude pool route on a self-hosted runner with --allow-pool-value true only', async () => {
+    const { dir, models, output } = await setup();
+    const args = (value: string) => [
+      'route',
+      '--model',
+      'codex-pool-model',
+      '--allow-pool-value',
+      value,
+      '--models',
+      models,
+      '--github-output',
+    ];
+    const selfHosted = {
+      GITHUB_OUTPUT: output,
+      GITHUB_ACTIONS: 'true',
+      RUNNER_ENVIRONMENT: 'self-hosted',
+    };
+    const allowed = await run(args('true'), ctx(dir, selfHosted));
+    expect(allowed.exitCode).toBe(0);
+    expect(await readFile(output, 'utf8')).toContain(
+      'credential=AGENT_CI_PROXY_API_KEY\n',
+    );
+    for (const [value, env, code] of [
+      ['', selfHosted, 'E_POLICY_POOL'],
+      ['false', selfHosted, 'E_POLICY_POOL'],
+      [
+        'true',
+        { ...selfHosted, RUNNER_ENVIRONMENT: 'github-hosted' },
+        'E_POLICY_POOL_CI',
+      ],
+      ['yes', selfHosted, 'E_INVALID_INPUT'],
+    ] as const) {
+      const refused = await run(args(value), ctx(dir, env));
+      expect(
+        refused.envelope,
+        `${value} ${env.RUNNER_ENVIRONMENT}`,
+      ).toMatchObject({
+        ok: false,
+        code,
+      });
+    }
   });
 });
 

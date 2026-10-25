@@ -19,3 +19,15 @@ Claude pool routes carry `account: pool`; they run only locally with `--allow-po
 ## Consequences
 
 Local end-to-end, publish and review runs in p01-p04 may use the pool with cheap models only.
+
+## Amendment 2026-10-25: non-Claude pool routes on self-hosted runners
+
+The operator asked on 2026-10-25 why CI refused the proxy outright; this decision was meant to cover Claude only. The policy now lives in one function, `checkPoolPolicy` in `src/routing/policy.ts`:
+
+- Every pool route still needs an explicit opt-in: `--allow-pool` locally, or the `allow_pool` workflow input (default false) on `run-agent.yml`, `pr-review.yml`, `fan-out.yml` and the docs and instructions wrappers.
+- Under CI, a non-Claude pool route is allowed only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`), whose host serves the loopback proxy. It is refused on GitHub-hosted runners with `E_POLICY_POOL_CI`.
+- Claude pool routes stay refused under CI regardless (`E_POLICY_POOL_CI`). The switch is `CI_POOL_ALLOWS_CLAUDE = false`, pending the operator's decision on Claude.
+- Workflows select the pool credential `AGENT_CI_PROXY_API_KEY` through the same static credential chain as the other model secrets. The Claude pool credential `ANTHROPIC_AUTH_TOKEN` is not wired into any workflow.
+
+The original decision above is unchanged for Claude.
+

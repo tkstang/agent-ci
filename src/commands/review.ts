@@ -6,6 +6,7 @@ import {
   oneOf,
   optional,
   parseFlags,
+  poolOptIn,
   positiveInt,
   required,
 } from '@agent-ci/commands/flags.js';
@@ -187,6 +188,7 @@ const ROUTE_FLAGS = {
   route: { type: 'string' },
   harness: { type: 'string' },
   'allow-pool': { type: 'boolean' },
+  'allow-pool-value': { type: 'string' },
   'seed-login': { type: 'boolean' },
   'home-root': { type: 'string' },
   'timeout-minutes': { type: 'string' },
@@ -510,7 +512,7 @@ async function passStage(
       outDir: path.resolve(context.cwd, required(flags.out, '--out')),
       routeId: optional(flags.route),
       harness: oneOf(optional(flags.harness), '--harness', HARNESS_IDS),
-      allowPool: flags['allow-pool'] === true,
+      allowPool: poolOptIn(flags),
       seedLogin: flags['seed-login'] === true,
       homeRoot:
         flags['home-root'] === undefined
@@ -713,7 +715,7 @@ async function adjudicate(argv: readonly string[], context: CommandContext) {
       ),
       outDir: out,
       routeId: optional(flags.route),
-      allowPool: flags['allow-pool'] === true,
+      allowPool: poolOptIn(flags),
       homeRoot:
         flags['home-root'] === undefined
           ? undefined

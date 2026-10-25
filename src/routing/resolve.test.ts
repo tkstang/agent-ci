@@ -1,4 +1,5 @@
 import { DEFAULT_MODELS_PATH } from '@agent-ci/paths.js';
+import { CI_POOL_ALLOWS_CLAUDE } from '@agent-ci/routing/policy.js';
 import {
   loadModelsFile,
   parseModelsFile,
@@ -365,6 +366,75 @@ describe('resolveRoute policy rejections', () => {
     });
     expect(resolveRoute(routes, request())).toMatchObject({
       code: 'E_INVALID_INPUT',
+    });
+  });
+});
+
+describe('pool policy under CI (operator change 2026-10-25)', () => {
+  const pool = file([
+    route({
+      id: 'codex-pool',
+      model: 'gpt-x',
+      harness: 'codex',
+      family: 'openai',
+      providerModel: 'gpt-x',
+      credentials: ['AGENT_CI_PROXY_API_KEY'],
+      baseUrl: 'http://127.0.0.1:8317/v1',
+      account: 'pool',
+      structuredOutput: 'output-schema',
+    }),
+    route({
+      id: 'claude-pool',
+      model: 'claude-x',
+      credentials: ['ANTHROPIC_AUTH_TOKEN'],
+      baseUrl: 'http://127.0.0.1:8317',
+      account: 'pool',
+    }),
+  ]);
+  const ci = (
+    runner: string | undefined,
+    extra: Record<string, string> = {},
+  ) => ({
+    CI: 'true',
+    AGENT_CI_PROXY_API_KEY: PRESENT,
+    ANTHROPIC_AUTH_TOKEN: PRESENT,
+    ...(runner === undefined ? {} : { RUNNER_ENVIRONMENT: runner }),
+    ...extra,
+  });
+  const resolve = (
+    routeId: string,
+    allowPool: boolean,
+    env: Record<string, string>,
+  ) => resolveRoute(pool, request({ routeId, allowPool, env }));
+
+  it('allows a non-Claude pool route in CI only with the opt-in on a self-hosted runner', () => {
+    expect(resolve('codex-pool', true, ci('self-hosted')).ok).toBe(true);
+    expect(resolve('codex-pool', true, ci('github-hosted'))).toMatchObject({
+      code: 'E_POLICY_POOL_CI',
+    });
+    expect(resolve('codex-pool', true, ci(undefined))).toMatchObject({
+      code: 'E_POLICY_POOL_CI',
+    });
+    expect(resolve('codex-pool', false, ci('self-hosted'))).toMatchObject({
+      code: 'E_POLICY_POOL',
+    });
+  });
+
+  it('keeps refusing Claude pool routes in CI, self-hosted or not (single policy point)', () => {
+    expect(CI_POOL_ALLOWS_CLAUDE).toBe(false);
+    for (const runner of ['self-hosted', 'github-hosted']) {
+      expect(resolve('claude-pool', true, ci(runner))).toMatchObject({
+        code: 'E_POLICY_POOL_CI',
+      });
+    }
+    // Locally the opt-in is all a pool route needs.
+    expect(
+      resolve('claude-pool', true, { ANTHROPIC_AUTH_TOKEN: PRESENT }).ok,
+    ).toBe(true);
+    expect(
+      resolve('codex-pool', false, { AGENT_CI_PROXY_API_KEY: PRESENT }),
+    ).toMatchObject({
+      code: 'E_POLICY_POOL',
     });
   });
 });
