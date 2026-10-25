@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { PipeRunner } from '@agent-ci/harness/home.js';
+import type { RunHarnessDeps } from '@agent-ci/harness/run.js';
 import { type RunOptions, runAgent } from '@agent-ci/run/execute.js';
 import { describe, expect, it } from 'vitest';
 
@@ -14,6 +15,16 @@ const REPLAY_CLI = fileURLToPath(
 
 const MODELS = `version: 1
 routes:
+  - id: codex-login
+    model: codex-login
+    harness: codex
+    family: openai
+    providerModel: synthetic-openai
+    login: true
+    billing: subscription
+    account: personal
+    structuredOutput: output-schema
+    qualified: null
   - id: fake-echo-keyed
     model: fake-echo-keyed
     harness: fake
@@ -87,6 +98,15 @@ async function brokenGit(dir: string): Promise<string> {
     { mode: 0o755 },
   );
   return fakeGit;
+}
+
+async function writtenOutputs(summary: Awaited<ReturnType<typeof runAgent>>) {
+  if (!summary.ok) throw new Error(summary.message);
+  return (
+    (await readFile(summary.value.resultPath, 'utf8')) +
+    (await readFile(summary.value.logPath, 'utf8')) +
+    JSON.stringify(summary.value)
+  );
 }
 
 describe('runAgent', () => {
@@ -256,6 +276,114 @@ describe('runAgent', () => {
       expect(await readFile(summary.value.promptPath, 'utf8')).not.toContain(
         value,
       );
+    });
+  });
+
+  describe('login tokens refreshed during a run', () => {
+    const seed = 'synthetic-seed-access-token-0017';
+    const fresh = 'synthetic-rotated-access-token-0017';
+
+    async function loginOptions(): Promise<RunOptions> {
+      const opts = await options({ model: 'codex-login', seedLogin: true });
+      const operatorHome = path.join(
+        opts.cwd,
+        '..',
+        `${path.basename(opts.cwd)}-operator`,
+      );
+      await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
+      await writeFile(
+        path.join(operatorHome, '.codex', 'auth.json'),
+        JSON.stringify({ tokens: { access_token: seed } }),
+      );
+      return { ...opts, env: { PATH: process.env.PATH, HOME: operatorHome } };
+    }
+
+    /** A codex stand-in: optionally rotates the isolated login, then answers. */
+    function codexSpawn(
+      steps: { rotate: boolean; answer?: string; fail?: string }[],
+    ): RunHarnessDeps['spawn'] {
+      let call = 0;
+      return async (spec) => {
+        const step = steps[Math.min(call, steps.length - 1)] ?? {
+          rotate: false,
+        };
+        call += 1;
+        if (step.rotate) {
+          await writeFile(
+            path.join(spec.env.CODEX_HOME ?? '', 'auth.json'),
+            JSON.stringify({ tokens: { access_token: fresh } }),
+          );
+        }
+        if (step.fail !== undefined) {
+          return {
+            started: true,
+            exitCode: 1,
+            signal: null,
+            stdout: `${JSON.stringify({ type: 'turn.failed', error: { message: step.fail } })}\n`,
+            stderr: '',
+            timedOut: false,
+            outputLimitExceeded: false,
+            durationMs: 1,
+          };
+        }
+        const answer = step.answer ?? 'A clean report.';
+        await writeFile(
+          spec.args[spec.args.indexOf('-o') + 1] ?? '',
+          JSON.stringify({
+            summary: answer,
+            report: { title: 'T', markdown: answer },
+          }),
+        );
+        return {
+          started: true,
+          exitCode: 0,
+          signal: null,
+          stdout: `${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`,
+          stderr: '',
+          timedOut: false,
+          outputLimitExceeded: false,
+          durationMs: 1,
+        };
+      };
+    }
+
+    it('rejects an answer that echoes a token the harness refreshed mid-run', async () => {
+      const summary = await runAgent(await loginOptions(), {
+        harness: {
+          spawn: codexSpawn([{ rotate: true, answer: `token ${fresh}` }]),
+        },
+      });
+      expect(summary.ok && summary.value.error?.code).toBe('E_SECRET_COPY');
+      const text = await writtenOutputs(summary);
+      expect(text).not.toContain(fresh);
+      expect(text).not.toContain(seed);
+    });
+
+    it('accepts a clean answer after a refresh (control)', async () => {
+      const summary = await runAgent(await loginOptions(), {
+        harness: { spawn: codexSpawn([{ rotate: true }]) },
+      });
+      expect(summary.ok && summary.value.result.ok).toBe(true);
+      expect(summary.ok && summary.value.error).toBeUndefined();
+    });
+
+    it('redacts an earlier log record once a later refresh reveals its token', async () => {
+      const summary = await runAgent(
+        { ...(await loginOptions()), maxAttempts: 2 },
+        {
+          harness: {
+            spawn: codexSpawn([
+              { rotate: false, fail: `503 overloaded while using ${fresh}` },
+              { rotate: true },
+            ]),
+          },
+          sleep: async () => undefined,
+        },
+      );
+      expect(summary.ok && summary.value.attempts).toBe(2);
+      const text = await writtenOutputs(summary);
+      expect(text).not.toContain(fresh);
+      expect(text).toContain('log record redacted');
     });
   });
 });

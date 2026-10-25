@@ -36,4 +36,14 @@ describe('RunLog', () => {
       },
     ]);
   });
+
+  it('re-checks earlier records when a secret is learned later', async () => {
+    const later = 'synthetic-later-secret-0004';
+    const log = new RunLog([], () => new Date('2026-10-25T00:00:00Z'));
+    log.add('attempt', { message: `saw ${later}` });
+    expect(JSON.stringify(log.records)).toContain(later);
+    log.addSecrets([later]);
+    expect(JSON.stringify(log.records)).not.toContain(later);
+    expect(log.records[0]).toMatchObject({ code: 'E_SECRET_COPY' });
+  });
 });

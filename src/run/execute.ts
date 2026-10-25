@@ -18,8 +18,10 @@ import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
 import { CredentialLeakError } from '@agent-ci/harness/env.js';
 import {
   createHomeRoot,
+  type ExportRunner,
   type HomeRoot,
   type PipeRunner,
+  readLoginSecrets,
   seedLogin,
   seedSkills,
 } from '@agent-ci/harness/home.js';
@@ -77,6 +79,8 @@ export interface RunDeps {
   readonly pipe?: PipeRunner;
   /** git executable used for change detection (test seam). */
   readonly git?: string;
+  /** Credential-store export runner (test seam for OpenCode logins). */
+  readonly loginExport?: ExportRunner;
 }
 
 export interface RunSummary {
@@ -195,6 +199,22 @@ async function runInHome(
     ...seededSecrets,
   ];
   const log = new RunLog(secrets);
+  // A harness may refresh its login mid-run: re-read the isolated stores and
+  // guard every newly observed token value (outputs, earlier log records).
+  const refreshLoginSecrets = async (): Promise<void> => {
+    const observed = await readLoginSecrets(homeRoot, {
+      harness: route.harness,
+      parentEnv: options.env,
+      includeOpencodeStore: route.login,
+      ...(deps.loginExport === undefined
+        ? {}
+        : { exportRunner: deps.loginExport }),
+    });
+    for (const value of observed) {
+      if (!secrets.includes(value)) secrets.push(value);
+    }
+    log.addSecrets(observed);
+  };
   const outDir = path.resolve(options.cwd, options.outDir);
   await mkdir(outDir, { recursive: true });
   const promptPath = path.join(outDir, 'prompt.md');
@@ -289,6 +309,7 @@ async function runInHome(
                 ),
               };
             }
+            await refreshLoginSecrets();
             log.add('attempt', {
               attempt,
               harness: route.harness,

@@ -1,7 +1,7 @@
 ---
 id: BL-261025-guard-login-tokens-refreshed
 title: Guard login tokens refreshed during a run
-status: open
+status: closed
 priority: low
 scope: task
 scope_estimate: S
@@ -10,7 +10,7 @@ labels:
   - harness
 assignee: null
 created: 2026-10-25T06:35:14.224Z
-updated: 2026-10-25T06:35:14.224Z
+updated: '2026-10-25T06:53:33Z'
 associated_issues: []
 external_plans: []
 ---

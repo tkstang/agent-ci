@@ -16,7 +16,6 @@
 | BL-261025-use-case-wrappers-and-multi | Use-case wrappers and multi-repo fan-out | open | medium | feature | M |
 | BL-261025-verify-review-run-check-tool | Verify-review run_check tool bridge | open | medium | feature | L |
 | BL-261025-close-remaining-claude-only | Close remaining Claude-only policy name-check gaps | open | low | task | XS |
-| BL-261025-guard-login-tokens-refreshed | Guard login tokens refreshed during a run | open | low | task | S |
 <!-- END OAT BACKLOG-INDEX -->
 
 ## Notes

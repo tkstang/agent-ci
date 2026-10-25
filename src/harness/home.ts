@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { secretLeaves } from '@agent-ci/contracts/secret-guard.js';
+import { spawnHarness } from '@agent-ci/harness/spawn.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isCiEnvironment } from '@agent-ci/routing/policy.js';
 import type { HarnessId } from '@agent-ci/routing/schema.js';
@@ -312,4 +313,67 @@ export async function seedLogin(
         `${options.harness} logins cannot be seeded; use the route credential`,
       );
   }
+}
+
+/** Runs a credential-export command; output stays in memory. */
+export type ExportRunner = (
+  command: string,
+  args: readonly string[],
+  env: Record<string, string>,
+) => Promise<{ exitCode: number | null; stdout: string }>;
+
+const defaultExport: ExportRunner = async (command, args, env) => {
+  const result = await spawnHarness({
+    command,
+    args,
+    cwd: env.HOME ?? os.tmpdir(),
+    env,
+    timeoutMs: 30_000,
+    maxOutputBytes: 1024 * 1024,
+  });
+  return result.started
+    ? { exitCode: result.exitCode, stdout: result.stdout }
+    : { exitCode: null, stdout: '' };
+};
+
+export interface LoginSecretsOptions {
+  readonly harness: HarnessId;
+  readonly parentEnv: Readonly<Record<string, string | undefined>>;
+  /** Also export the OpenCode credential store (login routes only). */
+  readonly includeOpencodeStore: boolean;
+  readonly exportRunner?: ExportRunner;
+}
+
+/**
+ * Token-like values currently held in the root's login stores. A harness can
+ * refresh its login during a run, so callers re-read after every attempt.
+ * File stores are read directly; OpenCode v2 keeps credentials in SQLite, so
+ * its isolated store is read through `opencode auth export --standalone`.
+ * Values are for the output guard only and are never logged.
+ */
+export async function readLoginSecrets(
+  layout: HomeRoot,
+  options: LoginSecretsOptions,
+): Promise<string[]> {
+  const found = new Set<string>();
+  for (const file of loginStorePaths(layout)) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      for (const value of secretLeaves(await readFile(file, 'utf8')))
+        found.add(value);
+    } catch {
+      // store absent
+    }
+  }
+  if (options.harness === 'opencode' && options.includeOpencodeStore) {
+    const run = options.exportRunner ?? defaultExport;
+    const exported = await run('opencode', ['auth', 'export', '--standalone'], {
+      PATH: options.parentEnv.PATH ?? '/usr/bin:/bin',
+      ...layout.env,
+    });
+    if (exported.exitCode === 0) {
+      for (const value of secretLeaves(exported.stdout)) found.add(value);
+    }
+  }
+  return [...found];
 }

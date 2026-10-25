@@ -13,8 +13,10 @@ import path from 'node:path';
 import {
   createHomeRoot,
   homeLayout,
+  type ExportRunner,
   loginStorePaths,
   type PipeRunner,
+  readLoginSecrets,
   seedLogin,
   seedSkills,
 } from '@agent-ci/harness/home.js';
@@ -204,5 +206,43 @@ describe('seeding the home root', () => {
     expect(!seeded.ok && seeded.message).toContain(
       'already present in the home root',
     );
+  });
+
+  it('reads token values from the current login stores, exporting OpenCode only for login routes', async () => {
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    await writeFile(
+      path.join(created.value.env.CODEX_HOME ?? '', 'auth.json'),
+      JSON.stringify({ tokens: { access_token: 'synthetic-file-token-0017' } }),
+    );
+    const calls: string[][] = [];
+    const exportRunner: ExportRunner = async (_command, args, env) => {
+      calls.push([...args, env.XDG_DATA_HOME ?? '']);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([{ access: 'synthetic-export-token-0017' }]),
+      };
+    };
+    const withStore = await readLoginSecrets(created.value, {
+      harness: 'opencode',
+      parentEnv: { PATH: '/usr/bin' },
+      includeOpencodeStore: true,
+      exportRunner,
+    });
+    expect(withStore.toSorted()).toEqual([
+      'synthetic-export-token-0017',
+      'synthetic-file-token-0017',
+    ]);
+    expect(calls).toEqual([
+      ['auth', 'export', '--standalone', created.value.env.XDG_DATA_HOME ?? ''],
+    ]);
+    const fileOnly = await readLoginSecrets(created.value, {
+      harness: 'opencode',
+      parentEnv: {},
+      includeOpencodeStore: false,
+      exportRunner,
+    });
+    expect(fileOnly).toEqual(['synthetic-file-token-0017']);
+    expect(calls).toHaveLength(1);
   });
 });
