@@ -584,10 +584,46 @@ async function checkParents(
 }
 
 /**
+ * Where the directory components between `root` and `file` stop being real
+ * directories: `real` when all exist as directories, `missing` at the first
+ * absent one, `blocked` at the first that is a link, file or anything else
+ * (named in `at`). Nothing is followed.
+ */
+async function parentState(
+  root: string,
+  file: string,
+): Promise<{
+  readonly state: 'real' | 'missing' | 'blocked';
+  readonly at?: string;
+}> {
+  const parts = file.split('/').slice(0, -1);
+  for (let i = 1; i <= parts.length; i += 1) {
+    const rel = parts.slice(0, i).join('/');
+    try {
+      const info = await lstat(path.join(root, rel));
+      if (!info.isDirectory()) return { state: 'blocked', at: rel };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      return { state: 'missing', at: rel };
+    }
+  }
+  return { state: 'real' };
+}
+
+/**
  * Promote an attempt's changes (repository-relative paths reported by change
- * detection in the copy) into the real repository: deletions first, then
- * files and links. Nothing is written through a symlinked directory; any
- * path that cannot be promoted exactly fails the run.
+ * detection in the copy) into the real repository, in two steps (phase gate
+ * p02 round 2 L):
+ *
+ * 1. plan, reading only: every path is classified on both sides by `lstat`,
+ *    never through a link. In the copy, a path below a link or file the
+ *    attempt created is gone (that link must itself be a promoted change).
+ *    In the workspace, a directory is never replaced, nothing is read or
+ *    removed below a link, and a link or file is crossed only when it is
+ *    itself deleted first. Any conflict refuses the whole promotion;
+ * 2. apply: deletions, then files and links.
+ *
+ * A refused promotion writes nothing.
  */
 export async function promoteChanges(
   copyRoot: string,
@@ -602,46 +638,49 @@ export async function promoteChanges(
     );
   }
   try {
+    const listed = new Set(changed);
     const kinds = new Map<string, Kind>();
     for (const file of changed) {
-      const kind = await kindOf(path.join(copyRoot, file));
-      if (kind === 'other') {
-        throw new Error(`${file} is not a file or symlink in the attempt`);
-      }
-      // A link into the attempt copy would dangle once the copy is removed.
-      if (
-        kind === 'link' &&
-        (await pointsInto(
-          path.dirname(copyRoot),
-          await readlink(path.join(copyRoot, file)),
-        ))
-      ) {
-        throw new Error(`${file} links into the attempt workspace`);
-      }
-      kinds.set(file, kind);
+      kinds.set(file, await sourceKind(copyRoot, file, listed));
     }
-    // Deletions first: a path may change from a file or link to a directory.
+    const deleted = new Set(changed.filter((f) => kinds.get(f) === 'missing'));
+    const removals: string[] = [];
     for (const file of changed) {
-      if (kinds.get(file) !== 'missing') continue;
-      if (!(await checkParents(boundaryRoot, file, false))) continue;
-      const target = path.join(boundaryRoot, file);
-      const existing = await kindOf(target);
+      const parents = await parentState(boundaryRoot, file);
+      if (parents.state === 'blocked') {
+        // Crossing a workspace link or file is fine only once it is deleted.
+        if (!deleted.has(parents.at ?? '')) {
+          throw new Error(
+            `${parents.at ?? file} is not a directory in the workspace`,
+          );
+        }
+        continue; // nothing exists below it to remove
+      }
+      if (parents.state === 'missing') continue;
+      const existing = await kindOf(path.join(boundaryRoot, file));
       if (existing === 'other') {
         throw new Error(`${file} is a directory in the workspace`);
       }
-      if (existing !== 'missing') await rm(target);
+      if (deleted.has(file) && existing !== 'missing') removals.push(file);
     }
-    for (const file of changed) {
-      const kind = kinds.get(file);
-      if (kind === 'missing') continue;
+    const writes = changed.filter((file) => !deleted.has(file));
+    for (const file of writes) {
+      const parts = file.split('/');
+      for (let i = 1; i < parts.length; i += 1) {
+        const prefix = parts.slice(0, i).join('/');
+        if (listed.has(prefix) && !deleted.has(prefix)) {
+          throw new Error(`${prefix} is both a promoted path and a directory`);
+        }
+      }
+    }
+    // Apply. Only I/O errors can fail from here.
+    for (const file of removals) await rm(path.join(boundaryRoot, file));
+    for (const file of writes) {
       const source = path.join(copyRoot, file);
       const target = path.join(boundaryRoot, file);
       await checkParents(boundaryRoot, file, true);
-      if ((await kindOf(target)) === 'other') {
-        throw new Error(`${file} is a directory in the workspace`);
-      }
       await rm(target, { force: true });
-      if (kind === 'link') {
+      if (kinds.get(file) === 'link') {
         await symlink(await readlink(source), target);
       } else {
         await copyFile(source, target, constants.COPYFILE_EXCL);
@@ -655,4 +694,43 @@ export async function promoteChanges(
     );
   }
   return success(changed);
+}
+
+/**
+ * What a changed path is in the copy, by `lstat` and never through a link:
+ * a file, a link, or missing (deleted, below a link or file the attempt
+ * created, or now a directory whose files are listed on their own).
+ */
+async function sourceKind(
+  copyRoot: string,
+  file: string,
+  listed: ReadonlySet<string>,
+): Promise<Kind> {
+  const parents = await parentState(copyRoot, file);
+  if (parents.state === 'blocked') {
+    // The attempt replaced a directory with a link or file; that entry must
+    // be promoted (or refused) on its own.
+    if (!listed.has(parents.at ?? '')) {
+      throw new Error(
+        `${file} is below ${parents.at ?? file}, which is not a directory in the attempt`,
+      );
+    }
+    return 'missing';
+  }
+  if (parents.state === 'missing') return 'missing';
+  const source = path.join(copyRoot, file);
+  const info = await lstat(source).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return undefined;
+    throw err;
+  });
+  if (info === undefined || info.isDirectory()) return 'missing';
+  if (info.isFile()) return 'file';
+  if (!info.isSymbolicLink()) {
+    throw new Error(`${file} is not a file or symlink in the attempt`);
+  }
+  // A link into the attempt copy would dangle once the copy is removed.
+  if (await pointsInto(path.dirname(copyRoot), await readlink(source))) {
+    throw new Error(`${file} links into the attempt workspace`);
+  }
+  return 'link';
 }

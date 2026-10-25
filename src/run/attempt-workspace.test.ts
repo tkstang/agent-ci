@@ -647,6 +647,71 @@ describe('promoteChanges', () => {
     await expect(lstat(path.join(repo, 'link'))).rejects.toThrow();
   });
 
+  it('refuses an agent-made dir-to-link replacement before writing anything (phase gate round 2 L)', async () => {
+    const { copy, repo } = await pair();
+    await mkdir(path.join(repo, 'src'));
+    await writeFile(path.join(repo, 'src', 'x'), 'original x');
+    await writeFile(path.join(repo, 'src', 'y'), 'original y');
+    await mkdir(path.join(copy, 'lib'));
+    await writeFile(path.join(copy, 'lib', 'x'), 'agent x');
+    await symlink('lib', path.join(copy, 'src'));
+    const promoted = await promoteChanges(copy, repo, [
+      'lib/x',
+      'src',
+      'src/x',
+      'src/y',
+    ]);
+    expect(promoted.ok ? 'ok' : promoted.message).toBe(
+      "could not promote the attempt's changes: src is a directory in the workspace",
+    );
+    expect(await readFile(path.join(repo, 'src', 'x'), 'utf8')).toBe(
+      'original x',
+    );
+    expect(await readFile(path.join(repo, 'src', 'y'), 'utf8')).toBe(
+      'original y',
+    );
+    expect((await readdir(repo)).toSorted()).toEqual(['src']);
+  });
+
+  it('never reads a changed path through a link the attempt created', async () => {
+    const { copy, repo } = await pair();
+    await mkdir(path.join(repo, 'src'));
+    await writeFile(path.join(repo, 'src', 'x'), 'original x');
+    await mkdir(path.join(copy, 'lib'));
+    await writeFile(path.join(copy, 'lib', 'x'), 'agent x');
+    await symlink('lib', path.join(copy, 'src'));
+    const promoted = await promoteChanges(copy, repo, ['src/x']);
+    expect(promoted.ok ? 'ok' : promoted.code).toBe('E_WORKSPACE_STATUS');
+    expect(await readFile(path.join(repo, 'src', 'x'), 'utf8')).toBe(
+      'original x',
+    );
+  });
+
+  it('turns a file or workspace link into a directory only by deleting it first', async () => {
+    const { copy, repo } = await pair();
+    const outside = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-outside-'));
+    await writeFile(path.join(repo, 'a'), 'file');
+    await symlink(outside, path.join(repo, 'docs'));
+    await writeFile(path.join(repo, 'gone.txt'), 'old');
+    await mkdir(path.join(copy, 'a'));
+    await writeFile(path.join(copy, 'a', 'b'), 'b');
+    await mkdir(path.join(copy, 'docs'));
+    await writeFile(path.join(copy, 'docs', 'x.txt'), 'x');
+    const promoted = await promoteChanges(copy, repo, [
+      'a',
+      'a/b',
+      'docs',
+      'docs/x.txt',
+      'gone.txt',
+    ]);
+    expect(promoted.ok).toBe(true);
+    expect(await readFile(path.join(repo, 'a', 'b'), 'utf8')).toBe('b');
+    expect((await lstat(path.join(repo, 'docs'))).isDirectory()).toBe(true);
+    expect(await readFile(path.join(repo, 'docs', 'x.txt'), 'utf8')).toBe('x');
+    await expect(lstat(path.join(repo, 'gone.txt'))).rejects.toThrow();
+    expect(await readdir(outside)).toEqual([]);
+  });
+
   it('refuses unsafe paths', async () => {
     const { copy, repo } = await pair();
     for (const bad of ['../x', '/etc/x', '.git/config', 'a/../b', 'sub/']) {
