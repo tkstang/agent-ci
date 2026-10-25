@@ -738,7 +738,13 @@ async function sources(
     const candidates = collectCandidates(
       passes
         .filter((p) => p.review !== null)
-        .map((p) => ({ pass: p.pass, attempt: '1', review: p.review })),
+        // The trusted workflow attempt, as the findings gate uses: candidate
+        // ids embed it, and a mismatch rejects every reduction on a rerun.
+        .map((p) => ({
+          pass: p.pass,
+          attempt: runIdentity(env).runAttempt,
+          review: p.review,
+        })),
       {
         mode: spec.spec.request.mode,
         base_sha: spec.spec.base_sha,
@@ -818,7 +824,11 @@ async function adjudicate(argv: readonly string[], context: CommandContext) {
       spec: spec.spec,
       passes: passes
         .filter((p) => p.review !== null)
-        .map((p) => ({ pass: p.pass, attempt: '1', review: p.review })),
+        .map((p) => ({
+          pass: p.pass,
+          attempt: runIdentity(env).runAttempt,
+          review: p.review,
+        })),
       failOnSeverity: parsePolicy({ failOnSeverity: flags['fail-on-severity'] })
         .fail_on_severity,
       read: await readSourceSnapshot(

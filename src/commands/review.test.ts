@@ -35,6 +35,16 @@ routes:
     structuredOutput: prompt
     qualified: null
 `;
+const ADJUDICATE_DROP = `  - id: fake-adjudicate-drop
+    model: fake-adjudicate-drop
+    harness: fake
+    family: fake
+    providerModel: adjudicate-drop
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: null
+`;
 const CHECKS = [
   'version: 1',
   'checks:',
@@ -921,5 +931,147 @@ describe('agent-ci review verify-review stages', () => {
     ).toBe(true);
     // Neither the verify worktree nor the review worktree is left behind.
     expect(git(clone, 'worktree', 'list').split('\n')).toHaveLength(1);
+  }, 60_000);
+});
+
+describe('agent-ci review on a rerun (workflow attempt 2)', () => {
+  it('applies an adjudicator reduction: sources, adjudicator and gate share the trusted attempt', async () => {
+    const t = await setup();
+    await writeFile(t.modelsPath, `${MODELS}${ADJUDICATE_DROP}`);
+    const rerun = { GITHUB_RUN_ATTEMPT: '2' };
+    const labeled = await event(t.root, {
+      action: 'labeled',
+      label: { name: 'agent-ci:review' },
+      pull_request: { number: 7 },
+      sender: { login: 'maintainer', type: 'User' },
+    });
+    const gated = await t.cli(
+      [
+        'gate',
+        '--out',
+        'gate',
+        '--event-name',
+        'pull_request_target',
+        '--event-path',
+        labeled,
+        '--reviewer-model',
+        'fake-review',
+        '--adjudicator',
+        'true',
+        '--adjudicator-model',
+        'fake-adjudicate-drop',
+        '--allowed-models',
+        'fake-review,fake-adjudicate-drop',
+        '--models',
+        t.modelsPath,
+        '--github-output',
+      ],
+      rerun,
+    );
+    expect(gated.exitCode).toBe(0);
+    const gateOut = await t.outputs();
+    expect(
+      (
+        await t.cli(
+          [
+            'prepare',
+            '--request',
+            'gate/request.json',
+            '--request-sha256',
+            gateOut.request_sha256 ?? '',
+            '--out',
+            'spec',
+            '--github-output',
+          ],
+          rerun,
+        )
+      ).exitCode,
+    ).toBe(0);
+    const specSha = (await t.outputs()).spec_sha256 ?? '';
+    const passed = await t.cli(
+      [
+        'pass',
+        '--spec-dir',
+        'spec',
+        '--spec-sha256',
+        specSha,
+        '--pass',
+        'primary',
+        '--cwd',
+        'target',
+        '--out',
+        'primary',
+        '--models',
+        t.modelsPath,
+        '--max-attempts',
+        '1',
+      ],
+      { CI: '', GITHUB_ACTIONS: '', ...rerun },
+    );
+    expect(passed.exitCode).toBe(0);
+    const primaryDigest = await digestResultDir(path.join(t.root, 'primary'));
+    if (!primaryDigest.ok) throw new Error(primaryDigest.message);
+    const passFlags = [
+      '--spec-dir',
+      'spec',
+      '--spec-sha256',
+      specSha,
+      '--primary-dir',
+      'primary',
+      '--primary-digest',
+      primaryDigest.value,
+    ];
+    expect(
+      (await t.cli(['sources', ...passFlags, '--out', 'sources'], rerun))
+        .exitCode,
+    ).toBe(0);
+    const adjudicated = await t.cli(
+      [
+        'adjudicate',
+        ...passFlags,
+        '--sources-dir',
+        'sources',
+        '--out',
+        'adjudication',
+        '--models',
+        t.modelsPath,
+      ],
+      { CI: '', GITHUB_ACTIONS: '', ...rerun },
+    );
+    expect(adjudicated.exitCode).toBe(0);
+    const adjudicationDigest = await digestResultDir(
+      path.join(t.root, 'adjudication'),
+    );
+    if (!adjudicationDigest.ok) throw new Error(adjudicationDigest.message);
+    const found = await t.cli(
+      [
+        'findings',
+        ...passFlags,
+        '--adjudication-dir',
+        'adjudication',
+        '--adjudication-digest',
+        adjudicationDigest.value,
+        '--out',
+        'gated',
+        '--github-output',
+      ],
+      rerun,
+    );
+    expect(found.exitCode).toBe(0);
+    const review = JSON.parse(
+      await readFile(path.join(t.root, 'gated', 'review-gated.json'), 'utf8'),
+    ) as {
+      adjudication: { operations: { candidate_id: string; outcome: string }[] };
+      findings: unknown[];
+    };
+    // Before the fix the adjudicator named primary-a1-* while the gate knew
+    // primary-a2-*: rejected:unknown_candidate and one finding left.
+    expect(review.adjudication.operations).toEqual([
+      expect.objectContaining({
+        candidate_id: expect.stringMatching(/^primary-a2-/u),
+        outcome: 'applied',
+      }),
+    ]);
+    expect(review.findings).toEqual([]);
   }, 60_000);
 });

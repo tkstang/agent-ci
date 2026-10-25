@@ -280,6 +280,33 @@ switch (scenario) {
   case 'adjudicate':
     emit(JSON.stringify({ operations: [] }), false);
     break;
+  case 'adjudicate-drop': {
+    // Test-only: drop the first reducible candidate the prompt shows, citing
+    // its own anchor (candidate ids embed the workflow attempt).
+    const id = /"candidate_id": "([^"]+)"/u.exec(prompt)?.[1];
+    const after = id === undefined ? '' : prompt.slice(prompt.indexOf(id));
+    const file = /"path": "([^"]+)"/u.exec(after)?.[1];
+    const line = Number(/"line": (\d+)/u.exec(after)?.[1] ?? 0);
+    const side = /"side": "(RIGHT|LEFT)"/u.exec(after)?.[1] ?? 'RIGHT';
+    emit(
+      JSON.stringify({
+        operations:
+          id === undefined || file === undefined || line < 1
+            ? []
+            : [
+                {
+                  candidate_id: id,
+                  op: 'drop',
+                  to_severity: null,
+                  reason: { code: 'incorrect_claim', detail: 'fake drop' },
+                  references: [{ path: file, line, end_line: line, side }],
+                },
+              ],
+      }),
+      false,
+    );
+    break;
+  }
   case 'review-repair-escape':
     // Test-only: the resumed turn links its home into the workspace.
     if (argValue('--resume') !== undefined)
