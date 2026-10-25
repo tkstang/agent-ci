@@ -14,6 +14,11 @@ import { createGunzip } from 'node:zlib';
 
 import { isSafeRepoPath } from '@agent-ci/publish/changes.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
+import {
+  isWithin,
+  resolvePhysical,
+  resolveRealPath,
+} from '@agent-ci/run/workspace.js';
 
 /**
  * Restore the setup job's prepared working tree in the agent job.
@@ -213,17 +218,24 @@ function memberPath(raw: string): string {
   return name;
 }
 
+interface Extracted {
+  readonly entries: number;
+  /** Paths (relative to staging) of every extracted symlink. */
+  readonly links: readonly string[];
+}
+
 async function extract(
   archive: string,
   staging: string,
   limits: ArchiveLimits,
-): Promise<number> {
+): Promise<Extracted> {
   const reader = new ByteReader(
     createReadStream(archive).pipe(createGunzip()) as AsyncIterable<Buffer>,
   );
   const seen = new Set<string>();
   const dirs = new Set<string>(['']);
   const files = new Set<string>();
+  const links: string[] = [];
   let entries = 0;
   let total = 0;
   let longName: string | undefined;
@@ -236,7 +248,7 @@ async function extract(
       if (!(await reader.onlyZerosLeft())) {
         throw new Error('data after the end-of-archive marker');
       }
-      return entries;
+      return { entries, links };
     }
     if (!checksumOk(block)) throw new Error('archive header checksum mismatch');
     const type = String.fromCharCode(block[156] ?? 0);
@@ -316,6 +328,7 @@ async function extract(
         throw new Error(`archive link ${rel} leaves the tree (${linkName})`);
       }
       await symlink(linkName, full);
+      links.push(rel);
       await reader.skip(dataBytes);
     } else if (type === '1') {
       const source = memberPath(linkName);
@@ -351,6 +364,35 @@ async function extract(
       throw new Error(
         `archive member ${rel} has unsupported type ${JSON.stringify(type)}`,
       );
+    }
+  }
+}
+
+/**
+ * The per-entry check is lexical; links can chain through other archive
+ * links (`l1 -> ../..` then `x -> l1/../../etc/passwd`). Once everything is
+ * extracted, resolve each link physically (the p01 resolver follows chains,
+ * applies `..` after links and rejects loops) and refuse any whose final
+ * target leaves the staging tree or lands in `.git`.
+ */
+async function assertLinksStayInTree(
+  staging: string,
+  links: readonly string[],
+): Promise<void> {
+  const root = await resolveRealPath(staging);
+  for (const rel of links) {
+    let real: string;
+    try {
+      real = (await resolvePhysical(path.join(root, rel))).real;
+    } catch {
+      throw new Error(`archive link ${rel} cannot be resolved inside the tree`);
+    }
+    if (!isWithin(root, real)) {
+      throw new Error(`archive link ${rel} resolves outside the tree`);
+    }
+    const inside = path.relative(root, real).split(path.sep);
+    if (inside.some((part) => part.toLowerCase() === '.git')) {
+      throw new Error(`archive link ${rel} resolves into .git`);
     }
   }
 }
@@ -418,7 +460,9 @@ export async function restoreWorkspace(
   }
   let entries: number;
   try {
-    entries = await extract(options.archive, staging, limits);
+    const extracted = await extract(options.archive, staging, limits);
+    entries = extracted.entries;
+    await assertLinksStayInTree(staging, extracted.links);
   } catch (err) {
     await rm(staging, { recursive: true, force: true });
     return failure(

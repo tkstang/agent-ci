@@ -162,7 +162,43 @@ describe('restoring an honest prepared tree', () => {
   });
 });
 
+const DEEP = 'a/b/c/d/e/f/g/h';
+
 const HOSTILE: [string, Member[]][] = [
+  [
+    'one-level chained link escape (review M1)',
+    [
+      { name: 'sub/', type: '5', mode: 0o755 },
+      { name: 'sub/l1', type: '2', linkname: '..' },
+      { name: 'esc', type: '2', linkname: 'sub/l1/../x' },
+    ],
+  ],
+  [
+    'eight-level chained link to /etc/passwd (review M1)',
+    [
+      { name: 'a/', type: '5', mode: 0o755 },
+      { name: 'a/b/', type: '5', mode: 0o755 },
+      { name: 'a/b/c/', type: '5', mode: 0o755 },
+      { name: 'a/b/c/d/', type: '5', mode: 0o755 },
+      { name: 'a/b/c/d/e/', type: '5', mode: 0o755 },
+      { name: 'a/b/c/d/e/f/', type: '5', mode: 0o755 },
+      { name: 'a/b/c/d/e/f/g/', type: '5', mode: 0o755 },
+      { name: 'a/b/c/d/e/f/g/h/', type: '5', mode: 0o755 },
+      { name: `${DEEP}/l1`, type: '2', linkname: '../../../../../../../../' },
+      {
+        name: 'etcpw',
+        type: '2',
+        linkname: `${DEEP}/l1/../../../../../../../../etc/passwd`,
+      },
+    ],
+  ],
+  [
+    'link loop',
+    [
+      { name: 'x', type: '2', linkname: 'y' },
+      { name: 'y', type: '2', linkname: 'x' },
+    ],
+  ],
   [
     '.git/config member (the reviewed attack)',
     [
@@ -285,6 +321,27 @@ describe('hostile prepared trees are refused and leave the checkout untouched', 
       if (previous === undefined) delete process.env.TAR_OPTIONS;
       else process.env.TAR_OPTIONS = previous;
     }
+  });
+});
+
+describe('chained links that stay in the tree', () => {
+  it('are accepted', async () => {
+    const { target } = await agentCheckout();
+    const { archive, digest } = await forged([
+      { name: 'pkg/', type: '5', mode: 0o755 },
+      { name: 'pkg/real.js', content: 'x' },
+      { name: 'pkg/alias', type: '2', linkname: 'real.js' },
+      { name: 'bin/', type: '5', mode: 0o755 },
+      { name: 'bin/tool', type: '2', linkname: '../pkg/alias' },
+      { name: 'dangling', type: '2', linkname: 'pkg/not-yet' },
+    ]);
+    const restored = await restoreWorkspace({
+      archive,
+      target,
+      sha256: digest,
+    });
+    expect(restored.ok).toBe(true);
+    expect(await readFile(path.join(target, 'bin', 'tool'), 'utf8')).toBe('x');
   });
 });
 
