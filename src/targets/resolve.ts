@@ -81,6 +81,58 @@ function field(value: unknown, key: string): unknown {
     : undefined;
 }
 
+const RATE_LIMIT_MESSAGE = /rate limit|abuse/iu;
+/** GitHub's permission denial for fine-grained, App and Actions tokens. */
+const PERMISSION_DENIED =
+  /^Resource not accessible by (?:personal access token|integration)$/u;
+
+/**
+ * Admission contract for the dry-run write probe (`POST git/refs` with an
+ * all-zero SHA). Only a recognized permission denial proves the token cannot
+ * write contents; everything else is refused or fails closed:
+ * - 422: authorization passed and validation failed, so the token can write
+ *   contents: `writer`.
+ * - Any rate-limit signal, checked first and on every status:
+ *   `x-ratelimit-remaining: 0`, a `retry-after` header, status 429, or a
+ *   message that mentions a rate limit or abuse. GitHub documents these
+ *   403/429 responses as unrelated to permissions, so the token's
+ *   permission is unknown: `unknown`.
+ * - 403 whose JSON `message` is exactly "Resource not accessible by personal
+ *   access token" or "... by integration": `denied`.
+ * - 404 whose JSON `message` is exactly "Not Found" (GitHub hides a write
+ *   endpoint from a token that cannot use it): `denied`.
+ * - Anything else (another message such as SAML enforcement, an unparsable
+ *   body, another status): `unknown`.
+ */
+export function probeVerdict(response: {
+  readonly status: number;
+  readonly header: (name: string) => string | null;
+  readonly text: string;
+}): 'writer' | 'denied' | 'unknown' {
+  let message = '';
+  try {
+    const body = JSON.parse(response.text) as unknown;
+    const value = field(body, 'message');
+    if (typeof value === 'string') message = value.trim();
+  } catch {
+    message = '';
+  }
+  if (
+    response.header('x-ratelimit-remaining')?.trim() === '0' ||
+    response.header('retry-after') !== null ||
+    response.status === 429 ||
+    RATE_LIMIT_MESSAGE.test(message)
+  ) {
+    return 'unknown';
+  }
+  if (response.status === 422) return 'writer';
+  if (response.status === 403 && PERMISSION_DENIED.test(message)) {
+    return 'denied';
+  }
+  if (response.status === 404 && message === 'Not Found') return 'denied';
+  return 'unknown';
+}
+
 function notReadOnly(why: string): Result<never> {
   return failure(
     'E_TARGET_TOKEN',
@@ -99,8 +151,8 @@ function notReadOnly(why: string): Result<never> {
  *   scope, and a public target needs no read token, so a scoped classic
  *   read token is never needed;
  * - a dry-run ref creation (an all-zero SHA, which GitHub rejects without
- *   creating anything: 422 when the token may write contents, 403/404 when
- *   it may not) must be refused for lack of permission.
+ *   creating anything) must be refused for lack of permission, as defined by
+ *   {@link probeVerdict}.
  * Anything else fails closed. Pull-request, Actions, secrets and
  * administration permissions of fine-grained or App tokens cannot be
  * introspected (recorded residual).
@@ -162,10 +214,16 @@ async function checkoutAccess(
           sha: '0'.repeat(40),
         },
       },
-      [403, 404, 422],
+      [403, 404, 422, 429],
     );
-    if (probe.status === 422) {
+    const verdict = probeVerdict(probe);
+    if (verdict === 'writer') {
       return notReadOnly(`can write the contents of ${repository}`);
+    }
+    if (verdict === 'unknown') {
+      return notReadOnly(
+        `could not be verified unable to write the contents of ${repository} (rate-limited or unrecognized response ${probe.status}); retry later`,
+      );
     }
   } catch {
     return notReadOnly(

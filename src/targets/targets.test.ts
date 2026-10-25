@@ -355,6 +355,17 @@ function fakeFetch(
     writers?: readonly string[];
     /** Classic-token scopes reported per token. */
     scopes?: Readonly<Record<string, string>>;
+    /** Dry-run probe responses per token (default: a permission denial). */
+    probe?: Readonly<
+      Record<
+        string,
+        {
+          status: number;
+          headers?: Record<string, string>;
+          message: string;
+        }
+      >
+    >;
   } = {},
 ) {
   const calls: Call[] = [];
@@ -367,9 +378,23 @@ function fakeFetch(
       return new Response('{}', { status: 404 });
     }
     if (init?.method === 'POST' && text.endsWith('/git/refs')) {
-      return new Response('{}', {
-        status: behavior.writers?.includes(token) === true ? 422 : 403,
-      });
+      const custom = behavior.probe?.[token];
+      if (custom !== undefined) {
+        return new Response(JSON.stringify({ message: custom.message }), {
+          status: custom.status,
+          headers: custom.headers ?? {},
+        });
+      }
+      return behavior.writers?.includes(token) === true
+        ? new Response(JSON.stringify({ message: 'Object does not exist' }), {
+            status: 422,
+          })
+        : new Response(
+            JSON.stringify({
+              message: 'Resource not accessible by personal access token',
+            }),
+            { status: 403 },
+          );
     }
     const repo = /\/repos\/([^/]+\/[^/]+)$/u.exec(text);
     if (repo !== null) {
@@ -537,6 +562,64 @@ describe('resolveTarget', () => {
         }),
       ),
     ).toBe('ok');
+  });
+
+  it('admits only a recognized permission denial from the write probe (gate H2)', async () => {
+    const probe = {
+      denied: {
+        status: 403,
+        message: 'Resource not accessible by personal access token',
+      },
+      app: { status: 403, message: 'Resource not accessible by integration' },
+      hidden: { status: 404, message: 'Not Found' },
+      primary: {
+        status: 403,
+        headers: {
+          'x-ratelimit-remaining': '0',
+          'x-ratelimit-reset': '9999999999',
+        },
+        message: 'API rate limit exceeded for user ID 1.',
+      },
+      secondary: {
+        status: 403,
+        headers: { 'retry-after': '60' },
+        message: 'You have exceeded a secondary rate limit.',
+      },
+      // A rate-limit header wins even over a denial message.
+      limitedDenial: {
+        status: 403,
+        headers: { 'x-ratelimit-remaining': '0' },
+        message: 'Resource not accessible by personal access token',
+      },
+      tooMany: { status: 429, message: 'Too Many Requests' },
+      saml: {
+        status: 403,
+        message: 'Resource protected by organization SAML enforcement.',
+      },
+      otherNotFound: { status: 404, message: 'Repository not found' },
+    };
+    const { impl } = fakeFetch(REPOS, { main: SHA_B }, undefined, { probe });
+    const base = {
+      repository: 'octo/secret',
+      callingRepository: 'octo/caller',
+      targetToken: 'target-token',
+      fetch: impl,
+    };
+    const verdicts: Record<string, string | undefined> = {};
+    for (const readToken of Object.keys(probe)) {
+      verdicts[readToken] = code(await resolveTarget({ ...base, readToken }));
+    }
+    expect(verdicts).toEqual({
+      denied: 'ok',
+      app: 'ok',
+      hidden: 'ok',
+      primary: 'E_TARGET_TOKEN',
+      secondary: 'E_TARGET_TOKEN',
+      limitedDenial: 'E_TARGET_TOKEN',
+      tooMany: 'E_TARGET_TOKEN',
+      saml: 'E_TARGET_TOKEN',
+      otherNotFound: 'E_TARGET_TOKEN',
+    });
   });
 
   it('stops before any request when another repository has no target token', async () => {
