@@ -1,0 +1,251 @@
+# Reusable workflow: run one use-case preset across the repositories listed
+# in the caller's targets.yaml, ported from pntr's multi-repo workflows
+# (voxmedia/pntr@e438668: oat-docs-update-multi-repo.yml,
+# oat-agent-instructions-update-multi-repo.yml, oat-tools-update-multi-repo.yml)
+# with the hard-coded targets moved into targets.yaml.
+#
+# - targets: no secret but the helper token. `agent-ci targets matrix`
+#            validates targets.yaml (schema, unique targets, allowedOwners,
+#            models under the CI routing policy) and emits a bounded matrix.
+# - agent:   docs-update / instructions-update: run-agent.yml once per target.
+# - tools:   tools-update: tools-update.yml once per target (no model; no
+#            model credential is passed).
+#
+# Matrix values only ever become reusable-workflow inputs; run-agent.yml and
+# tools-update.yml pass every input to scripts through env.
+#
+# Tokens: the calling repository is reached only with GITHUB_TOKEN; every
+# other target only with the caller's AGENT_CI_TARGET_TOKEN, which the nested
+# workflows reference only in their resolve and publish jobs (no repository
+# code, no agent). Jobs that run repository code or the agent check other
+# targets out with the read-only AGENT_CI_TARGET_READ_TOKEN (needed for
+# private targets). A missing token stops that target's run.
+#
+# Permissions: GitHub validates nested reusable-workflow job permissions
+# against the original caller, so the calling workflow must grant
+# contents: write and pull-requests: write (the nested publish jobs request
+# them) even when every target is another repository.
+#
+# Call it from schedule or workflow_dispatch (see
+# consumer-workflows/agent-ci-fleet.yml). Pull-request events from forks are
+# refused.
+name: agent-ci fan-out
+
+on:
+  workflow_call:
+    inputs:
+      preset:
+        description: docs-update, instructions-update or tools-update.
+        type: string
+        required: true
+      target:
+        description: all, or one target id or owner/name repository.
+        type: string
+        default: all
+      reset:
+        description: >-
+          Replace the selected target's static branch content even when agent-ci did
+          not make its head (history kept, never a force push). Needs one target.
+        type: boolean
+        default: false
+      targets_file:
+        description: Path of targets.yaml in the calling repository.
+        type: string
+        default: targets.yaml
+      base:
+        description: Override every selected target's base branch.
+        type: string
+        default: ''
+      model:
+        description: Override every selected target's model (agent presets).
+        type: string
+        default: ''
+      max_targets:
+        description: Refuse a matrix larger than this (at most 50).
+        type: number
+        default: 50
+      max_parallel:
+        description: Targets running at the same time.
+        type: number
+        default: 4
+      runs_on:
+        description: Runner label for every job.
+        type: string
+        default: ubuntu-latest
+      publisher_login:
+        description: Login the publish tokens act as (set it for a GitHub App token).
+        type: string
+        default: ''
+      agent_ci_repository:
+        description: Repository that provides the agent-ci helpers. Empty means this workflow's own.
+        type: string
+        default: ''
+      agent_ci_ref:
+        description: Helper ref. Empty means this reusable workflow's own commit.
+        type: string
+        default: ''
+    secrets:
+      AGENT_CI_SOURCE_TOKEN:
+        description: Contents read on the agent-ci repository (consumer repositories; it is private).
+        required: false
+      AGENT_CI_TARGET_TOKEN:
+        description: >-
+          Contents and pull-requests write on every target that is not the calling
+          repository. Referenced only in the nested resolve and publish jobs.
+        required: false
+      AGENT_CI_TARGET_READ_TOKEN:
+        description: >-
+          Read-only token for checking out private targets in the jobs that run
+          repository code or the agent. Public targets need none.
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENCODE_API_KEY:
+        required: false
+      CURSOR_API_KEY:
+        required: false
+      AGENT_CI_NOTIFY_WEBHOOK:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    name: Select targets
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the calling repository (targets file)
+        uses: actions/checkout@v5
+        with:
+          path: caller
+          persist-credentials: false
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Select the target matrix
+        id: select
+        env:
+          TARGETS_FILE: ${{ inputs.targets_file }}
+          PRESET: ${{ inputs.preset }}
+          TARGET: ${{ inputs.target }}
+          RESET: ${{ inputs.reset }}
+          BASE: ${{ inputs.base }}
+          MODEL: ${{ inputs.model }}
+          MAX_TARGETS: ${{ inputs.max_targets }}
+        run: >-
+          agent-ci targets matrix --root caller --file "$TARGETS_FILE"
+          --preset "$PRESET" --target "$TARGET" --reset "$RESET" --base "$BASE"
+          --model "$MODEL" --max-targets "$MAX_TARGETS" --github-output
+
+  agent:
+    name: ${{ matrix.preset }} (${{ matrix.id }})
+    needs: targets
+    if: inputs.preset != 'tools-update'
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.max_parallel }}
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    concurrency:
+      group: agent-ci-${{ matrix.use_case }}-${{ matrix.id }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/run-agent.yml
+    with:
+      preset: ${{ matrix.preset }}
+      use_case: ${{ matrix.use_case }}
+      model: ${{ matrix.model }}
+      harness: ${{ matrix.harness }}
+      route: ${{ matrix.route }}
+      mode: ${{ matrix.mode }}
+      output_contract: ${{ matrix.output_contract }}
+      target_repository: ${{ matrix.repository }}
+      target_ref: ${{ matrix.base }}
+      publish_base: ${{ matrix.base }}
+      setup_command: ${{ matrix.setup_command }}
+      skills_oat_packs: ${{ matrix.skills_oat_packs }}
+      timeout_minutes: ${{ matrix.timeout_minutes }}
+      max_attempts: ${{ matrix.max_attempts }}
+      publish_pr: true
+      publish_branch: ${{ matrix.publish_branch }}
+      pr_title: ${{ matrix.pr_title }}
+      path_policy: ${{ matrix.path_policy }}
+      adopt_branch: ${{ matrix.adopt_branch }}
+      artifact_name: ${{ matrix.artifact_name }}
+      runs_on: ${{ inputs.runs_on }}
+      publisher_login: ${{ inputs.publisher_login }}
+      agent_ci_repository: ${{ inputs.agent_ci_repository }}
+      agent_ci_ref: ${{ inputs.agent_ci_ref }}
+    secrets:
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
+      AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
+      AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      AGENT_CI_NOTIFY_WEBHOOK: ${{ secrets.AGENT_CI_NOTIFY_WEBHOOK }}
+
+  tools:
+    name: ${{ matrix.preset }} (${{ matrix.id }})
+    needs: targets
+    if: inputs.preset == 'tools-update'
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.max_parallel }}
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    concurrency:
+      group: agent-ci-${{ matrix.use_case }}-${{ matrix.id }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/tools-update.yml
+    with:
+      target_repository: ${{ matrix.repository }}
+      base: ${{ matrix.base }}
+      oat_cli_version: ${{ matrix.oat_cli_version }}
+      dependency_policy: ${{ matrix.dependency_policy }}
+      publish_branch: ${{ matrix.publish_branch }}
+      pr_title: ${{ matrix.pr_title }}
+      adopt_branch: ${{ matrix.adopt_branch }}
+      timeout_minutes: ${{ matrix.timeout_minutes }}
+      artifact_name: ${{ matrix.artifact_name }}
+      runs_on: ${{ inputs.runs_on }}
+      publisher_login: ${{ inputs.publisher_login }}
+      agent_ci_repository: ${{ inputs.agent_ci_repository }}
+      agent_ci_ref: ${{ inputs.agent_ci_ref }}
+    secrets:
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
+      AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
+      AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+      AGENT_CI_NOTIFY_WEBHOOK: ${{ secrets.AGENT_CI_NOTIFY_WEBHOOK }}

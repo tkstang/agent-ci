@@ -344,14 +344,21 @@ interface Call {
 }
 
 function fakeFetch(
-  repos: Record<string, { full_name: string; default_branch: string }>,
+  repos: Record<
+    string,
+    { full_name: string; default_branch: string; private?: boolean }
+  >,
   commits: Record<string, string>,
+  deniedToken?: string,
 ) {
   const calls: Call[] = [];
   const impl = (async (url: string | URL, init?: RequestInit) => {
     const text = String(url);
     const headers = new Headers(init?.headers);
     calls.push({ url: text, auth: headers.get('authorization') });
+    if (headers.get('authorization') === `Bearer ${deniedToken}`) {
+      return new Response('{}', { status: 404 });
+    }
     const repo = /\/repos\/([^/]+\/[^/]+)$/u.exec(text);
     if (repo !== null) {
       const found = repos[(repo[1] ?? '').toLowerCase()];
@@ -372,7 +379,16 @@ const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
 const REPOS = {
   'octo/caller': { full_name: 'octo/caller', default_branch: 'main' },
-  'octo/widgets': { full_name: 'octo/widgets', default_branch: 'trunk' },
+  'octo/widgets': {
+    full_name: 'octo/widgets',
+    default_branch: 'trunk',
+    private: false,
+  },
+  'octo/secret': {
+    full_name: 'octo/secret',
+    default_branch: 'main',
+    private: true,
+  },
 };
 
 describe('resolveTarget', () => {
@@ -437,6 +453,33 @@ describe('resolveTarget', () => {
     expect(calls.some((call) => call.url.includes('/commits/trunk'))).toBe(
       true,
     );
+  });
+
+  it('needs a working read-only checkout token for a private repository', async () => {
+    const { impl, calls } = fakeFetch(REPOS, { main: SHA_B }, 'bad-read');
+    const base = {
+      repository: 'octo/secret',
+      callingRepository: 'octo/caller',
+      targetToken: 'target-token',
+      fetch: impl,
+    };
+    expect(code(await resolveTarget(base))).toBe('E_TARGET_TOKEN');
+    expect(code(await resolveTarget({ ...base, readToken: 'bad-read' }))).toBe(
+      'E_TARGET_TOKEN',
+    );
+    calls.length = 0;
+    const resolved = await resolveTarget({ ...base, readToken: 'read-token' });
+    expect(resolved.ok && resolved.value).toMatchObject({
+      repository: 'octo/secret',
+      cross: true,
+      sha: SHA_B,
+    });
+    // The read token is only used to prove the checkout can read the target.
+    expect(calls.map((call) => call.auth)).toEqual([
+      'Bearer target-token',
+      'Bearer read-token',
+      'Bearer target-token',
+    ]);
   });
 
   it('stops before any request when another repository has no target token', async () => {

@@ -1,0 +1,24 @@
+# Consumer template: the deterministic OAT tools update for this repository
+# (no model, no model credential). Copy into .github/workflows/. It runs the
+# pinned @open-agent-toolkit/cli `oat tools update --all --scope project`
+# and opens or updates the agent-ci/oat-tools-update pull request when
+# OAT-managed files change.
+name: OAT tools update (agent-ci)
+
+on:
+  schedule:
+    - cron: '37 9 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  tools-update:
+    uses: tkstang/agent-ci/.github/workflows/tools-update.yml@main # pin a tag or SHA
+    with:
+      oat_cli_version: latest # pin an exact version for reproducible runs
+      dependency_policy: skills-only # include-lockfile also allows lockfile changes
+    secrets:
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}

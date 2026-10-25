@@ -3,67 +3,25 @@ import path from 'node:path';
 
 import { PACKAGE_ROOT } from '@agent-ci/paths.js';
 import { parseModelsFile } from '@agent-ci/routing/resolve.js';
+import {
+  type Job,
+  load,
+  MODEL_SECRETS,
+  READ_SCOPED,
+  runAgent,
+  secretRefs,
+  step,
+  TARGET_TOKEN_USES,
+  targetTokenUses,
+  WRITE_SCOPED,
+} from '@agent-ci/workflows/testing/helpers.js';
 import { describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
 
 /**
  * Structure tests for the reusable workflow, the self-test caller, the
  * consumer template and this repository's CI. actionlint checks syntax and
  * shell; these pin the security-relevant structure.
  */
-
-interface Step {
-  name?: string;
-  id?: string;
-  if?: string;
-  uses?: string;
-  run?: string;
-  env?: Record<string, unknown>;
-  with?: Record<string, unknown>;
-  'working-directory'?: string;
-}
-interface Job {
-  'runs-on'?: string;
-  permissions?: Record<string, string>;
-  needs?: string;
-  if?: string;
-  uses?: string;
-  with?: Record<string, unknown>;
-  secrets?: Record<string, unknown>;
-  steps?: Step[];
-}
-interface Workflow {
-  on: Record<string, unknown>;
-  permissions?: Record<string, string>;
-  jobs: Record<string, Job>;
-}
-
-async function load<T = Workflow>(relative: string): Promise<T> {
-  return parse(await readFile(path.join(PACKAGE_ROOT, relative), 'utf8')) as T;
-}
-
-const runAgent = () => load('.github/workflows/run-agent.yml');
-
-function step(job: Job, name: string): Step {
-  const found = job.steps?.find((entry) => entry.name === name);
-  if (found === undefined) throw new Error(`no step ${name}`);
-  return found;
-}
-
-/** Every `${{ secrets.* }}` / `secrets[...]` reference in a value. */
-function secretRefs(value: unknown): string[] {
-  const text = JSON.stringify(value ?? '');
-  return [...text.matchAll(/secrets(?:\.([A-Z_]+)|\[)/gu)].map(
-    (match) => match[1] ?? '[dynamic]',
-  );
-}
-
-const MODEL_SECRETS = [
-  'CLAUDE_CODE_OAUTH_TOKEN',
-  'ANTHROPIC_API_KEY',
-  'OPENCODE_API_KEY',
-  'CURSOR_API_KEY',
-];
 
 describe('run-agent.yml', () => {
   it('is a reusable workflow whose jobs run on the runs_on input', async () => {
@@ -140,7 +98,7 @@ describe('run-agent.yml', () => {
 
   it("checks out helpers at the reusable workflow's own repository and commit by default", async () => {
     const { jobs } = await runAgent();
-    for (const job of [jobs.agent, jobs.publish]) {
+    for (const job of [jobs.resolve, jobs.agent, jobs.publish]) {
       const helpers = step(job ?? {}, 'Check out the agent-ci helpers');
       // job.workflow_*: the called workflow's own commit (verified live);
       // github.workflow_sha would be the consumer's commit.
@@ -162,27 +120,107 @@ describe('run-agent.yml', () => {
 
   it('builds and publishes against the same ref', async () => {
     const { jobs } = await runAgent();
-    // One commit, resolved by a trusted job without any checkout.
+    // One commit, resolved by a trusted job that checks out only the helpers.
     const resolve = jobs.resolve ?? {};
     expect(resolve.permissions).toEqual({ contents: 'read' });
-    expect(secretRefs(resolve)).toEqual([]);
-    expect(JSON.stringify(resolve)).not.toContain('actions/checkout');
-    const resolveStep = step(resolve, 'Resolve the target ref to a commit');
-    expect(resolveStep.env?.REF).toBe(
-      '${{ inputs.target_ref || github.event.pull_request.head.sha || github.sha }}',
+    const checkouts = (resolve.steps ?? []).filter((entry) =>
+      entry.uses?.startsWith('actions/checkout'),
     );
-    expect(resolveStep.run).toContain('^[0-9a-f]{40}$');
+    expect(checkouts.map((entry) => entry.name)).toEqual([
+      'Check out the agent-ci helpers',
+    ]);
+    const resolveStep = step(
+      resolve,
+      'Resolve the target repository, commit and base',
+    );
+    expect(resolveStep.run).toContain('agent-ci targets resolve');
+    expect(resolveStep.env).toMatchObject({
+      GITHUB_TOKEN: '${{ github.token }}',
+      AGENT_CI_TARGET_TOKEN: '${{ secrets.AGENT_CI_TARGET_TOKEN }}',
+      REPOSITORY: '${{ inputs.target_repository }}',
+      REF: '${{ inputs.target_ref }}',
+      BASE: '${{ inputs.publish_base }}',
+      COMMENT_PR: '${{ inputs.comment_pr }}',
+      EVENT_REF: '${{ github.event.pull_request.head.sha || github.sha }}',
+      EVENT_BASE:
+        "${{ github.head_ref || (github.ref_type == 'branch' && github.ref_name) || '' }}",
+      EVENT_PR: "${{ github.event.pull_request.number || '' }}",
+    });
     for (const name of ['setup', 'agent', 'publish']) {
       const job = jobs[name] ?? {};
-      expect(step(job, 'Check out the target repository').with?.ref).toBe(
-        '${{ needs.resolve.outputs.sha }}',
+      const target = step(job, 'Check out the target repository');
+      expect(target.with?.ref).toBe('${{ needs.resolve.outputs.sha }}');
+      expect(target.with?.repository).toBe(
+        '${{ needs.resolve.outputs.repository }}',
       );
       expect(JSON.stringify(job.needs)).toContain('resolve');
     }
     expect(jobs.agent?.if).toContain("needs.resolve.result == 'success'");
-    expect(step(jobs.publish ?? {}, 'Publish').env?.BASE).toBe(
-      "${{ inputs.publish_base || github.head_ref || (github.ref_type == 'branch' && github.ref_name) || github.event.repository.default_branch }}",
+    const publish = step(jobs.publish ?? {}, 'Publish');
+    expect(publish.env?.BASE).toBe('${{ needs.resolve.outputs.base }}');
+    expect(publish.env?.COMMENT_PR).toBe(
+      '${{ needs.resolve.outputs.comment_pr }}',
     );
+    expect(publish.env?.TARGET_REPOSITORY).toBe(
+      '${{ needs.resolve.outputs.repository }}',
+    );
+    expect(publish.run).toContain('--repo "$TARGET_REPOSITORY"');
+    expect(step(jobs.agent ?? {}, 'Run the agent').run).toContain(
+      '--target-repo "$TARGET_REPOSITORY"',
+    );
+  });
+
+  it('references the write-capable target token only in jobs that run no repository code and no agent', async () => {
+    const { on, jobs } = await runAgent();
+    const secrets = (on.workflow_call as { secrets: Record<string, unknown> })
+      .secrets;
+    expect(Object.keys(secrets)).toEqual(
+      expect.arrayContaining([
+        'AGENT_CI_TARGET_TOKEN',
+        'AGENT_CI_TARGET_READ_TOKEN',
+      ]),
+    );
+    expect(targetTokenUses(jobs)).toEqual(TARGET_TOKEN_USES);
+    for (const name of ['setup', 'agent']) {
+      const checkout = step(
+        jobs[name] ?? {},
+        'Check out the target repository',
+      );
+      expect(checkout.with?.token).toBe(READ_SCOPED);
+      expect(checkout.with?.['persist-credentials']).toBe(false);
+    }
+    expect(
+      step(jobs.publish ?? {}, 'Check out the target repository').with?.token,
+    ).toBe(WRITE_SCOPED);
+    expect(step(jobs.publish ?? {}, 'Publish').env?.GITHUB_TOKEN).toBe(
+      WRITE_SCOPED,
+    );
+  });
+
+  it('writes the preset or custom prompt through agent-ci and enforces the path policy at publish', async () => {
+    const { on, jobs } = await runAgent();
+    const inputs = (
+      on.workflow_call as { inputs: Record<string, Record<string, unknown>> }
+    ).inputs;
+    expect(inputs.prompt?.required).toBeUndefined();
+    expect(inputs.model?.required).toBeUndefined();
+    expect(inputs.adopt_branch?.default).toBe(false);
+    const prompt = step(jobs.agent ?? {}, 'Write the prompt');
+    expect(prompt.run).toContain(
+      'agent-ci preset prompt --preset "$PRESET" --prompt-env PROMPT',
+    );
+    expect(prompt.env).toMatchObject({
+      PROMPT: '${{ inputs.prompt }}',
+      PRESET: '${{ inputs.preset }}',
+      BASE: '${{ needs.resolve.outputs.base }}',
+    });
+    const publish = step(jobs.publish ?? {}, 'Publish');
+    expect(publish.env?.PATH_POLICY).toBe(
+      '${{ inputs.path_policy || inputs.preset }}',
+    );
+    expect(publish.env?.ADOPT).toBe('${{ inputs.adopt_branch }}');
+    expect(publish.run).toContain('--path-policy "$PATH_POLICY"');
+    expect(publish.run).toContain('--adopt "$ADOPT"');
   });
 
   it('keeps the home root and outputs outside the workspace and trusts the checkout for git', async () => {
@@ -213,7 +251,8 @@ describe('run-agent.yml', () => {
     const agent = jobs.agent ?? {};
     expect(setup.if).toBe("inputs.setup_command != ''");
     expect(setup.permissions).toEqual({ contents: 'read' });
-    expect(secretRefs(setup)).toEqual([]);
+    // Only the read-only target token, only for the checkout.
+    expect(secretRefs(setup)).toEqual(['AGENT_CI_TARGET_READ_TOKEN']);
     expect(
       step(setup, 'Check out the target repository').with?.[
         'persist-credentials'

@@ -16,6 +16,13 @@ import { isRepository } from '@agent-ci/targets/schema.js';
  * Token rule: the calling repository is reached only with the job's
  * `GITHUB_TOKEN`; another repository only with the caller-supplied
  * `AGENT_CI_TARGET_TOKEN`, and the run stops when that token is missing.
+ * That token can write, so the workflows reference it only in jobs that run
+ * no repository code and no agent (resolve, publish): on a GitHub-hosted
+ * runner any step can read every secret its job references. Jobs that do
+ * run repository code check another repository out with the optional,
+ * read-only `AGENT_CI_TARGET_READ_TOKEN` (else `GITHUB_TOKEN`, which reads
+ * public repositories only); a private target without it is refused here,
+ * before any job runs its code.
  * Event-derived defaults (the triggering PR, its head commit, its head
  * branch) describe the calling repository, so they are never applied to
  * another repository.
@@ -43,6 +50,8 @@ export interface ResolveTargetInput {
   readonly eventPr?: string;
   readonly githubToken?: string;
   readonly targetToken?: string;
+  /** Read-only token the checkout of another repository uses. */
+  readonly readToken?: string;
   readonly apiUrl?: string;
   readonly fetch?: typeof fetch;
 }
@@ -66,6 +75,39 @@ function field(value: unknown, key: string): unknown {
   return value !== null && typeof value === 'object'
     ? (value as Record<string, unknown>)[key]
     : undefined;
+}
+
+/**
+ * Another repository's checkout runs with the read-only token: it must read
+ * the repository, and a private repository needs one (GITHUB_TOKEN cannot).
+ */
+async function checkoutAccess(
+  repo: unknown,
+  repository: string,
+  readToken: string,
+  input: ResolveTargetInput,
+): Promise<Result<void>> {
+  if (readToken === '') {
+    return field(repo, 'private') === false
+      ? success(undefined)
+      : failure(
+          'E_TARGET_TOKEN',
+          `${repository} is private and no AGENT_CI_TARGET_READ_TOKEN was supplied`,
+          'Pass a read-only token (contents: read on the target) as AGENT_CI_TARGET_READ_TOKEN; the write token never reaches the jobs that run repository code or the agent.',
+        );
+  }
+  try {
+    const reader = new GithubClient(
+      fetchTransport(readToken, input.apiUrl, input.fetch ?? fetch),
+    );
+    await reader.send({ method: 'GET', path: `/repos/${repository}` });
+    return success(undefined);
+  } catch {
+    return failure(
+      'E_TARGET_TOKEN',
+      `AGENT_CI_TARGET_READ_TOKEN cannot read ${repository}`,
+    );
+  }
 }
 
 export async function resolveTarget(
@@ -144,6 +186,15 @@ export async function resolveTarget(
         'E_GITHUB_API',
         `GitHub returned unexpected metadata for ${requested}`,
       );
+    }
+    if (cross) {
+      const readable = await checkoutAccess(
+        repo,
+        requested,
+        blank(input.readToken),
+        input,
+      );
+      if (!readable.ok) return readable;
     }
     const base =
       blank(input.base) ||

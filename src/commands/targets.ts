@@ -49,8 +49,9 @@ const USAGE = `agent-ci targets — multi-repository fan-out targets.
       $GITHUB_REPOSITORY), whether it is another repository, the commit
       every job checks out, the publish base and the PR to comment on.
       The calling repository is read with GITHUB_TOKEN; another repository
-      only with AGENT_CI_TARGET_TOKEN (refused when missing). Event values
-      (--event-*) apply only to the calling repository.
+      only with AGENT_CI_TARGET_TOKEN (refused when missing), and its
+      checkout needs AGENT_CI_TARGET_READ_TOKEN unless it is public (checked
+      here). Event values (--event-*) apply only to the calling repository.
       --github-output writes repository, cross, sha, base, comment_pr and
       default_branch.
 
@@ -252,6 +253,7 @@ async function resolve(
     eventPr: flags['event-pr'],
     githubToken: context.env.GITHUB_TOKEN,
     targetToken: context.env.AGENT_CI_TARGET_TOKEN,
+    readToken: context.env.AGENT_CI_TARGET_READ_TOKEN,
     ...(context.env.GITHUB_API_URL
       ? { apiUrl: context.env.GITHUB_API_URL }
       : {}),
