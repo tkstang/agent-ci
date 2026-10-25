@@ -43,6 +43,7 @@ export const ERROR_CODES = [
   'E_SECRET_GUARD',
   // Change sets and publishing
   'E_CHANGE_SET',
+  'E_PUBLISH',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
