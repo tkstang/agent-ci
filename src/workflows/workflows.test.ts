@@ -257,6 +257,12 @@ describe('run-agent.yml', () => {
     expect(step(publish, 'Publish').run).toContain(
       '--result-dir "$RUNNER_TEMP/agent-ci-result"',
     );
+    expect(step(publish, 'Publish').run).toContain(
+      '--comment-author "$PUBLISHER_LOGIN"',
+    );
+    expect(step(publish, 'Publish').env?.PUBLISHER_LOGIN).toBe(
+      '${{ inputs.publisher_login }}',
+    );
     expect(step(publish, 'Notify').run).toContain(
       '--result-dir "$RUNNER_TEMP/agent-ci-result"',
     );

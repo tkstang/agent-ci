@@ -38,6 +38,11 @@ Flags:
   --base <branch>            Pull request base branch (required with --pr).
   --title <text>             Pull request title.
   --comment-key <key>        Marker key for the comment (default: the branch).
+  --comment-author <login>   The identity this token publishes as (for example
+                             my-app[bot] for a GitHub App token). Only its
+                             marked comment and its own pull request are
+                             updated. Default: GET /user, else
+                             github-actions[bot].
   --run-url <url>            Default: built from GITHUB_SERVER_URL,
                              GITHUB_REPOSITORY and GITHUB_RUN_ID.
   --author-name / --author-email
@@ -94,6 +99,7 @@ export function createPublishCommand(
           'allow-workflow-changes': { type: 'boolean' },
           'branch-prefix': { type: 'string' },
           'adopt-branch': { type: 'boolean' },
+          'comment-author': { type: 'string' },
           'github-output': { type: 'boolean' },
         },
         USAGE,
@@ -108,6 +114,7 @@ export function createPublishCommand(
         'comment-key': optional(parsed['comment-key']),
         'run-url': optional(parsed['run-url']),
         'branch-prefix': optional(parsed['branch-prefix']),
+        'comment-author': optional(parsed['comment-author']),
       };
       const publishPr = optional(parsed['publish-pr']);
       if (publishPr !== undefined && !['true', 'false'].includes(publishPr)) {
@@ -168,6 +175,9 @@ export function createPublishCommand(
         allowWorkflowChanges: flags['allow-workflow-changes'] === true,
         branchPrefix: prefix,
         adoptBranch: flags['adopt-branch'] === true,
+        ...(flags['comment-author'] === undefined
+          ? {}
+          : { publisherLogin: flags['comment-author'] }),
       });
       if (!report.ok) throw CliError.fromFailure(report);
       const { pull, comment } = report.value;

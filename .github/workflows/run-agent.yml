@@ -102,6 +102,12 @@ on:
         description: Pull request number to comment on. Empty means the triggering pull request, if any.
         type: string
         default: ''
+      publisher_login:
+        description: >-
+          Login the publish token acts as. Empty means github-actions[bot] (GITHUB_TOKEN);
+          set it (for example my-app[bot]) when publishing with a GitHub App token.
+        type: string
+        default: ''
       artifact_name:
         description: Name of the run artifact (unique per workflow run).
         type: string
@@ -371,10 +377,11 @@ jobs:
           BASE: ${{ inputs.publish_base || github.event.repository.default_branch }}
           TITLE: ${{ inputs.pr_title }}
           COMMENT_PR: ${{ inputs.comment_pr || github.event.pull_request.number || '' }}
+          PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
         run: >-
           agent-ci publish --result-dir "$RUNNER_TEMP/agent-ci-result" --cwd target
           --publish-pr "$PUBLISH_PR" --branch "$BRANCH" --base "$BASE" --title "$TITLE"
-          --comment-on "$COMMENT_PR" --github-output
+          --comment-on "$COMMENT_PR" --comment-author "$PUBLISHER_LOGIN" --github-output
 
       - name: Notify
         if: always() && steps.publish.outcome != 'skipped'

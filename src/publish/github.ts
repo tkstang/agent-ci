@@ -9,6 +9,8 @@ import { failure, success, type Result } from '@agent-ci/result.js';
 export interface PullRequest {
   readonly number: number;
   readonly url: string;
+  /** Login of the account that opened it (absent when GitHub omits it). */
+  readonly author?: string;
 }
 
 export interface IssueComment {
@@ -53,6 +55,7 @@ const MAX_COMMENT_PAGES = 20;
 interface RawPull {
   number: number;
   html_url: string;
+  user?: { login?: string } | null;
 }
 interface RawComment {
   id: number;
@@ -64,6 +67,7 @@ interface RawComment {
 const toPull = (raw: RawPull): PullRequest => ({
   number: raw.number,
   url: raw.html_url,
+  ...(typeof raw.user?.login === 'string' ? { author: raw.user.login } : {}),
 });
 const toComment = (raw: RawComment): IssueComment => ({
   id: raw.id,
@@ -132,8 +136,13 @@ export function createGitHubClient(
   const repoPath = `/repos/${owner}/${name}`;
   return success({
     async viewer() {
-      const me = await call<{ login?: string }>('GET', '/user');
-      if (me.ok && typeof me.value.login === 'string') return me.value.login;
+      // Personal tokens can read /user; GITHUB_TOKEN and GitHub App tokens
+      // cannot (403), so the caller names App identities explicitly. One
+      // retry keeps a transient failure from switching identities.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const me = await call<{ login?: string }>('GET', '/user');
+        if (me.ok && typeof me.value.login === 'string') return me.value.login;
+      }
       return options.fallbackLogin ?? 'github-actions[bot]';
     },
     async findOpenPull(head, base) {

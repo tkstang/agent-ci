@@ -49,6 +49,23 @@ describe('createGitHubClient', () => {
     expect(seen.every((value) => value === `Bearer ${TOKEN}`)).toBe(true);
   });
 
+  it('retries /user once before falling back', async () => {
+    let calls = 0;
+    const fakeFetch = (async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response('{}', { status: 502 })
+        : Response.json({ login: 'operator' });
+    }) as unknown as typeof fetch;
+    const client = createGitHubClient({
+      token: TOKEN,
+      repo: 'o/r',
+      fetch: fakeFetch,
+    });
+    expect(client.ok && (await client.value.viewer())).toBe('operator');
+    expect(calls).toBe(2);
+  });
+
   it('pages through comments and refuses a bad repository or missing token', async () => {
     let page = 0;
     const fakeFetch = (async () => {

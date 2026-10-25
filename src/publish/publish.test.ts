@@ -320,6 +320,7 @@ interface FakePull {
   base: string;
   title: string;
   body: string;
+  author?: string;
 }
 
 /** In-memory GitHub for publishRun. */
@@ -336,7 +337,11 @@ function fakeGitHub(viewer = 'github-actions[bot]') {
       return success(
         found === undefined
           ? null
-          : { number: found.number, url: `https://gh/pull/${found.number}` },
+          : {
+              number: found.number,
+              url: `https://gh/pull/${found.number}`,
+              author: found.author ?? viewer,
+            },
       );
     },
     createPull: async (input) => {
@@ -397,6 +402,70 @@ function outputs(
     changeSet,
   };
 }
+
+describe('publisher identity', () => {
+  it('updates the comment of an explicitly named identity (GitHub App token) instead of duplicating it', async () => {
+    const gh = fakeGitHub(); // viewer() answers github-actions[bot]
+    gh.comments.set(5, [
+      {
+        id: 1,
+        url: 'u',
+        author: 'my-app[bot]',
+        body: commentMarker('agent-ci/docs'),
+      },
+    ]);
+    const base = {
+      outputs: outputs({ status: 'no-op', changedFiles: [] }),
+      github: gh.client,
+      pullRequest: false,
+      branch: 'agent-ci/docs',
+      baseBranch: 'main',
+      commentOn: 5,
+      author: ACTIONS_BOT,
+    };
+    const named = await publishRun({ ...base, publisherLogin: 'my-app[bot]' });
+    expect(named.ok && named.value.comment).toMatchObject({
+      action: 'updated',
+    });
+    expect(gh.comments.get(5)).toHaveLength(1);
+    // Without the name, the fallback identity cannot see the App's comment.
+    const unnamed = await publishRun(base);
+    expect(unnamed.ok && unnamed.value.comment).toMatchObject({
+      action: 'created',
+    });
+  });
+
+  it('refuses to rewrite a pull request someone else opened from the static branch, before pushing', async () => {
+    const { remote, clone } = await remoteAndClone();
+    const baseSha = git(clone, 'rev-parse', 'HEAD');
+    const gh = fakeGitHub();
+    gh.pulls.push({
+      number: 1,
+      head: 'agent-ci/docs',
+      base: 'main',
+      title: 'mine',
+      body: 'human text',
+      author: 'mallory',
+    });
+    const report = await publishRun({
+      outputs: outputs(
+        {},
+        { version: 1, baseSha, files: [write('docs/new.md', 'n\n')] },
+      ),
+      github: gh.client,
+      git: createGit(clone, { PATH: process.env.PATH }),
+      pullRequest: true,
+      branch: 'agent-ci/docs',
+      baseBranch: 'main',
+      author: ACTIONS_BOT,
+    });
+    expect(report.ok ? 'ok' : report.code).toBe('E_PUBLISH');
+    expect(gh.pulls[0]?.body).toBe('human text');
+    expect(() =>
+      git(remote, 'rev-parse', '--verify', 'refs/heads/agent-ci/docs'),
+    ).toThrow();
+  });
+});
 
 describe('publishRun', () => {
   it('creates then updates the pull request and one marked comment', async () => {

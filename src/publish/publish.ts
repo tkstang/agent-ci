@@ -182,6 +182,11 @@ export interface PublishOptions {
   readonly branchPrefix?: string;
   /** Update a branch whose head agent-ci did not publish (history kept). */
   readonly adoptBranch?: boolean;
+  /**
+   * The login this token publishes as (for example `<app>[bot]` for a
+   * GitHub App token). Default: `GET /user`, else `github-actions[bot]`.
+   */
+  readonly publisherLogin?: string;
 }
 
 export interface PublishReport {
@@ -237,6 +242,11 @@ export async function publishRun(
   options: PublishOptions,
 ): Promise<Result<PublishReport>> {
   const { result, changeSet } = options.outputs;
+  let viewer: string | undefined = options.publisherLogin;
+  const identity = async (): Promise<string> => {
+    viewer ??= await options.github.viewer();
+    return viewer;
+  };
   let pull: PublishReport['pull'] = {
     action: 'skipped',
     reason: 'pull request publishing not requested',
@@ -261,6 +271,24 @@ export async function publishRun(
         options.allowWorkflowChanges === true,
       );
       if (!checked.ok) return checked;
+      const existing = await options.github.findOpenPull(
+        options.branch,
+        options.baseBranch,
+      );
+      if (!existing.ok) return existing;
+      // Only a pull request this publisher opened is rewritten; checked
+      // before anything is pushed.
+      if (
+        existing.value !== null &&
+        existing.value.author !== undefined &&
+        existing.value.author !== (await identity())
+      ) {
+        return failure(
+          'E_PUBLISH',
+          `open pull request #${existing.value.number} from ${options.branch} was opened by ${existing.value.author}, not ${await identity()}`,
+          'Close it, or pass --comment-author with the identity this token publishes as.',
+        );
+      }
       const title = renderPullTitle(result, options.title);
       const branch = await publishStaticBranch({
         git: options.git,
@@ -279,11 +307,6 @@ export async function publishRun(
         key: options.branch,
         runUrl: options.runUrl,
       });
-      const existing = await options.github.findOpenPull(
-        options.branch,
-        options.baseBranch,
-      );
-      if (!existing.ok) return existing;
       const upserted =
         existing.value === null
           ? await options.github.createPull({
@@ -323,14 +346,14 @@ export async function publishRun(
       runUrl: options.runUrl,
       pullUrl: 'url' in pull ? pull.url : undefined,
     });
-    const viewer = await options.github.viewer();
+    const login = await identity();
     const comments = await options.github.listComments(options.commentOn);
     if (!comments.ok) return comments;
     // Only our own marked comment is updated; a marker quoted by anyone else
     // (or forged into model text) never redirects the update.
     const mine = comments.value.findLast(
       (entry) =>
-        entry.author === viewer && entry.body.includes(commentMarker(key)),
+        entry.author === login && entry.body.includes(commentMarker(key)),
     );
     const written =
       mine === undefined
