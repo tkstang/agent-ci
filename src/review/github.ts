@@ -78,11 +78,6 @@ export function fetchTransport(
   };
 }
 
-/** Encode each path segment of a repository-relative file path. */
-export function encodePath(repoPath: string): string {
-  return repoPath.split('/').map(encodeURIComponent).join('/');
-}
-
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 export function repositoryPath(repository: string): string {
   if (!REPOSITORY.test(repository))

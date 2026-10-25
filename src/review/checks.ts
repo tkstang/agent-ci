@@ -417,8 +417,3 @@ export function validateChecksEvidence(
     entries,
   };
 }
-
-/** The evidence ids a validated file holds. */
-export function evidenceIds(evidence: ChecksEvidence): Set<string> {
-  return new Set(evidence.entries.map((entry) => entry.evidence_id));
-}

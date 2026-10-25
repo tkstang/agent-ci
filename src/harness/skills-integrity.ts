@@ -45,11 +45,6 @@ function treeComponents(home: HomeRoot): string[][] {
   ];
 }
 
-/** The skill trees a run fingerprints: the canonical view and Claude's view. */
-export function skillTrees(home: HomeRoot): string[] {
-  return treeComponents(home).map((parts) => path.join(home.root, ...parts));
-}
-
 type Lstat = Stats;
 
 async function lstatOrNull(target: string): Promise<Lstat | null> {

@@ -57,8 +57,8 @@ function trimRange(
 const DECLARATION = /^[A-Za-z_$]/u;
 
 /**
- * Occurrence discriminator for the snippet at `line..endLine` (1-based) of
- * `source`, after trimming blank edge lines from the range: the normalized
+ * Occurrence discriminator for the snippet at `range` (1-based, blank edge
+ * lines already trimmed with `trimRange`) of the source lines: the normalized
  * nearest preceding declaration line (its scope header) plus the snippet's
  * ordinal among identical (normalized) occurrences that start earlier in
  * the file in any scope with the same normalized header. Scopes whose
@@ -72,15 +72,6 @@ const DECLARATION = /^[A-Za-z_$]/u;
  * Knuth-Morris-Pratt matching over normalized-line ids, so the cost is
  * linear in the file and range length, whatever the agent cites.
  */
-export function occurrenceDiscriminator(
-  source: string,
-  line: number,
-  endLine: number,
-): string {
-  const raw = splitLines(source);
-  const normalized = raw.map(normalizeLine);
-  return discriminate(raw, normalized, trimRange(normalized, line, endLine));
-}
 function discriminate(
   raw: readonly string[],
   normalized: readonly string[],
