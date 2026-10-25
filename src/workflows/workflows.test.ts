@@ -177,6 +177,31 @@ describe('run-agent.yml', () => {
     ).toEqual([]);
   });
 
+  it('enables the Codex sandbox only on GitHub-hosted Linux runners and checks it before the agent', async () => {
+    const { jobs } = await runAgent();
+    const agent = jobs.agent ?? {};
+    const names = (agent.steps ?? []).map((entry) => entry.name);
+    const enable = step(
+      agent,
+      'Enable the Codex sandbox (GitHub-hosted Linux)',
+    );
+    expect(enable.if).toBe(
+      "steps.route.outputs.harness == 'codex' && runner.os == 'Linux' && runner.environment == 'github-hosted'",
+    );
+    expect(enable.run).toContain(
+      'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0',
+    );
+    const check = step(agent, 'Check the Codex sandbox');
+    expect(check.if).toBe("steps.route.outputs.harness == 'codex'");
+    expect(check.run).toBe('agent-ci harness smoke --harness codex');
+    expect(
+      names.indexOf('Enable the Codex sandbox (GitHub-hosted Linux)'),
+    ).toBeLessThan(names.indexOf('Check the Codex sandbox'));
+    expect(names.indexOf('Check the Codex sandbox')).toBeLessThan(
+      names.indexOf('Run the agent'),
+    );
+  });
+
   it('publishes only from the canonical result directory', async () => {
     const { jobs } = await runAgent();
     const publish = jobs.publish ?? {};
