@@ -80,7 +80,14 @@ export type LocalReviewResult = {
   readonly reviewStatus: GatedReview['review_status'];
   readonly findings: number;
   readonly posted: number;
+  readonly failOnSeverityTriggered: boolean;
   readonly publication: PublishOutcome | null;
+  /**
+   * Why the review fails its policy (incomplete, `fail_on_severity`, a
+   * publication that must fail), with or without `--publish`; empty when it
+   * passes. The command turns a non-empty list into a non-zero exit.
+   */
+  readonly failures: readonly string[];
 };
 
 /** The user the token acts as (a local run publishes as that user). */
@@ -366,12 +373,25 @@ async function localReview(
       log,
     });
   }
+  const failures = [
+    ...new Set([
+      ...(gated.review_status === 'incomplete'
+        ? ['the review is incomplete']
+        : []),
+      ...(gated.fail_on_severity_triggered
+        ? ['fail_on_severity was triggered']
+        : []),
+      ...(publication?.fail === true ? publication.reasons : []),
+    ]),
+  ];
   return success({
     outDir,
     headSha: record.head_sha,
     reviewStatus: gated.review_status,
     findings: gated.findings.length,
     posted: gated.findings.filter((f) => f.disposition === 'posted').length,
+    failOnSeverityTriggered: gated.fail_on_severity_triggered,
     publication,
+    failures,
   });
 }

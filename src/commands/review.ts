@@ -664,7 +664,10 @@ const ADJUDICATE_USAGE = `agent-ci review adjudicate — the tool-free adjudicat
   --out <dir>                         adjudication.json, adjudicator.json.
   --route, --allow-pool, --home-root, --timeout-minutes (20), --models,
   --credential-from-env
-  --github-output                     status.`;
+  --github-output                     status.
+
+Exits 0 when the adjudicator itself failed: a failed adjudication changes no
+finding, the findings gate records it and the summary says so.`;
 
 async function adjudicate(argv: readonly string[], context: CommandContext) {
   const flags = parseFlags(
@@ -742,7 +745,10 @@ const FINDINGS_USAGE = `agent-ci review findings — the deterministic findings 
   --publisher-login <login>           Whose markers count (default github-actions[bot]).
   --fail-on-severity, --min-inline-severity, --max-inline-comments
   --out <dir>                         review-gated.json, usage.json.
-  --github-output                     review_status, fail_on_severity_triggered, gate_error.`;
+  --github-output                     review_status, fail_on_severity_triggered, gate_error.
+
+Exits 0 for an incomplete or failing review: agent-ci review publish posts it
+and then fails the run.`;
 
 async function findings(
   argv: readonly string[],
@@ -933,7 +939,7 @@ async function publish(
     );
     if (outcome.fail)
       throw new CliError(
-        'E_REVIEW_INPUT',
+        'E_REVIEW_FAILED',
         outcome.reasons.join('; ') || 'the review did not publish',
         {
           hint: `publication status: ${outcome.status}`,
@@ -1027,6 +1033,13 @@ async function runLocal(
     log: context.log,
   });
   if (!result.ok) throw CliError.fromFailure(result);
+  // Artifacts (and any publication) are already in place: now the review's
+  // own verdict decides the exit status, as `review publish` does in Actions.
+  const { failures, outDir, publication } = result.value;
+  if (failures.length > 0)
+    throw new CliError('E_REVIEW_FAILED', failures.join('; '), {
+      hint: `Stage artifacts are in ${outDir}; publication: ${publication?.status ?? 'not requested'}.`,
+    });
   return result.value;
 }
 

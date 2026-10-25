@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,7 +34,7 @@ function git(cwd: string, ...args: string[]): string {
   ).trim();
 }
 
-async function setup() {
+async function setup(options: { occupied?: boolean } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-review-cli-'));
   const repo = path.join(root, 'target');
   await mkdir(path.join(repo, 'src'), { recursive: true });
@@ -46,6 +47,13 @@ async function setup() {
     path.join(repo, 'src', 'a.ts'),
     'one\ntwo = risky();\nthree\n',
   );
+  if (options.occupied === true) {
+    // A head that commits the path agent-ci writes its review inputs to:
+    // every pass refuses it, so the review is incomplete.
+    await mkdir(path.join(repo, '.agent-ci-review'));
+    await writeFile(path.join(repo, '.agent-ci-review', 'occupied'), 'x\n');
+    git(repo, 'add', '.');
+  }
   git(repo, 'commit', '-qam', 'head');
   const head = git(repo, 'rev-parse', 'HEAD');
   const diff = `${git(repo, 'diff', '--no-color', `${base}...${head}`)}\n`;
@@ -386,5 +394,103 @@ describe('agent-ci review stages (one process, fake GitHub, real git)', () => {
       `${API}/pulls/7/reviews`,
       `${API}/issues/7/comments`,
     ]);
+  });
+
+  async function localRun(
+    t: Awaited<ReturnType<typeof setup>>,
+    flags: string[],
+  ) {
+    const origin = path.join(t.root, 'origin.git');
+    git(t.root, 'clone', '-q', '--bare', t.repo, origin);
+    git(t.root, 'clone', '-q', origin, path.join(t.root, 'clone'));
+    t.fake.on('GET', '/user', { body: { login: 'maintainer', type: 'User' } });
+    return t.cli(
+      [
+        'run',
+        '--pr',
+        '7',
+        '--cwd',
+        'clone',
+        '--model',
+        'fake-review',
+        '--models',
+        t.modelsPath,
+        '--out',
+        'local',
+        ...flags,
+      ],
+      { CI: '', GITHUB_ACTIONS: '' },
+    );
+  }
+
+  it.each([
+    ['published', ['--publish']],
+    ['gate only', []],
+  ])(
+    'fails a local review whose finding meets --fail-on-severity (%s)',
+    async (mode, flags) => {
+      const t = await setup();
+      const result = await localRun(t, [
+        ...flags,
+        '--fail-on-severity',
+        'medium',
+      ]);
+      expect(result).toMatchObject({
+        exitCode: 1,
+        envelope: {
+          ok: false,
+          code: 'E_REVIEW_FAILED',
+          message: expect.stringContaining('fail_on_severity was triggered'),
+        },
+      });
+      // The review is still published (when asked) before the run fails.
+      expect(t.fake.sent('POST').map((r) => r.path)).toEqual(
+        mode === 'published'
+          ? [`${API}/pulls/7/reviews`, `${API}/issues/7/comments`]
+          : [],
+      );
+      expect(
+        existsSync(path.join(t.root, 'local', 'gated', 'review-gated.json')),
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    ['published', ['--publish']],
+    ['gate only', []],
+  ])(
+    'fails an incomplete local review whose pass could not run (%s)',
+    async (mode, flags) => {
+      const t = await setup({ occupied: true });
+      const result = await localRun(t, flags);
+      expect(result).toMatchObject({
+        exitCode: 1,
+        envelope: {
+          ok: false,
+          code: 'E_REVIEW_FAILED',
+          message: expect.stringContaining('the review is incomplete'),
+        },
+      });
+      if (mode === 'published')
+        expect(t.fake.sent('POST').map((r) => r.path)).toEqual([
+          `${API}/issues/7/comments`,
+        ]);
+    },
+  );
+
+  it('keeps an advisory local review with a finding successful (control)', async () => {
+    const t = await setup();
+    const result = await localRun(t, ['--fail-on-severity', 'high']);
+    expect(result).toMatchObject({
+      exitCode: 0,
+      envelope: {
+        ok: true,
+        data: {
+          reviewStatus: 'complete',
+          failOnSeverityTriggered: false,
+          failures: [],
+        },
+      },
+    });
   });
 });

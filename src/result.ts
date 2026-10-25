@@ -49,6 +49,7 @@ export const ERROR_CODES = [
   // PR review
   'E_REVIEW_REQUEST',
   'E_REVIEW_INPUT',
+  'E_REVIEW_FAILED',
   'E_REVIEW_GUIDANCE',
   'E_REVIEW_STALE_HEAD',
   'E_DIFF_TOO_LARGE',
