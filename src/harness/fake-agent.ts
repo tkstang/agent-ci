@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+/**
+ * The built-in `fake` harness CLI: no model, no network, no credential. It
+ * answers like `claude -p --output-format json` so the whole run path
+ * (spawn, environment isolation, extraction, contracts, run log) can be
+ * exercised for free, locally and on Actions runners.
+ *
+ * Self-contained on purpose (node: imports only, erasable TypeScript) so Node
+ * can run the source file directly in tests and `dist/` in production.
+ *
+ * Usage: fake-agent --scenario <echo|invalid|fail|auth|hang> -- <prompt>
+ */
+import { createHash } from 'node:crypto';
+import { fstatSync, statSync } from 'node:fs';
+import process from 'node:process';
+
+function argValue(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+function promptText(): string {
+  const separator = process.argv.indexOf('--');
+  return separator === -1 ? '' : process.argv.slice(separator + 1).join(' ');
+}
+
+function stdinIsDevNull(): boolean {
+  try {
+    const stdin = fstatSync(0);
+    const devNull = statSync('/dev/null');
+    return stdin.rdev === devNull.rdev && stdin.ino === devNull.ino;
+  } catch {
+    return false;
+  }
+}
+
+function emit(result: string, isError: boolean): void {
+  process.stdout.write(
+    `${JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: isError,
+      result,
+      session_id: 'fake-session',
+      usage: { input_tokens: 0, output_tokens: 0 },
+      total_cost_usd: 0,
+    })}\n`,
+  );
+}
+
+const scenario = argValue('--scenario') ?? 'echo';
+const prompt = promptText();
+
+switch (scenario) {
+  case 'echo': {
+    const credentialLike = Object.keys(process.env).filter((name) =>
+      /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/u.test(name),
+    );
+    const digest = createHash('sha256').update(prompt).digest('hex');
+    const facts = [
+      `- Prompt bytes: ${Buffer.byteLength(prompt)}`,
+      `- Prompt sha256: ${digest.slice(0, 16)}`,
+      `- stdin is /dev/null: ${stdinIsDevNull()}`,
+      `- Credential-like variables visible: ${credentialLike.length}`,
+      `- HOME under an agent-ci home root: ${String(process.env.HOME ?? '').endsWith('/home')}`,
+    ];
+    emit(
+      JSON.stringify({
+        summary: 'Fake harness run (no model was called).',
+        report: {
+          title: 'agent-ci fake harness',
+          markdown: facts.join('\n'),
+        },
+        artifacts: [],
+        changedFiles: [],
+        errors: [],
+      }),
+      false,
+    );
+    break;
+  }
+  case 'invalid':
+    emit('This is not JSON.', false);
+    break;
+  case 'auth':
+    emit('Not logged in · Please run /login', true);
+    process.exitCode = 1;
+    break;
+  case 'fail':
+    process.stderr.write('API Error: 503 Service Unavailable (overloaded)\n');
+    process.exitCode = 1;
+    break;
+  case 'hang':
+    setInterval(() => undefined, 60_000);
+    break;
+  default:
+    process.stderr.write(`unknown fake scenario: ${scenario}\n`);
+    process.exitCode = 2;
+}
