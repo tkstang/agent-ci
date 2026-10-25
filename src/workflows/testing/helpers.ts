@@ -66,7 +66,9 @@ const SECRET = /(?<![\w.-])secrets\b(?:\s*\.\s*([A-Za-z_][A-Za-z0-9_]*))?/giu;
 /** Expression bodies in a value; an `if:` condition is one without `${{ }}`. */
 function expressions(value: unknown, key?: string): string[] {
   if (typeof value === 'string') {
-    const bodies = [...value.matchAll(EXPRESSION)].map((match) => match[1]);
+    const bodies = [...value.matchAll(EXPRESSION)].map(
+      (match) => match[1] ?? '',
+    );
     return key === 'if' && bodies.length === 0 ? [value] : bodies;
   }
   if (Array.isArray(value)) return value.flatMap((entry) => expressions(entry));
