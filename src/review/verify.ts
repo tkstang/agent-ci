@@ -427,6 +427,9 @@ export const LINUX_INIT = [
   'while read -r _ mp _; do',
   '  case "$mp" in /proc|/proc/*|/sys|/sys/*|/dev|/dev/*) continue ;; esac',
   '  [ "$mp" = "$work" ] && continue',
+  // A mount covered by a later hidden mount (the output directory inside
+  // RUNNER_TEMP) is unreachable by path: nothing to make read-only.
+  '  [ -e "$mp" ] || continue',
   '  "$mount_bin" -o remount,bind,ro "$mp" 2>/dev/null || fail "could not make $mp read-only"',
   'done < /proc/self/mounts',
   // Re-enter the working directory through the new mounts (the old cwd
@@ -635,7 +638,12 @@ export function secretValues(
       Object.entries(env)
         .filter(
           ([name, value]) =>
-            value !== undefined && value.length >= 8 && isSecretEnvName(name),
+            value !== undefined &&
+            value.length >= 8 &&
+            // Secret-like names only: RUNNER_* and ACTIONS_* are excluded
+            // from the command environment but hold paths and URLs, and
+            // masking those garbles the output (RUNNER_TEMP, live run).
+            SECRET_NAME.test(name),
         )
         .map(([, value]) => value as string),
     ),

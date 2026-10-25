@@ -401,6 +401,9 @@ describe('controlled environment', () => {
     expect(LINUX_INIT).toContain('"$mount_bin" --bind "$work" "$work"');
     expect(LINUX_INIT).toContain('"$mount_bin" -o remount,bind,ro "$mp"');
     expect(LINUX_INIT).toContain('done < /proc/self/mounts');
+    // A mount shadowed by a later hidden mount is skipped, not a failure
+    // (hosted runner: the output directory inside the hidden RUNNER_TEMP).
+    expect(LINUX_INIT).toContain('[ -e "$mp" ] || continue');
     expect(LINUX_INIT).toMatch(
       /exec "\$unshare_bin" --user --map-root-user --mount -- \/bin\/bash -c "\$cmd"$/u,
     );
@@ -557,8 +560,15 @@ describe('secret masking and the isolation requirement', () => {
         ANTHROPIC_AUTH_TOKEN: 'synthetic-longer-secret-1',
         PATH: '/usr/bin:/bin',
         API_KEY: 'tiny',
+        RUNNER_TEMP: '/home/runner/work/_temp',
+        ACTIONS_RUNTIME_URL: 'https://example.invalid/runtime',
+        ACTIONS_RUNTIME_TOKEN: 'synthetic-runtime-token',
       }),
-    ).toEqual(['synthetic-longer-secret-1', 'ghs_short1']);
+    ).toEqual([
+      'synthetic-longer-secret-1',
+      'synthetic-runtime-token',
+      'ghs_short1',
+    ]);
   });
 
   it('masks those values in output tails while the digest covers the raw output', async () => {
