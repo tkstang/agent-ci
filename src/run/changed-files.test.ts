@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { detectChangedFiles } from '@agent-ci/run/changed-files.js';
+import {
+  changedSince,
+  detectChangedFiles,
+  snapshotWorkspace,
+} from '@agent-ci/run/changed-files.js';
 import { describe, expect, it } from 'vitest';
 
 function git(cwd: string, ...args: string[]) {
@@ -43,5 +47,31 @@ describe('detectChangedFiles', () => {
   it('returns nothing outside a git repository', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-nogit-'));
     expect(await detectChangedFiles(dir)).toEqual([]);
+  });
+
+  it('reports only changes made after the baseline snapshot', async () => {
+    const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-git-base-'));
+    git(repo, 'init', '-q');
+    await writeFile(path.join(repo, 'tracked.txt'), 't');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'init');
+    // Pre-existing dirt: an untracked file and a modified tracked file.
+    await writeFile(path.join(repo, 'stray.log'), 'pre-existing');
+    await writeFile(path.join(repo, 'tracked.txt'), 'dirty before');
+    const baseline = await snapshotWorkspace(repo);
+    expect(await changedSince(repo, baseline)).toEqual([]);
+    // The run edits the dirty file again and creates a new one.
+    await writeFile(path.join(repo, 'tracked.txt'), 'edited by run');
+    await writeFile(path.join(repo, 'made-by-run.txt'), 'n');
+    expect(await changedSince(repo, baseline)).toEqual([
+      'made-by-run.txt',
+      'tracked.txt',
+    ]);
+    // Restoring a dirty file to its committed content is also a change.
+    git(repo, 'checkout', '--', 'tracked.txt');
+    expect(await changedSince(repo, baseline)).toEqual([
+      'made-by-run.txt',
+      'tracked.txt',
+    ]);
   });
 });

@@ -15,7 +15,7 @@ import { CliError, isCliError } from '@agent-ci/errors.js';
  *  - no interactivity; flags only,
  *  - NO_COLOR-safe (we emit no color at all).
  *
- * Usage: agent-ci <command> [flags]   (agent-ci --help lists commands)
+ * Usage: agent-ci <command> [flags] [--json]   (agent-ci --help lists commands)
  */
 
 interface OkEnvelope {
@@ -76,7 +76,9 @@ export async function run(
   context: CommandContext = defaultContext(),
   commands: readonly CommandSpec[] = COMMANDS,
 ): Promise<{ envelope: Envelope; exitCode: number }> {
-  const [name, ...rest] = argv;
+  // `--json` is the house agent-first flag; output is always one JSON
+  // envelope, so it is accepted anywhere and ignored.
+  const [name, ...rest] = argv.filter((arg) => arg !== '--json');
   const command = name ?? 'help';
   try {
     if (name === undefined || name === '-h' || name === '--help') {

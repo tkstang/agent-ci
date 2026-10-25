@@ -73,6 +73,18 @@ describe('cli run()', () => {
     });
   });
 
+  it('accepts the house --json flag anywhere', async () => {
+    const before = await run(['--json', 'echo', 'a'], context(), commands);
+    const after = await run(['echo', 'a', '--json'], context(), commands);
+    for (const { envelope } of [before, after]) {
+      expect(envelope).toEqual({
+        ok: true,
+        command: 'echo',
+        data: { argv: ['a'] },
+      });
+    }
+  });
+
   it('prints command usage for <command> --help', async () => {
     const ctx = context();
     const { envelope } = await run(['echo', '--help'], ctx, commands);

@@ -35,7 +35,10 @@ import {
   type SkippedRoute,
 } from '@agent-ci/routing/resolve.js';
 import type { HarnessId, Route } from '@agent-ci/routing/schema.js';
-import { detectChangedFiles } from '@agent-ci/run/changed-files.js';
+import {
+  changedSince,
+  snapshotWorkspace,
+} from '@agent-ci/run/changed-files.js';
 import { buildRunPrompt } from '@agent-ci/run/prompt.js';
 import { RunLog } from '@agent-ci/run/run-log.js';
 import { superviseAttempts } from '@agent-ci/run/supervisor.js';
@@ -205,6 +208,8 @@ async function runInHome(
     loginSeeded: route.login,
   });
 
+  // Only changes made during the run count; pre-existing dirt does not.
+  const baseline = await snapshotWorkspace(options.cwd, [outDir]);
   const adapter = adapterFor(route.harness);
   const supervised = await superviseAttempts<AttemptRecord>({
     maxAttempts: options.maxAttempts,
@@ -268,7 +273,9 @@ async function runInHome(
           targetRepo: options.targetRepo,
           outputContract: options.outputContract,
           verdictItems: options.verdictItems,
-          detectedChangedFiles: await detectChangedFiles(options.cwd, [outDir]),
+          detectedChangedFiles: await changedSince(options.cwd, baseline, [
+            outDir,
+          ]),
           secrets,
         })
       : candidate;
