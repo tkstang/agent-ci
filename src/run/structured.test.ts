@@ -37,6 +37,15 @@ routes:
     account: personal
     structuredOutput: prompt
     qualified: null
+  - id: fake-review-repair-escape
+    model: fake-review-repair-escape
+    harness: fake
+    family: fake
+    providerModel: review-repair-escape
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: null
   - id: grok-cursor
     model: grok-cursor
     harness: cursor
@@ -187,6 +196,16 @@ describe('structured runs', () => {
       .find((record) => JSON.stringify(record).includes('"repair"'));
     expect(JSON.stringify(repair)).toContain('findings must be an array');
     expect(existsSync(summary.value.structuredPath ?? '')).toBe(true);
+  });
+
+  it('validates the home again after the repair turn and withholds the answer', async () => {
+    const opts = await options({ routeId: 'fake-review-repair-escape' });
+    const summary = await runAgent(opts);
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    expect(summary.value.error?.code).toBe('E_HOME_ROOT');
+    expect(summary.value.structuredPath).toBeNull();
+    expect(existsSync(path.join(opts.outDir, 'answer.json'))).toBe(false);
   });
 
   it('keeps what the last chance allows when no repair turn exists (Cursor)', async () => {
