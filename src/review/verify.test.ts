@@ -401,6 +401,9 @@ describe('controlled environment', () => {
     expect(LINUX_INIT).toContain('"$mount_bin" --bind "$work" "$work"');
     expect(LINUX_INIT).toContain('"$mount_bin" -o remount,bind,ro "$mp"');
     expect(LINUX_INIT).toContain('done < /proc/self/mounts');
+    // A mount shadowed by a later hidden mount is skipped, not a failure
+    // (hosted runner: the output directory inside the hidden RUNNER_TEMP).
+    expect(LINUX_INIT).toContain('[ -e "$mp" ] || continue');
     expect(LINUX_INIT).toMatch(
       /exec "\$unshare_bin" --user --map-root-user --mount -- \/bin\/bash -c "\$cmd"$/u,
     );

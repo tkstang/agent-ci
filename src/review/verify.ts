@@ -427,6 +427,9 @@ export const LINUX_INIT = [
   'while read -r _ mp _; do',
   '  case "$mp" in /proc|/proc/*|/sys|/sys/*|/dev|/dev/*) continue ;; esac',
   '  [ "$mp" = "$work" ] && continue',
+  // A mount covered by a later hidden mount (the output directory inside
+  // RUNNER_TEMP) is unreachable by path: nothing to make read-only.
+  '  [ -e "$mp" ] || continue',
   '  "$mount_bin" -o remount,bind,ro "$mp" 2>/dev/null || fail "could not make $mp read-only"',
   'done < /proc/self/mounts',
   // Re-enter the working directory through the new mounts (the old cwd
