@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 80,
+  "tabWidth": 2,
+  "useTabs": false,
+  "singleQuote": true,
+  "semi": true,
+  "trailingComma": "all",
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "bracketSpacing": true,
+  "insertFinalNewline": true,
+  "sortImports": true,
+  "sortPackageJson": true,
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    "pnpm-lock.yaml",
+    ".oat/**",
+    "**/AGENTS.md"
+  ]
+}

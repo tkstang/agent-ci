@@ -1,0 +1,17 @@
+# Security updates ONLY — no routine version-bump PRs (house policy: manual,
+# intentional dependency updates pulled at start-of-work; Dependabot is the
+# security tripwire, not a churn engine).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Disable version-update PRs entirely; keep only security alerts/updates.
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0

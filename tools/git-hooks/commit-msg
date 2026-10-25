@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Enforce Conventional Commits on the proposed message.
+# Escape hatch: GIT_HOOKS=0 git commit ...
+[ "$GIT_HOOKS" = "0" ] && exit 0
+
+exec pnpm exec commitlint --edit "$1"

@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Run lint-staged (oxlint --fix + oxfmt --write) on staged files only.
+# Escape hatch: GIT_HOOKS=0 git commit ...
+[ "$GIT_HOOKS" = "0" ] && exit 0
+
+node tools/check-no-claude-md.mjs || exit 1
+exec pnpm exec lint-staged
