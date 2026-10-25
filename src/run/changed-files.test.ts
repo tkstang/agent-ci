@@ -102,4 +102,36 @@ describe('detectChangedFiles', () => {
       message: expect.stringContaining('git is not installed'),
     });
   });
+
+  it('detects a run edit and keeps output excluded when run from a subdirectory', async () => {
+    const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-git-sub-'));
+    const sub = path.join(repo, 'sub');
+    await mkdir(sub);
+    git(repo, 'init', '-q');
+    await writeFile(path.join(sub, 'a.txt'), 'committed');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'init');
+    await writeFile(path.join(sub, 'a.txt'), 'dirty before');
+    const outDir = path.join(sub, '.agent-ci');
+    await mkdir(outDir);
+    await writeFile(path.join(outDir, 'prompt.md'), 'p');
+    const fromRoot = await snapshotWorkspace(repo, [outDir]);
+    const fromSub = await snapshotWorkspace(sub, [outDir]);
+    if (!fromRoot.ok || !fromSub.ok) throw new Error('snapshot failed');
+    await writeFile(path.join(sub, 'a.txt'), 'modified by run');
+    await writeFile(path.join(outDir, 'run-result.json'), '{}');
+    for (const [cwd, before] of [
+      [repo, fromRoot.value],
+      [sub, fromSub.value],
+    ] as const) {
+      expect(await changedSince(cwd, before, [outDir]), cwd).toEqual({
+        ok: true,
+        value: ['sub/a.txt'],
+      });
+    }
+    expect(await detectChangedFiles(sub, [outDir])).toEqual({
+      ok: true,
+      value: ['sub/a.txt'],
+    });
+  });
 });

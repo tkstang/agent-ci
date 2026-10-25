@@ -4,51 +4,61 @@ import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { failure, success, type Result } from '@agent-ci/result.js';
+import { findWorkspaceRoot, resolveRealPath } from '@agent-ci/run/workspace.js';
+
+interface WorkspaceChanges {
+  /** Real path all returned paths are relative to (the git top level). */
+  readonly root: string;
+  readonly files: string[];
+}
 
 /**
- * Workspace changes from `git status --porcelain -z`. Paths under
- * `excludeDirs` (agent-ci's own output) are ignored. Outside a git repository
- * the list is empty; any other git failure (missing git, a `safe.directory`
- * refusal) is an `E_WORKSPACE_STATUS` failure, never a silent "no changes".
+ * Dirty paths from `git status --porcelain -z`, relative to the repository
+ * top level (porcelain paths are root-relative even when `cwd` is a
+ * subdirectory). Paths under `excludeDirs` (agent-ci's own output) are
+ * ignored. Outside a git repository the list is empty; any other git failure
+ * (missing git, a `safe.directory` refusal) is an `E_WORKSPACE_STATUS`
+ * failure, never a silent "no changes".
  */
-export function detectChangedFiles(
+async function listChanges(
   cwd: string,
-  excludeDirs: readonly string[] = [],
-  git = 'git',
-): Promise<Result<string[]>> {
+  excludeDirs: readonly string[],
+  git: string,
+): Promise<Result<WorkspaceChanges>> {
+  const workspace = await findWorkspaceRoot(cwd, git);
+  if (!workspace.ok) return workspace;
+  const { root } = workspace.value;
+  if (!workspace.value.git) return success({ root, files: [] });
+  const excluded: string[] = [];
+  for (const dir of excludeDirs) {
+    const relative = path.relative(root, await resolveRealPath(dir));
+    if (
+      relative !== '' &&
+      !relative.startsWith('..') &&
+      !path.isAbsolute(relative)
+    )
+      excluded.push(`${relative.split(path.sep).join('/')}/`);
+  }
   return new Promise((resolve) => {
     const child = execFile(
       git,
       ['status', '--porcelain', '-z', '--untracked-files=all'],
       {
-        cwd,
+        cwd: root,
         env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
         maxBuffer: 16 * 1024 * 1024,
       },
       (error, stdout, stderr) => {
         if (error !== null) {
-          const text = String(stderr);
-          if (/not a git repository/iu.test(text)) {
-            resolve(success([]));
-            return;
-          }
-          const reason =
-            (error as NodeJS.ErrnoException).code === 'ENOENT'
-              ? 'git is not installed'
-              : text.trim().split('\n')[0] || error.message;
           resolve(
             failure(
               'E_WORKSPACE_STATUS',
-              `could not read workspace changes: ${reason}`,
+              `could not read workspace changes: ${String(stderr).trim().split('\n')[0] || error.message}`,
               'Fix git access to the workspace (for example safe.directory) so changes can be detected.',
             ),
           );
           return;
         }
-        const excluded = excludeDirs
-          .map((dir) => path.relative(cwd, dir))
-          .filter((rel) => rel !== '' && !rel.startsWith('..'))
-          .map((rel) => `${rel.split(path.sep).join('/')}/`);
         const entries = stdout.split('\0');
         const files: string[] = [];
         for (let index = 0; index < entries.length; index += 1) {
@@ -60,16 +70,27 @@ export function detectChangedFiles(
           if (status.includes('R') || status.includes('C')) index += 1;
         }
         resolve(
-          success(
-            files.filter(
+          success({
+            root,
+            files: files.filter(
               (file) => !excluded.some((prefix) => file.startsWith(prefix)),
             ),
-          ),
+          }),
         );
       },
     );
     child.stdin?.end();
   });
+}
+
+/** Dirty paths relative to the repository top level (see `listChanges`). */
+export async function detectChangedFiles(
+  cwd: string,
+  excludeDirs: readonly string[] = [],
+  git = 'git',
+): Promise<Result<string[]>> {
+  const changes = await listChanges(cwd, excludeDirs, git);
+  return changes.ok ? success(changes.value.files) : changes;
 }
 
 /** Path → content fingerprint for every dirty path at one moment. */
@@ -94,11 +115,11 @@ export async function snapshotWorkspace(
   excludeDirs: readonly string[] = [],
   git = 'git',
 ): Promise<Result<WorkspaceSnapshot>> {
-  const files = await detectChangedFiles(cwd, excludeDirs, git);
-  if (!files.ok) return files;
+  const changes = await listChanges(cwd, excludeDirs, git);
+  if (!changes.ok) return changes;
   const entries = new Map<string, string>();
-  for (const file of files.value) {
-    entries.set(file, await fingerprint(path.join(cwd, file)));
+  for (const file of changes.value.files) {
+    entries.set(file, await fingerprint(path.join(changes.value.root, file)));
   }
   return success(entries);
 }
