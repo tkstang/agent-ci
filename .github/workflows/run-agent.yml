@@ -297,7 +297,7 @@ jobs:
           --event-pr "$EVENT_PR" --github-output
 
       # The route decides which one model credential the agent job receives
-      # (credential: one of the four model secret names, or empty).
+      # (credential: one of the five model secret names, or empty).
       - name: Resolve the route
         id: route
         env:
@@ -366,7 +366,7 @@ jobs:
 
   # The agent runs behind a workflow_call boundary (agent-job.yml) that
   # receives exactly one model credential, chosen here by a static chain over
-  # the four model secrets for the route the resolve job resolved, plus the
+  # the five model secrets for the route the resolve job resolved, plus the
   # read-only helper and target tokens. No dynamic secrets[...] lookup exists:
   # one would make the runner hold every secret this workflow receives,
   # including the write-capable target token.

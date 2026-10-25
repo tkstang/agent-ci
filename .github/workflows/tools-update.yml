@@ -6,10 +6,13 @@
 # Jobs with separate authority (resolve and publish are the same as in
 # run-agent.yml):
 # - resolve: no repository code; the target repository, commit and base.
-# - run:     contents: read, no secret. `agent-ci tools-update` runs the
-#            pinned OAT CLI with a temporary HOME, refuses changes outside
-#            the dependency policy, and uploads run-result.json,
-#            run-log.jsonl and changes.json.
+# - run:     contents: read, no model credential. It holds
+#            AGENT_CI_SOURCE_TOKEN (helper checkout) and, for a private
+#            target in another repository, AGENT_CI_TARGET_READ_TOKEN, and it
+#            runs npm code: `agent-ci tools-update` runs the pinned OAT CLI
+#            from npm with a temporary HOME, refuses changes outside the
+#            dependency policy, and uploads run-result.json, run-log.jsonl
+#            and changes.json.
 # - publish: contents/pull-requests: write. Publishes the change set to the
 #            static branch (default agent-ci/oat-tools-update) under the
 #            tools-update path policy.

@@ -90,8 +90,9 @@ export type LocalReviewOptions = {
   /** Run as verify-review (checks first, then reviewers with run_check). */
   readonly verify?: boolean;
   /**
-   * Run the checks without credential isolation (macOS, or Linux without
-   * user namespaces): the operator acknowledges the PR code runs as them.
+   * The operator acknowledges that the PR code runs as them. Required for
+   * every local verify run: no local isolation (Linux namespaces or the
+   * macOS sandbox) is a credential boundary.
    */
   readonly trustPrCode?: boolean;
   /** verify-review: the branch whose head holds checks.yaml. */

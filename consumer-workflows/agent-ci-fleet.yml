@@ -58,7 +58,7 @@ permissions:
 
 jobs:
   fan-out:
-    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # pin a tag or SHA
+    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
     with:
       preset: >-
         ${{ inputs.preset
