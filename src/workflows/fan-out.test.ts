@@ -414,7 +414,7 @@ describe('workflow class sweep', () => {
   it('never looks a secret up dynamically (the runner would receive every secret the workflow holds)', async () => {
     for (const file of await allWorkflowFiles()) {
       const workflow = await load<Workflow>(file);
-      expect(JSON.stringify(workflow), file).not.toMatch(/secrets\s*\[/u);
+      expect(secretRefs(workflow), file).not.toContain('[dynamic]');
     }
   });
 

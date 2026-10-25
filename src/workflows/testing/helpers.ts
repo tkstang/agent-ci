@@ -59,11 +59,34 @@ export function step(job: Job, name: string): Step {
   return found;
 }
 
-/** Every `${{ secrets.* }}` / `secrets[...]` reference in a value. */
+const EXPRESSION = /\$\{\{([\s\S]*?)\}\}/gu;
+/** Expression contexts are case-insensitive: `secrets.x` is `secrets.X`. */
+const SECRET = /(?<![\w.-])secrets\b(?:\s*\.\s*([A-Za-z_][A-Za-z0-9_]*))?/giu;
+
+/** Expression bodies in a value; an `if:` condition is one without `${{ }}`. */
+function expressions(value: unknown, key?: string): string[] {
+  if (typeof value === 'string') {
+    const bodies = [...value.matchAll(EXPRESSION)].map((match) => match[1]);
+    return key === 'if' && bodies.length === 0 ? [value] : bodies;
+  }
+  if (Array.isArray(value)) return value.flatMap((entry) => expressions(entry));
+  if (value !== null && typeof value === 'object') {
+    return Object.entries(value).flatMap(([name, entry]) =>
+      expressions(entry, name),
+    );
+  }
+  return [];
+}
+
+/**
+ * Every secret an expression in a value reads, upper-cased. Any other use of
+ * the `secrets` context (`secrets[...]`, `toJSON(secrets)`) is `[dynamic]`.
+ */
 export function secretRefs(value: unknown): string[] {
-  const text = JSON.stringify(value ?? '');
-  return [...text.matchAll(/secrets(?:\.([A-Z_]+)|\[)/gu)].map(
-    (match) => match[1] ?? '[dynamic]',
+  return expressions(value).flatMap((body) =>
+    [...body.matchAll(SECRET)].map(
+      (match) => match[1]?.toUpperCase() ?? '[dynamic]',
+    ),
   );
 }
 
