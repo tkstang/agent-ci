@@ -362,6 +362,7 @@ describe('controlled environment', () => {
         network: false,
         hidden: ['/out', '/home/me/.ssh'],
         tools,
+        work: '/tmp/agent-ci-verify-x',
       }),
     ).toEqual([
       '/usr/bin/unshare',
@@ -383,6 +384,7 @@ describe('controlled environment', () => {
       '/usr/bin/unshare',
       '/usr/bin/mount',
       '/usr/sbin/ip',
+      '/tmp/agent-ci-verify-x',
       '/out',
       '/home/me/.ssh',
     ]);
@@ -391,9 +393,15 @@ describe('controlled environment', () => {
     expect(LINUX_INIT).toContain('"$mount_bin" -t tmpfs');
     expect(LINUX_INIT).toContain('"$mount_bin" --bind /dev/null');
     expect(LINUX_INIT).toContain('exit 125');
+    // The whole host filesystem is remounted read-only except the run
+    // directory, which is bound onto itself first.
+    expect(LINUX_INIT).toContain('"$mount_bin" --bind "$work" "$work"');
+    expect(LINUX_INIT).toContain('"$mount_bin" -o remount,bind,ro "$mp"');
+    expect(LINUX_INIT).toContain('done < /proc/self/mounts');
     expect(LINUX_INIT).toMatch(
       /exec "\$unshare_bin" --user --map-root-user --mount -- \/bin\/bash -c "\$cmd"$/u,
     );
+    expect(LINUX_INIT).toContain('cd -- "$PWD"');
     // No tool is looked up through PATH inside the init either.
     expect(LINUX_INIT).not.toMatch(/(^|[;\s(])(ip|mount|unshare) /mu);
     const setup = isolatedArgv({
@@ -401,13 +409,15 @@ describe('controlled environment', () => {
       command: 'pnpm i',
       network: true,
       tools: { ...tools, ip: null },
+      work: '/w',
     });
     expect(setup).not.toContain('--net');
-    expect(setup.slice(-4)).toEqual([
+    expect(setup.slice(-5)).toEqual([
       '1',
       '/usr/bin/unshare',
       '/usr/bin/mount',
       '',
+      '/w',
     ]);
     expect(() =>
       isolatedArgv({
@@ -415,7 +425,7 @@ describe('controlled environment', () => {
         command: 'x',
         network: false,
       }),
-    ).toThrow('verified tool paths');
+    ).toThrow('verified tool paths and the run directory');
     const profile = sandboxProfile({
       work: '/w',
       denied: ['/out', '/Users/me/.ssh'],
@@ -748,6 +758,8 @@ describe('runVerify', () => {
           '    command: cat "$PROTECTED/token" || echo read-denied',
           '  - name: rc',
           '    command: cat "$REALHOME/.zshrc" || echo rc-denied',
+          '  - name: plant',
+          '    command: mkdir -p "$REALHOME/.local/bin" && echo x > "$REALHOME/.local/bin/claude" && echo planted || echo plant-denied; echo w > "$HOME/scratch" && echo home-writable',
           '  - name: background',
           '    command: (sleep 2; echo late > "$OUTSIDE/late.txt") & disown; setsid sleep 0 2>/dev/null; echo started',
         ].join('\n'),
@@ -793,6 +805,13 @@ describe('runVerify', () => {
         'synthetic-protected',
       );
       expect(byName.get('rc')?.output_tail).toContain('rc-denied');
+      // Nothing outside the run directory is writable: a binary planted in
+      // the operator's PATH could run later with credentials.
+      expect(byName.get('plant')?.output_tail).toContain('plant-denied');
+      expect(byName.get('plant')?.output_tail).toContain('home-writable');
+      expect(existsSync(path.join(realHome, '.local', 'bin', 'claude'))).toBe(
+        false,
+      );
       expect(byName.get('rc')?.output_tail).not.toContain('synthetic-rc-value');
       if (isolation === 'macos-sandbox') {
         expect(byName.get('write')?.output_tail).toContain('write-denied');

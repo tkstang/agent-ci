@@ -1084,11 +1084,16 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
                                .github/agent-ci/checks.yaml (default branch) on
                                the PR head, then give the reviewers run_check
                                (Claude or Codex routes). The PR's code runs on
-                               this machine as you: only Linux user namespaces
-                               keep it away from your credentials, so on macOS
-                               (sandbox-exec cannot stop it reading other
-                               processes' environments or the Keychain) or
-                               without namespaces it is refused unless
+                               this machine. Only Linux user namespaces (as a
+                               non-root user) keep it away from your
+                               credentials: other processes hidden, network
+                               loopback-only, and every path but the run's
+                               own directory read-only, while the harness is
+                               pinned by absolute path and fingerprint before
+                               the checks run. On macOS (sandbox-exec cannot
+                               stop it reading other processes' environments
+                               or the Keychain) or without namespaces it is
+                               refused unless
   --verify-trust-pr-code       is also given: run only code you would run.
   --verify-config-ref <branch> Branch whose head holds checks.yaml (default:
                                the repository's default branch).

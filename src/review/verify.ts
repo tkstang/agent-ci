@@ -410,13 +410,28 @@ const LINUX_NS = [
 export const LINUX_INIT = [
   // Every tool is an absolute, launcher-verified path argument: nothing
   // here is looked up through the (checked-code-writable) PATH.
-  'cmd=$1; net=$2; unshare_bin=$3; mount_bin=$4; ip_bin=$5; shift 5',
+  'cmd=$1; net=$2; unshare_bin=$3; mount_bin=$4; ip_bin=$5; work=$6; shift 6',
+  'fail() { echo "agent-ci: $1" >&2; exit 125; }',
   'if [ "$net" = 0 ] && [ -n "$ip_bin" ]; then "$ip_bin" link set lo up >/dev/null 2>&1 || true; fi',
+  // The run directory (prepared tree, copies, scratch HOME) becomes its own
+  // mount first, so it alone stays writable below.
+  '"$mount_bin" --bind "$work" "$work" || fail "could not keep $work writable"',
   'for p in "$@"; do',
-  '  if [ -d "$p" ]; then "$mount_bin" -t tmpfs -o size=16k agent-ci-hidden "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
-  '  elif [ -e "$p" ]; then "$mount_bin" --bind /dev/null "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
+  '  if [ -d "$p" ]; then "$mount_bin" -t tmpfs -o size=16k agent-ci-hidden "$p" || fail "could not hide $p"',
+  '  elif [ -e "$p" ]; then "$mount_bin" --bind /dev/null "$p" || fail "could not hide $p"',
   '  fi',
   'done',
+  // Every other mount read-only: the operator's home, writable PATH
+  // directories, tool caches and agent-ci's own install, so nothing the
+  // command writes can be run later by agent-ci or the operator.
+  'while read -r _ mp _; do',
+  '  case "$mp" in /proc|/proc/*|/sys|/sys/*|/dev|/dev/*) continue ;; esac',
+  '  [ "$mp" = "$work" ] && continue',
+  '  "$mount_bin" -o remount,bind,ro "$mp" 2>/dev/null || fail "could not make $mp read-only"',
+  'done < /proc/self/mounts',
+  // Re-enter the working directory through the new mounts (the old cwd
+  // still points into the mount that is now read-only).
+  'cd -- "$PWD" || fail "could not re-enter $PWD"',
   'exec "$unshare_bin" --user --map-root-user --mount -- /bin/bash -c "$cmd"',
 ].join('\n');
 
@@ -508,13 +523,17 @@ export function isolatedArgv(input: {
   hidden?: readonly string[];
   /** Linux: the verified tools (required for `linux-namespaces`). */
   tools?: LinuxTools;
+  /** Linux: the run directory, the only writable path (required). */
+  work?: string;
 }): string[] {
   const bash = ['/bin/bash', '-c', input.command];
   switch (input.isolation) {
     case 'linux-namespaces': {
       const tools = input.tools;
-      if (tools === undefined)
-        throw new Error('linux-namespaces needs the verified tool paths');
+      if (tools === undefined || input.work === undefined)
+        throw new Error(
+          'linux-namespaces needs the verified tool paths and the run directory',
+        );
       return [
         tools.unshare,
         ...LINUX_NS,
@@ -529,6 +548,7 @@ export function isolatedArgv(input: {
         tools.unshare,
         tools.mount,
         tools.ip ?? '',
+        input.work,
         ...(input.hidden ?? []),
       ];
     }
@@ -741,7 +761,7 @@ export async function runVerify(
       'E_VERIFY_RUN',
       isolation === 'macos-sandbox'
         ? "verify-review would run the pull request's code on this Mac as you. macOS sandbox-exec confines its file writes and network, but the code can still read the environment of agent-ci and of your other processes (which may hold model and GitHub credentials) and query your login Keychain"
-        : "no command isolation is available here (Linux unprivileged user namespaces with root-owned unshare and mount); the pull request's code would run as you with full access",
+        : "no credential isolation is available here (Linux unprivileged user namespaces with root-owned unshare and mount, as a non-root user); without it the pull request's code would run as you, could read your processes' environments and could plant programs agent-ci or you run later",
       'Run --verify on Linux with unprivileged user namespaces, or let the Actions verify job run the checks. Pass --verify-trust-pr-code only for pull requests whose code you would run yourself.',
     );
   const now = deps.now ?? Date.now;
@@ -817,7 +837,7 @@ export async function runVerify(
         network,
         ...(isolation === 'macos-sandbox' ? { profile: profile(network) } : {}),
         ...(isolation === 'linux-namespaces' && linuxTools !== undefined
-          ? { hidden, tools: linuxTools }
+          ? { hidden, tools: linuxTools, work: realWork }
           : {}),
       });
       let result: ExecResult;

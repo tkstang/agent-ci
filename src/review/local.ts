@@ -2,6 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
+import {
+  pinFiles,
+  pinHarness,
+  type PinnedHarness,
+  verifyPin,
+} from '@agent-ci/harness/pin.js';
 import { digestResultDir } from '@agent-ci/publish/digest.js';
 import { createGit } from '@agent-ci/publish/git.js';
 import { failure, type Result, success } from '@agent-ci/result.js';
@@ -22,7 +29,12 @@ import {
   usageRows,
 } from '@agent-ci/review/findings.js';
 import type { GithubClient } from '@agent-ci/review/github.js';
-import { loadSpecDir, runReviewPass } from '@agent-ci/review/pass.js';
+import {
+  checksMcpPath,
+  loadSpecDir,
+  resolveReviewRoute,
+  runReviewPass,
+} from '@agent-ci/review/pass.js';
 import { prepareReview, SPEC_FILES } from '@agent-ci/review/prepare.js';
 import {
   type PublishOutcome,
@@ -253,6 +265,68 @@ async function localReview(
   // but the spec and this output directory, which commands cannot reach.
   let checksDir: string | undefined;
   let checksDigest: string | undefined;
+  // verify-review: every harness the review will launch, and the bridge
+  // server and node it spawns, pinned by absolute path and fingerprint
+  // BEFORE the checks run; re-verified before each launch.
+  const pins = new Map<string, PinnedHarness>();
+  let bridgePin: PinnedHarness | undefined;
+  if (record.config.mode === 'verify-review') {
+    const reviewModels = [
+      record.config.primary.model,
+      ...(record.config.second.enabled ? [record.config.second.model] : []),
+      ...(record.config.adjudicator.enabled
+        ? [record.config.adjudicator.model]
+        : []),
+    ];
+    for (const model of reviewModels) {
+      const resolved = await resolveReviewRoute({
+        model,
+        allowPool: options.allowPool,
+        seedLogin: options.seedLogin,
+        modelsPath: options.modelsPath,
+        env: options.env,
+        credentialFromEnv: false,
+        role: 'review model',
+      });
+      if (!resolved.ok) return resolved;
+      const harness = resolved.value.route.harness;
+      if (harness === 'fake' || pins.has(harness)) continue;
+      const pinned = await pinHarness(
+        adapterFor(harness).defaultCommand,
+        options.env.PATH ?? '',
+      );
+      if (!pinned.ok) return pinned;
+      pins.set(harness, pinned.value);
+    }
+    bridgePin = await pinFiles([process.execPath, checksMcpPath()]);
+  }
+  const launchDeps = async (
+    model: string,
+  ): Promise<Result<Parameters<typeof runReviewPass>[1]>> => {
+    if (bridgePin !== undefined) {
+      const bridge = await verifyPin(bridgePin);
+      if (!bridge.ok) return bridge;
+    }
+    const resolved = await resolveReviewRoute({
+      model,
+      allowPool: options.allowPool,
+      seedLogin: options.seedLogin,
+      modelsPath: options.modelsPath,
+      env: options.env,
+      credentialFromEnv: false,
+      role: 'review model',
+    });
+    if (!resolved.ok) return resolved;
+    const pin = pins.get(resolved.value.route.harness);
+    if (pin === undefined) return success({});
+    const unchanged = await verifyPin(pin);
+    if (!unchanged.ok) return unchanged;
+    return success({
+      harness: {
+        commandOverride: { command: pin.command, prefixArgs: pin.prefixArgs },
+      },
+    });
+  };
   if (record.config.mode === 'verify-review') {
     const verifyParent = await mkdtemp(
       path.join(os.tmpdir(), 'agent-ci-verify-head-'),
@@ -327,23 +401,32 @@ async function localReview(
       if (pass === 'second' && !record.config.second.enabled) continue;
       const passDir = path.join(outDir, pass);
       log(`agent-ci review: ${pass} reviewer pass`);
-      const ran = await runReviewPass({
-        pass,
-        spec,
-        cwd: worktree,
-        outDir: passDir,
-        allowPool: options.allowPool,
-        seedLogin: options.seedLogin,
-        timeoutMs: options.timeoutMs,
-        maxAttempts: 2,
-        retryDelayMs: 15_000,
-        modelsPath: options.modelsPath,
-        env: options.env,
-        credentialFromEnv: false,
-        checksDir,
-        checksDigest,
-        ...(options.git === undefined ? {} : { git: options.git }),
-      });
+      const deps = await launchDeps(
+        pass === 'primary'
+          ? record.config.primary.model
+          : record.config.second.model,
+      );
+      if (!deps.ok) return deps;
+      const ran = await runReviewPass(
+        {
+          pass,
+          spec,
+          cwd: worktree,
+          outDir: passDir,
+          allowPool: options.allowPool,
+          seedLogin: options.seedLogin,
+          timeoutMs: options.timeoutMs,
+          maxAttempts: 2,
+          retryDelayMs: 15_000,
+          modelsPath: options.modelsPath,
+          env: options.env,
+          credentialFromEnv: false,
+          checksDir,
+          checksDigest,
+          ...(options.git === undefined ? {} : { git: options.git }),
+        },
+        deps.value,
+      );
       if (!ran.ok) {
         log(
           `agent-ci review: ${pass} pass did not run: ${ran.code}: ${ran.message}`,
@@ -371,20 +454,25 @@ async function localReview(
   let adjudicatorRecord = null;
   if (record.config.adjudicator.enabled) {
     const adjudicationDir = path.join(outDir, 'adjudication');
-    const ran = await runAdjudicator({
-      spec: spec.spec,
-      passes: passes
-        .filter((p) => p.review !== null)
-        .map((p) => ({ pass: p.pass, attempt: '1', review: p.review })),
-      failOnSeverity: policy.fail_on_severity,
-      read,
-      outDir: adjudicationDir,
-      allowPool: options.allowPool,
-      timeoutMs: options.timeoutMs,
-      modelsPath: options.modelsPath,
-      env: options.env,
-      credentialFromEnv: false,
-    });
+    const deps = await launchDeps(record.config.adjudicator.model);
+    if (!deps.ok) return deps;
+    const ran = await runAdjudicator(
+      {
+        spec: spec.spec,
+        passes: passes
+          .filter((p) => p.review !== null)
+          .map((p) => ({ pass: p.pass, attempt: '1', review: p.review })),
+        failOnSeverity: policy.fail_on_severity,
+        read,
+        outDir: adjudicationDir,
+        allowPool: options.allowPool,
+        timeoutMs: options.timeoutMs,
+        modelsPath: options.modelsPath,
+        env: options.env,
+        credentialFromEnv: false,
+      },
+      deps.value,
+    );
     if (ran.ok) {
       const digest = await digestResultDir(adjudicationDir);
       if (digest.ok) {
