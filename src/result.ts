@@ -45,7 +45,15 @@ export const ERROR_CODES = [
   'E_SECRET_GUARD',
   // Change sets and publishing
   'E_CHANGE_SET',
+  'E_PATH_POLICY',
   'E_PUBLISH',
+  // Fan-out targets and use-case wrappers
+  'E_TARGETS_CONFIG',
+  'E_TARGET_NOT_FOUND',
+  'E_TARGETS_LIMIT',
+  'E_TARGETS_RESET_ALL',
+  'E_TARGET_TOKEN',
+  'E_TOOLS_UPDATE',
   // PR review
   'E_REVIEW_REQUEST',
   'E_REVIEW_INPUT',

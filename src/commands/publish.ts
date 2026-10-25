@@ -12,6 +12,11 @@ import {
   DEFAULT_BRANCH_PREFIX,
 } from '@agent-ci/publish/static-branch.js';
 import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
+import {
+  isPathPolicyName,
+  PATH_POLICIES,
+  PATH_POLICY_NAMES,
+} from '@agent-ci/use-cases/presets.js';
 
 const USAGE = `agent-ci publish — publish a finished run (separate job, write token).
 
@@ -35,6 +40,12 @@ Flags:
   --adopt-branch             Update a branch whose head agent-ci did not
                              publish (its history is kept, its content is
                              replaced). Without it such a branch is refused.
+  --adopt <true|false>       The same as a value (workflows pass the fan-out
+                             reset flag here); empty means false.
+  --path-policy <name>       Refuse the pull request unless every changed path
+                             passes this use-case policy (docs-update,
+                             instructions-update, tools-update,
+                             tools-update-lockfile); empty means none.
   --base <branch>            Pull request base branch (required with --pr).
   --title <text>             Pull request title.
   --comment-key <key>        Marker key for the comment (default: the branch).
@@ -105,9 +116,22 @@ export function createPublishCommand(
           'comment-author': { type: 'string' },
           'result-digest': { type: 'string' },
           'github-output': { type: 'boolean' },
+          adopt: { type: 'string' },
+          'path-policy': { type: 'string' },
         },
         USAGE,
       );
+      const adopt = optional(parsed.adopt);
+      if (adopt !== undefined && !['true', 'false'].includes(adopt)) {
+        throw new CliError('E_INVALID_INPUT', '--adopt must be true or false');
+      }
+      const policyName = optional(parsed['path-policy']);
+      if (policyName !== undefined && !isPathPolicyName(policyName)) {
+        throw new CliError(
+          'E_INVALID_INPUT',
+          `--path-policy must be one of: ${PATH_POLICY_NAMES.join(', ')}`,
+        );
+      }
       // Empty values (unset workflow inputs) behave like absent flags.
       const flags = {
         ...parsed,
@@ -184,7 +208,15 @@ export function createPublishCommand(
         },
         allowWorkflowChanges: flags['allow-workflow-changes'] === true,
         branchPrefix: prefix,
-        adoptBranch: flags['adopt-branch'] === true,
+        adoptBranch: flags['adopt-branch'] === true || adopt === 'true',
+        ...(policyName === undefined
+          ? {}
+          : {
+              pathPolicy: {
+                name: policyName,
+                policy: PATH_POLICIES[policyName],
+              },
+            }),
         ...(flags['comment-author'] === undefined
           ? {}
           : { publisherLogin: flags['comment-author'] }),

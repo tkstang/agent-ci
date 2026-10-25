@@ -27,6 +27,10 @@ import {
 } from '@agent-ci/publish/static-branch.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isWithin, resolvePhysical } from '@agent-ci/run/workspace.js';
+import {
+  findDisallowedPaths,
+  type PathPolicy,
+} from '@agent-ci/use-cases/policy.js';
 
 /**
  * Publish a finished run: the static-branch pull request for an edit run that
@@ -196,6 +200,11 @@ export interface PublishOptions {
    * GitHub App token). Default: `GET /user`, else `github-actions[bot]`.
    */
   readonly publisherLogin?: string;
+  /**
+   * A use-case wrapper's changed-path policy, chosen by the workflow (never
+   * read from the run result): every change-set path must pass it.
+   */
+  readonly pathPolicy?: { readonly name: string; readonly policy: PathPolicy };
 }
 
 export interface PublishReport {
@@ -280,6 +289,19 @@ export async function publishRun(
         options.allowWorkflowChanges === true,
       );
       if (!checked.ok) return checked;
+      if (options.pathPolicy !== undefined) {
+        const refused = findDisallowedPaths(
+          changeSet.files.map((entry) => entry.path),
+          options.pathPolicy.policy,
+        );
+        if (refused.length > 0) {
+          return failure(
+            'E_PATH_POLICY',
+            `the ${options.pathPolicy.name} path policy refuses ${refused.length} changed path(s): ${refused.slice(0, 10).join(', ')}${refused.length > 10 ? ', …' : ''}`,
+            'Nothing was pushed. Inspect the run artifact; the wrapper may only change the paths its policy allows.',
+          );
+        }
+      }
       const existing = await options.github.findOpenPull(
         options.branch,
         options.baseBranch,

@@ -3,6 +3,7 @@ import { doctorCommand } from '@agent-ci/commands/doctor.js';
 import { harnessCommand } from '@agent-ci/commands/harness.js';
 import { modelsCommand } from '@agent-ci/commands/models.js';
 import { notifyCommand } from '@agent-ci/commands/notify.js';
+import { presetCommand } from '@agent-ci/commands/preset.js';
 import { publishCommand } from '@agent-ci/commands/publish.js';
 import { reviewCommand } from '@agent-ci/commands/review.js';
 import { routeCommand } from '@agent-ci/commands/route.js';
@@ -23,6 +24,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   skillsCommand,
   publishCommand,
   reviewCommand,
+  presetCommand,
   notifyCommand,
   workspaceCommand,
   digestCommand,

@@ -27,6 +27,7 @@ import {
   publishStaticBranch,
 } from '@agent-ci/publish/static-branch.js';
 import { success } from '@agent-ci/result.js';
+import { PATH_POLICIES } from '@agent-ci/use-cases/presets.js';
 import { describe, expect, it } from 'vitest';
 
 const git = (cwd: string, ...args: string[]) =>
@@ -565,6 +566,79 @@ describe('publisher identity', () => {
     expect(() =>
       git(remote, 'rev-parse', '--verify', 'refs/heads/agent-ci/docs'),
     ).toThrow();
+  });
+});
+
+describe('use-case path policy', () => {
+  it('refuses a change set with a path outside the policy before anything is pushed', async () => {
+    const { remote, clone } = await remoteAndClone();
+    const baseSha = git(clone, 'rev-parse', 'HEAD');
+    const gh = fakeGitHub();
+    const report = await publishRun({
+      outputs: outputs(
+        { changedFiles: ['docs/new.md', 'src/evil.ts'] },
+        {
+          version: 1,
+          baseSha,
+          files: [write('docs/new.md', 'n\n'), write('src/evil.ts', 'x\n')],
+        },
+      ),
+      github: gh.client,
+      git: createGit(clone, { PATH: process.env.PATH }),
+      pullRequest: true,
+      branch: 'agent-ci/docs',
+      baseBranch: 'main',
+      author: ACTIONS_BOT,
+      pathPolicy: {
+        name: 'docs-update',
+        policy: PATH_POLICIES['docs-update'],
+      },
+    });
+    expect(report.ok ? 'ok' : report.code).toBe('E_PATH_POLICY');
+    expect(report.ok ? '' : report.message).toContain('src/evil.ts');
+    expect(gh.pulls).toHaveLength(0);
+    expect(() =>
+      git(remote, 'rev-parse', '--verify', 'refs/heads/agent-ci/docs'),
+    ).toThrow();
+  });
+
+  it('publishes a change set inside the policy', async () => {
+    const { clone } = await remoteAndClone();
+    const baseSha = git(clone, 'rev-parse', 'HEAD');
+    const gh = fakeGitHub();
+    const report = await publishRun({
+      outputs: outputs(
+        {},
+        { version: 1, baseSha, files: [write('docs/new.md', 'n\n')] },
+      ),
+      github: gh.client,
+      git: createGit(clone, { PATH: process.env.PATH }),
+      pullRequest: true,
+      branch: 'agent-ci/docs',
+      baseBranch: 'main',
+      author: ACTIONS_BOT,
+      pathPolicy: {
+        name: 'docs-update',
+        policy: PATH_POLICIES['docs-update'],
+      },
+    });
+    expect(report.ok && report.value.pull.action).toBe('created');
+  });
+
+  it('validates --path-policy and --adopt values at the command boundary', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-pub-flags-'));
+    for (const flags of [
+      ['--path-policy', 'anything'],
+      ['--adopt', 'yes'],
+    ]) {
+      const result = await run(
+        ['publish', '--result-dir', dir, '--repo', 'o/r', ...flags],
+        { cwd: dir, env: {}, log: () => undefined },
+      );
+      expect(result.envelope.ok ? 'ok' : result.envelope.code).toBe(
+        'E_INVALID_INPUT',
+      );
+    }
   });
 });
 
