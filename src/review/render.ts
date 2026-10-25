@@ -537,14 +537,14 @@ export function renderSummary(
       );
     } else {
       lines.push(
-        '| Check | Result | Isolation | Evidence |',
+        '| Check | Result | Isolation (as reported) | Evidence |',
         '| --- | --- | --- | --- |',
         ...gated.checks.entries.map(
           (entry) =>
             `| ${codeSpan(entry.name)} | ${entry.timed_out ? 'timed out' : exitText(entry.exit_code)} | ${codeSpan(entry.isolation)} | ${codeSpan(entry.evidence_id)} |`,
         ),
         '',
-        'agent-ci ran these configured checks on the PR head before any reviewer started and without model credentials (in Actions, in a separate job); their results reflect the PR code itself.',
+        'agent-ci ran these configured checks on the PR head before any reviewer started and without model credentials (in Actions, in a separate job). Results and isolation are reported by that verify stage, which runs the PR code itself, so they describe the PR rather than prove it.',
         '',
       );
     }

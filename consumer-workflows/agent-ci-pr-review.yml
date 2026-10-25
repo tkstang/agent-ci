@@ -45,6 +45,11 @@
 # could persist into later jobs holding model secrets. `verify_on_self_hosted:
 # true` allows ephemeral self-hosted runners only, and verify-review is
 # refused with `allow_pool: true` (the proxy host must never run PR code).
+# The verify job also runs PR code in your default branch's Actions scope:
+# it can obtain that job's ACTIONS_RUNTIME_TOKEN (artifact upload, cache
+# writes other default-branch workflows may restore) and its read-only
+# GITHUB_TOKEN. Check results and the reported isolation come from that
+# job, so they describe the PR's code, not a proof about it.
 #
 # Accepted residual risk: the reviewer reads untrusted pull-request text
 # while holding the model credential. Its tools are read-only, but a prompt

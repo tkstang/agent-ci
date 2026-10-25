@@ -254,6 +254,10 @@ describe('verify-review pipeline (fake harness, real bridge)', () => {
     expect(summary).toContain(
       'before any reviewer started and without model credentials',
     );
+    expect(summary).toContain(
+      '| Check | Result | Isolation (as reported) | Evidence |',
+    );
+    expect(summary).toContain('describe the PR rather than prove it');
   }, 60_000);
 
   it('drops a finding that cites an evidence id the bridge never returned', async () => {
