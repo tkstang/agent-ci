@@ -1,9 +1,10 @@
 # Copy into .github/workflows/ of a repository that should run agent-ci.
 #
 # Setup (once per consumer repository):
-# 1. Pin the agent-ci ref twice: in `uses:` and in `agent_ci_ref` (same tag or
-#    SHA). agent-ci is private, so its Actions access setting must allow
-#    workflows from repositories owned by the same user.
+# 1. Pin the agent-ci ref (tag or SHA) in `uses:`. The workflow checks out its
+#    helpers at that same commit (job.workflow_sha), so there is no second pin.
+#    agent-ci is private, so its Actions access setting must allow workflows
+#    from repositories owned by the same user.
 # 2. Add the AGENT_CI_SOURCE_TOKEN secret: a fine-grained token with
 #    contents: read on tkstang/agent-ci (the helpers are checked out with it).
 # 3. Add the ONE model credential the chosen route names (see `agent-ci models`
@@ -17,6 +18,10 @@
 # the agent job. It still runs repository code that an edit-mode agent may run
 # again with the model credential in its environment: never point it at
 # untrusted refs such as fork pull requests.
+#
+# The change set is built on the dispatched branch, and the pull request
+# targets that same branch (publish_base defaults to it). Set publish_base
+# together with target_ref if the run should start elsewhere.
 #
 # Pull requests and pushes made with GITHUB_TOKEN do not trigger this
 # repository's workflows: generated pull requests get no CI until someone
@@ -43,7 +48,6 @@ jobs:
       pull-requests: write
     uses: tkstang/agent-ci/.github/workflows/run-agent.yml@v0.1.0 # pin a tag or SHA
     with:
-      agent_ci_ref: v0.1.0 # the same tag or SHA as in uses:
       model: ${{ inputs.model }}
       prompt: ${{ inputs.prompt }}
       mode: edit

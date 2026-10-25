@@ -43,7 +43,9 @@ on:
         type: string
         default: generic-prompt
       target_ref:
-        description: Commit or branch of this repository to run on. Empty uses the triggering ref.
+        description: >-
+          Commit or branch of this repository to run on. Empty means the pull request
+          head for pull-request events, else the triggering ref.
         type: string
         default: ''
       runs_on:
@@ -91,7 +93,10 @@ on:
         type: string
         default: ''
       publish_base:
-        description: Base branch of the published pull request. Empty means the default branch.
+        description: >-
+          Base branch of the published pull request. Empty means the pull request's head
+          branch, else the triggering branch, else the default branch. Set it whenever
+          target_ref points somewhere else, so the change set's base matches.
         type: string
         default: ''
       pr_title:
@@ -113,13 +118,15 @@ on:
         type: string
         default: agent-ci-run
       agent_ci_repository:
-        description: Repository that provides the agent-ci helpers.
+        description: >-
+          Repository that provides the agent-ci helpers. Empty means this reusable
+          workflow's own repository (job.workflow_repository).
         type: string
-        default: tkstang/agent-ci
+        default: ''
       agent_ci_ref:
         description: >-
-          Helper ref (tag or SHA). Empty means the calling workflow's SHA, which
-          is only valid inside the agent-ci repository; consumers must pin it.
+          Helper ref (tag or SHA). Empty means this reusable workflow's own commit
+          (job.workflow_sha), so the helpers always match the ref pinned in uses:.
         type: string
         default: ''
     secrets:
@@ -166,7 +173,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: target
-          ref: ${{ inputs.target_ref }}
+          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}
           persist-credentials: false
 
       - name: Set up Node
@@ -205,19 +212,19 @@ jobs:
       result_uploaded: ${{ steps.result.outputs.present }}
       route_id: ${{ steps.route.outputs.route_id }}
     steps:
-      - name: Require a pinned helper ref outside the agent-ci repository
-        if: inputs.agent_ci_ref == '' && github.repository != inputs.agent_ci_repository
-        env:
-          HELPERS: ${{ inputs.agent_ci_repository }}
+      # job.workflow_* name the reusable workflow's own repository and commit
+      # (verified live 2026-10-25; github.workflow_sha is the caller's commit).
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
         run: |
-          echo "::error::Set agent_ci_ref to the tag or SHA pinned in uses: (helpers come from $HELPERS)."
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
           exit 1
 
       - name: Check out the target repository
         uses: actions/checkout@v5
         with:
           path: target
-          ref: ${{ inputs.target_ref }}
+          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}
           persist-credentials: false
 
       - name: Download the prepared working tree
@@ -236,8 +243,8 @@ jobs:
       - name: Check out the agent-ci helpers
         uses: actions/checkout@v5
         with:
-          repository: ${{ inputs.agent_ci_repository }}
-          ref: ${{ inputs.agent_ci_ref || github.workflow_sha }}
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
           token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
           path: .agent-ci-src
           persist-credentials: false
@@ -346,13 +353,13 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: target
-          ref: ${{ inputs.target_ref }}
+          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}
 
       - name: Check out the agent-ci helpers
         uses: actions/checkout@v5
         with:
-          repository: ${{ inputs.agent_ci_repository }}
-          ref: ${{ inputs.agent_ci_ref || github.workflow_sha }}
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
           token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
           path: .agent-ci-src
           persist-credentials: false
@@ -374,7 +381,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_PR: ${{ inputs.publish_pr }}
           BRANCH: ${{ inputs.publish_branch }}
-          BASE: ${{ inputs.publish_base || github.event.repository.default_branch }}
+          BASE: ${{ inputs.publish_base || github.head_ref || (github.ref_type == 'branch' && github.ref_name) || github.event.repository.default_branch }}
           TITLE: ${{ inputs.pr_title }}
           COMMENT_PR: ${{ inputs.comment_pr || github.event.pull_request.number || '' }}
           PUBLISHER_LOGIN: ${{ inputs.publisher_login }}

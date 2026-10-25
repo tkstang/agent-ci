@@ -133,22 +133,38 @@ describe('run-agent.yml', () => {
     }
   });
 
-  it('checks out helpers at the calling workflow SHA by default and requires a pin elsewhere', async () => {
+  it("checks out helpers at the reusable workflow's own repository and commit by default", async () => {
     const { jobs } = await runAgent();
     for (const job of [jobs.agent, jobs.publish]) {
       const helpers = step(job ?? {}, 'Check out the agent-ci helpers');
+      // job.workflow_*: the called workflow's own commit (verified live);
+      // github.workflow_sha would be the consumer's commit.
+      expect(helpers.with?.repository).toBe(
+        '${{ inputs.agent_ci_repository || job.workflow_repository }}',
+      );
       expect(helpers.with?.ref).toBe(
-        '${{ inputs.agent_ci_ref || github.workflow_sha }}',
+        '${{ inputs.agent_ci_ref || job.workflow_sha }}',
       );
       expect(helpers.with?.token).toBe(
         '${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}',
       );
     }
+    expect(JSON.stringify(jobs)).not.toContain('github.workflow_sha');
     const guard = jobs.agent?.steps?.[0];
-    expect(guard?.if).toBe(
-      "inputs.agent_ci_ref == '' && github.repository != inputs.agent_ci_repository",
-    );
+    expect(guard?.name).toBe('Require a resolvable helper ref');
     expect(guard?.run).toContain('exit 1');
+  });
+
+  it('builds and publishes against the same ref', async () => {
+    const { jobs } = await runAgent();
+    const ref =
+      "${{ inputs.target_ref || github.event.pull_request.head.sha || '' }}";
+    for (const job of Object.values(jobs)) {
+      expect(step(job, 'Check out the target repository').with?.ref).toBe(ref);
+    }
+    expect(step(jobs.publish ?? {}, 'Publish').env?.BASE).toBe(
+      "${{ inputs.publish_base || github.head_ref || (github.ref_type == 'branch' && github.ref_name) || github.event.repository.default_branch }}",
+    );
   });
 
   it('keeps the home root and outputs outside the workspace and trusts the checkout for git', async () => {
@@ -321,11 +337,11 @@ describe('consumer template', () => {
   it('pins the helpers and passes only the source token and one model credential', async () => {
     const workflow = await load('consumer-workflows/agent-ci-run.yml');
     const job = workflow.jobs.run ?? {};
-    const ref = /@([^\s]+)$/u.exec(job.uses ?? '')?.[1];
     expect(job.uses).toMatch(
       /^tkstang\/agent-ci\/\.github\/workflows\/run-agent\.yml@/u,
     );
-    expect(job.with?.agent_ci_ref).toBe(ref);
+    // Helpers follow the uses: pin; no second pin to drift.
+    expect(job.with?.agent_ci_ref).toBeUndefined();
     expect(Object.keys(job.secrets ?? {})).toEqual([
       'AGENT_CI_SOURCE_TOKEN',
       'CLAUDE_CODE_OAUTH_TOKEN',
