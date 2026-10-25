@@ -178,6 +178,10 @@ export interface PublishOptions {
   readonly author: CommitIdentity;
   /** GITHUB_TOKEN cannot push `.github/workflows/*`; refuse those by default. */
   readonly allowWorkflowChanges?: boolean;
+  /** Agent-owned static-branch namespace (default `agent-ci/`). */
+  readonly branchPrefix?: string;
+  /** Update a branch whose head agent-ci did not publish (history kept). */
+  readonly adoptBranch?: boolean;
 }
 
 export interface PublishReport {
@@ -265,6 +269,10 @@ export async function publishRun(
         baseBranch: options.baseBranch,
         title,
         author: options.author,
+        ...(options.branchPrefix === undefined
+          ? {}
+          : { branchPrefix: options.branchPrefix }),
+        adoptBranch: options.adoptBranch === true,
       });
       if (!branch.ok) return branch;
       const body = renderPullBody(result, {

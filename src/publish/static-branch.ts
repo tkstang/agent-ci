@@ -37,7 +37,16 @@ export interface StaticBranchOptions {
   readonly remote?: string;
   readonly title: string;
   readonly author: CommitIdentity;
+  /** Agent-owned branch namespace (default `agent-ci/`). */
+  readonly branchPrefix?: string;
+  /**
+   * Update an existing branch whose head agent-ci did not publish. History
+   * is kept (no force push), but the new tree replaces the branch content.
+   */
+  readonly adoptBranch?: boolean;
 }
+
+export const DEFAULT_BRANCH_PREFIX = 'agent-ci/';
 
 export interface StaticBranchResult {
   readonly branch: string;
@@ -52,7 +61,26 @@ async function checkBranchName(
   git: GitRunner,
   branch: string,
   baseBranch: string,
+  prefix: string,
 ): Promise<Result<void>> {
+  if (
+    prefix === '' ||
+    !prefix.endsWith('/') ||
+    PROTECTED.has(prefix.slice(0, -1))
+  ) {
+    return failure(
+      'E_PUBLISH',
+      `invalid branch prefix ${JSON.stringify(prefix)}`,
+      'Use an agent-owned namespace ending in "/", such as agent-ci/.',
+    );
+  }
+  if (!branch.startsWith(prefix) || branch.length === prefix.length) {
+    return failure(
+      'E_PUBLISH',
+      `refusing to publish to ${JSON.stringify(branch)}: static branches live under ${prefix}`,
+      `Use a branch such as ${prefix}<use-case>.`,
+    );
+  }
   if (
     PROTECTED.has(branch) ||
     branch === baseBranch ||
@@ -104,12 +132,46 @@ async function ensureCommit(
   return success(undefined);
 }
 
+/**
+ * True when `commit` is one this publisher made: its message ends with the
+ * `Agent-CI-Base:` trailer and its committer is the publishing identity.
+ */
+export async function publishedByAgentCi(
+  git: GitRunner,
+  commit: string,
+  identity: CommitIdentity,
+): Promise<Result<boolean>> {
+  const shown = await git(['cat-file', 'commit', commit]);
+  if (shown.code !== 0) {
+    return failure(
+      'E_PUBLISH',
+      `cannot read commit ${commit}: ${gitError(shown)}`,
+    );
+  }
+  const [header = '', ...body] = shown.stdout.split('\n\n');
+  const committer = /^committer (.*) <([^>]*)> \d+ [+-]\d{4}$/mu.exec(header);
+  const message = body.join('\n\n');
+  const trailer = new RegExp(`^${BASE_TRAILER}: [0-9a-f]{40}\\s*$`, 'mu').test(
+    message,
+  );
+  return success(
+    trailer &&
+      committer?.[1] === identity.name &&
+      committer[2] === identity.email,
+  );
+}
+
 export async function publishStaticBranch(
   options: StaticBranchOptions,
 ): Promise<Result<StaticBranchResult>> {
   const { git, changeSet, branch } = options;
   const remote = options.remote ?? 'origin';
-  const named = await checkBranchName(git, branch, options.baseBranch);
+  const named = await checkBranchName(
+    git,
+    branch,
+    options.baseBranch,
+    options.branchPrefix ?? DEFAULT_BRANCH_PREFIX,
+  );
   if (!named.ok) return named;
   const base = changeSet.baseSha;
   if (base === null) {
@@ -125,6 +187,17 @@ export async function publishStaticBranch(
   if (existing.value !== null) {
     const ready = await ensureCommit(git, remote, existing.value);
     if (!ready.ok) return ready;
+    // Only a branch whose head agent-ci published may be updated: anyone
+    // else's commit there would be dropped from the tree by this update.
+    const owned = await publishedByAgentCi(git, existing.value, options.author);
+    if (!owned.ok) return owned;
+    if (!owned.value && options.adoptBranch !== true) {
+      return failure(
+        'E_PUBLISH',
+        `branch ${branch} has a head commit (${existing.value.slice(0, 12)}) that agent-ci did not publish; refusing to replace its content`,
+        'Merge or move that work elsewhere, delete the branch, or pass --adopt-branch to replace the content (history is kept).',
+      );
+    }
   }
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-index-'));

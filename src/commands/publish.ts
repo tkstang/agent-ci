@@ -7,7 +7,10 @@ import { CliError } from '@agent-ci/errors.js';
 import { createGit } from '@agent-ci/publish/git.js';
 import { createGitHubClient } from '@agent-ci/publish/github.js';
 import { publishRun, readRunOutputs } from '@agent-ci/publish/publish.js';
-import { ACTIONS_BOT } from '@agent-ci/publish/static-branch.js';
+import {
+  ACTIONS_BOT,
+  DEFAULT_BRANCH_PREFIX,
+} from '@agent-ci/publish/static-branch.js';
 import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
 
 const USAGE = `agent-ci publish — publish a finished run (separate job, write token).
@@ -26,7 +29,12 @@ Flags:
   --result-dir <dir>         Canonical result directory (required).
   --cwd <dir>                Git checkout of the target repository (default .).
   --repo <owner/name>        Default: $GITHUB_REPOSITORY.
-  --branch <name>            Static branch (default agent-ci/<use-case>).
+  --branch <name>            Static branch (default <prefix><use-case>).
+  --branch-prefix <prefix>   Agent-owned branch namespace (default agent-ci/);
+                             --branch must live under it.
+  --adopt-branch             Update a branch whose head agent-ci did not
+                             publish (its history is kept, its content is
+                             replaced). Without it such a branch is refused.
   --base <branch>            Pull request base branch (required with --pr).
   --title <text>             Pull request title.
   --comment-key <key>        Marker key for the comment (default: the branch).
@@ -84,6 +92,8 @@ export function createPublishCommand(
           'author-name': { type: 'string' },
           'author-email': { type: 'string' },
           'allow-workflow-changes': { type: 'boolean' },
+          'branch-prefix': { type: 'string' },
+          'adopt-branch': { type: 'boolean' },
           'github-output': { type: 'boolean' },
         },
         USAGE,
@@ -97,6 +107,7 @@ export function createPublishCommand(
         title: optional(parsed.title),
         'comment-key': optional(parsed['comment-key']),
         'run-url': optional(parsed['run-url']),
+        'branch-prefix': optional(parsed['branch-prefix']),
       };
       const publishPr = optional(parsed['publish-pr']);
       if (publishPr !== undefined && !['true', 'false'].includes(publishPr)) {
@@ -129,7 +140,8 @@ export function createPublishCommand(
       });
       if (!github.ok) throw CliError.fromFailure(github);
       const pullRequest = flags.pr === true || publishPr === 'true';
-      const branch = flags.branch ?? `agent-ci/${outputs.value.result.useCase}`;
+      const prefix = flags['branch-prefix'] ?? DEFAULT_BRANCH_PREFIX;
+      const branch = flags.branch ?? `${prefix}${outputs.value.result.useCase}`;
       const report = await publishRun({
         outputs: outputs.value,
         github: github.value,
@@ -154,6 +166,8 @@ export function createPublishCommand(
           email: flags['author-email'] ?? ACTIONS_BOT.email,
         },
         allowWorkflowChanges: flags['allow-workflow-changes'] === true,
+        branchPrefix: prefix,
+        adoptBranch: flags['adopt-branch'] === true,
       });
       if (!report.ok) throw CliError.fromFailure(report);
       const { pull, comment } = report.value;

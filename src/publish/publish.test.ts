@@ -168,7 +168,16 @@ describe('publishStaticBranch', () => {
     const { clone } = await remoteAndClone();
     const baseSha = git(clone, 'rev-parse', 'HEAD');
     const runner = createGit(clone, { PATH: process.env.PATH });
-    for (const branch of ['main', 'release', '-x', 'a b', 'master']) {
+    for (const branch of [
+      'main',
+      'release',
+      '-x',
+      'a b',
+      'master',
+      'feature/human',
+      'agent-ci/',
+      'agent-ci-x',
+    ]) {
       const result = await publishStaticBranch({
         git: runner,
         changeSet: { version: 1, baseSha, files: [write('a', 'a')] },
@@ -188,6 +197,120 @@ describe('publishStaticBranch', () => {
       author: ACTIONS_BOT,
     });
     expect(noBase.ok ? 'ok' : noBase.code).toBe('E_PUBLISH');
+  });
+});
+
+describe('static branch ownership', () => {
+  it('refuses a non-agent branch (the review probe) and leaves it untouched', async () => {
+    const { remote, clone, seed } = await remoteAndClone();
+    const baseSha = git(clone, 'rev-parse', 'HEAD');
+    git(seed, 'checkout', '-q', '-b', 'feature/human');
+    await writeFile(path.join(seed, 'human-work.txt'), 'human\n');
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-qm', 'human work');
+    git(seed, 'push', '-q', 'origin', 'feature/human');
+    const before = git(remote, 'rev-parse', 'refs/heads/feature/human');
+    const result = await publishStaticBranch({
+      git: createGit(clone, { PATH: process.env.PATH }),
+      changeSet: { version: 1, baseSha, files: [write('agent.txt', 'a')] },
+      branch: 'feature/human',
+      baseBranch: 'main',
+      title: 't',
+      author: ACTIONS_BOT,
+    });
+    expect(result.ok ? 'ok' : result.code).toBe('E_PUBLISH');
+    expect(git(remote, 'rev-parse', 'refs/heads/feature/human')).toBe(before);
+  });
+
+  it('refuses an agent-ci branch whose head someone else committed, unless adopted', async () => {
+    const { remote, clone, seed } = await remoteAndClone();
+    const baseSha = git(clone, 'rev-parse', 'HEAD');
+    const options = {
+      git: createGit(clone, { PATH: process.env.PATH }),
+      changeSet: {
+        version: 1 as const,
+        baseSha,
+        files: [write('agent.txt', 'a')],
+      },
+      branch: 'agent-ci/docs',
+      baseBranch: 'main',
+      title: 't',
+      author: ACTIONS_BOT,
+    };
+    const created = await publishStaticBranch(options);
+    expect(created.ok && created.value.action).toBe('created');
+    // A person pushes a fix-up onto the static branch.
+    git(seed, 'fetch', '-q', 'origin', 'agent-ci/docs');
+    git(seed, 'checkout', '-q', '-b', 'docs', 'FETCH_HEAD');
+    await writeFile(path.join(seed, 'human-fix.txt'), 'fix\n');
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-qm', 'human fix-up');
+    git(seed, 'push', '-q', 'origin', 'docs:agent-ci/docs');
+    const human = git(remote, 'rev-parse', 'refs/heads/agent-ci/docs');
+
+    const refused = await publishStaticBranch({
+      ...options,
+      changeSet: { ...options.changeSet, files: [write('agent.txt', 'b')] },
+    });
+    expect(refused.ok ? 'ok' : refused.code).toBe('E_PUBLISH');
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/docs')).toBe(human);
+
+    // A different publishing identity does not own the bot's commits either.
+    const otherIdentity = await publishStaticBranch({
+      ...options,
+      branch: 'agent-ci/other',
+      author: { name: 'someone', email: 'someone@example.com' },
+    });
+    expect(otherIdentity.ok).toBe(true);
+    const foreign = await publishStaticBranch({
+      ...options,
+      branch: 'agent-ci/other',
+      changeSet: { ...options.changeSet, files: [write('agent.txt', 'c')] },
+    });
+    expect(foreign.ok ? 'ok' : foreign.code).toBe('E_PUBLISH');
+
+    // Adopting keeps the person's commit in history (no force push).
+    const adopted = await publishStaticBranch({
+      ...options,
+      changeSet: { ...options.changeSet, files: [write('agent.txt', 'b')] },
+      adoptBranch: true,
+    });
+    expect(adopted.ok && adopted.value.action).toBe('updated');
+    expect(() =>
+      git(
+        remote,
+        'merge-base',
+        '--is-ancestor',
+        human,
+        'refs/heads/agent-ci/docs',
+      ),
+    ).not.toThrow();
+  });
+
+  it('honours a custom agent-owned prefix', async () => {
+    const { clone } = await remoteAndClone();
+    const baseSha = git(clone, 'rev-parse', 'HEAD');
+    const base = {
+      git: createGit(clone, { PATH: process.env.PATH }),
+      changeSet: { version: 1 as const, baseSha, files: [write('a', 'a')] },
+      baseBranch: 'main',
+      title: 't',
+      author: ACTIONS_BOT,
+      branchPrefix: 'bots/',
+    };
+    const ok = await publishStaticBranch({ ...base, branch: 'bots/run' });
+    expect(ok.ok).toBe(true);
+    const outside = await publishStaticBranch({
+      ...base,
+      branch: 'agent-ci/run',
+    });
+    expect(outside.ok ? 'ok' : outside.code).toBe('E_PUBLISH');
+    const badPrefix = await publishStaticBranch({
+      ...base,
+      branch: 'main/x',
+      branchPrefix: 'main/',
+    });
+    expect(badPrefix.ok ? 'ok' : badPrefix.code).toBe('E_PUBLISH');
   });
 });
 

@@ -81,7 +81,9 @@ on:
         type: boolean
         default: false
       publish_branch:
-        description: Static branch name. Empty means agent-ci/<use_case>.
+        description: >-
+          Static branch name under agent-ci/. Empty means agent-ci/<use_case>.
+          An existing branch is updated only while its head is agent-ci's own commit.
         type: string
         default: ''
       publish_base:
