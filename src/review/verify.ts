@@ -703,6 +703,8 @@ export type VerifyDeps = {
   readonly isolation?: IsolationKind;
   /** Linux tools (test seam; default: resolved from fixed system paths). */
   readonly linuxTools?: LinuxTools;
+  /** Effective uid (test seam; default: process.geteuid()). */
+  readonly euid?: number;
   readonly now?: () => number;
   /** Real home whose credential stores the macOS sandbox denies. */
   readonly realHome?: string;
@@ -744,9 +746,14 @@ export async function runVerify(
   const exec = deps.exec ?? execCommand;
   // Linux tools are resolved and verified once, here, before any checked
   // code runs; without them there is no namespace isolation to record.
+  // As root, "root-owned" protects nothing: a command mapped to uid 0 can
+  // rename over /usr/bin/unshare (review r2 probe). Root gets no isolation.
+  const euid = deps.euid ?? process.geteuid?.();
   const linuxTools =
-    deps.linuxTools ??
-    (process.platform === 'linux' ? resolveLinuxTools() : undefined);
+    euid === 0
+      ? undefined
+      : (deps.linuxTools ??
+        (process.platform === 'linux' ? resolveLinuxTools() : undefined));
   const detected =
     deps.isolation ?? detectIsolation(process.platform, linuxTools);
   const isolation: IsolationKind =

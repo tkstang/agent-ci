@@ -479,6 +479,40 @@ describe('isolation tools come only from verified root-owned paths', () => {
     expect(trustedSystemBinary([path.join(dir, 'missing')])).toBeUndefined();
   });
 
+  it('records no isolation when the launcher runs as root, so local runs refuse', async () => {
+    const s = await verifyScenario(
+      'version: 1\nchecks:\n  - name: test\n    command: "true"\n',
+    );
+    const tools = {
+      unshare: '/usr/bin/unshare',
+      mount: '/usr/bin/mount',
+      ip: null,
+    };
+    const refused = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: s.out,
+        env: { PATH: '/usr/bin:/bin' },
+        requireCredentialIsolation: true,
+      },
+      { isolation: 'linux-namespaces', linuxTools: tools, euid: 0 },
+    );
+    expect(refused).toMatchObject({ ok: false, code: 'E_VERIFY_RUN' });
+    // Without the requirement (the Actions verify job) it runs, recorded
+    // as `none`, never as `linux-namespaces`.
+    const ran = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: path.join(s.root, 'out-root'),
+        env: { PATH: '/usr/bin:/bin' },
+      },
+      { isolation: 'linux-namespaces', linuxTools: tools, euid: 0 },
+    );
+    expect(ran.ok && ran.value.evidence.entries[0]?.isolation).toBe('none');
+  });
+
   it('never claims namespaces without verified tools, whatever PATH holds', async () => {
     const s = await verifyScenario(
       'version: 1\nchecks:\n  - name: test\n    command: "true"\n',
