@@ -309,9 +309,10 @@ jobs:
 
       - name: Run the primary reviewer
         env:
-          # The resolved route's credential, by a static chain over the four
-          # model secrets (never a dynamic secrets[...] lookup, which would put
-          # every secret of this workflow on the runner); empty for fake.
+          # The resolved route's credential (empty for fake), picked by a
+          # static chain. Step expressions are evaluated on the runner, so this
+          # job's runner still holds every model secret the caller passes:
+          # pass only the one your route uses (Deferred Findings, p05).
           AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
@@ -526,7 +527,8 @@ jobs:
           HARNESS: ${{ steps.route.outputs.harness }}
         run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
 
-      # The model credential and nothing else; no GitHub token.
+      # Model secrets only (every one the caller passes reaches this runner;
+      # the step gets the route's); no GitHub token.
       - name: Run the adjudicator
         env:
           AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || '' }}
