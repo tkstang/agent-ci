@@ -223,6 +223,46 @@ describe('publishStaticBranch', () => {
       changeSet: changes(c),
     });
     expect(again.ok && again.value.action).toBe('unchanged');
+    // A rerun from the older base A, which the branch already contains,
+    // from a fresh shallow clone: no new commit (gate round 2 L).
+    const fresh = path.join(path.dirname(clone), 'fresh');
+    git(
+      path.dirname(clone),
+      'clone',
+      '-q',
+      '--depth=1',
+      `file://${remote}`,
+      fresh,
+    );
+    const freshOptions = {
+      ...options,
+      git: createGit(fresh, { PATH: process.env.PATH }),
+    };
+    const older = await publishStaticBranch({
+      ...freshOptions,
+      changeSet: changes(a),
+    });
+    expect(older.ok && older.value).toMatchObject({
+      action: 'unchanged',
+      commit: moved.value.commit,
+    });
+    expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/abc')).toBe(
+      moved.value.commit,
+    );
+    // A new tree from that older base: one ordinary commit, base not re-added.
+    const edited = await publishStaticBranch({
+      ...freshOptions,
+      changeSet: {
+        version: 1,
+        baseSha: a,
+        files: [write('README.md', 'agent 2\n')],
+      },
+    });
+    expect(edited.ok && edited.value.action).toBe('updated');
+    if (!edited.ok) return;
+    expect(git(remote, 'log', '-1', '--format=%P', edited.value.commit)).toBe(
+      moved.value.commit,
+    );
   });
 
   it('refuses protected or base branch names and a change set without a base', async () => {

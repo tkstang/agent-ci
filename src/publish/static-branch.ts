@@ -132,6 +132,34 @@ async function ensureCommit(
   return success(undefined);
 }
 
+/** How far back to look for a base in a shallow clone of the branch. */
+const ANCESTRY_DEPTH = 200;
+
+/**
+ * True when `base` is an ancestor of `head`. The clone is usually shallow,
+ * so a miss is retried once after fetching up to {@link ANCESTRY_DEPTH}
+ * commits of the head's history. Anything unknown counts as not contained,
+ * which only costs an extra ancestry commit.
+ */
+async function containsBase(
+  git: GitRunner,
+  remote: string,
+  head: string,
+  base: string,
+): Promise<boolean> {
+  const check = async () =>
+    (await git(['merge-base', '--is-ancestor', base, head])).code === 0;
+  if (await check()) return true;
+  const deepened = await git([
+    'fetch',
+    '--no-tags',
+    `--depth=${ANCESTRY_DEPTH}`,
+    remote,
+    head,
+  ]);
+  return deepened.code === 0 && check();
+}
+
 /**
  * True when `commit` is one this publisher made: its message ends with the
  * `Agent-CI-Base:` trailer and its committer is the publishing identity.
@@ -275,15 +303,18 @@ export async function publishStaticBranch(
         `^${BASE_TRAILER}: ([0-9a-f]{40})$`,
         'mu',
       ).exec(body)?.[1];
-      // Unchanged only when both the tree and the base it was built on are
-      // the same. A moved base gets an ancestry commit (parents: head, new
-      // base) even with an identical tree, so the pull request diff is
-      // against the new base.
-      if (headTree === tree && recorded === base) {
+      // Unchanged when the tree is the same and the base is already in the
+      // branch's history (the recorded base, or an older base a rerun
+      // starts from). A base the branch does not contain gets an ancestry
+      // commit (parents: head, new base) even with an identical tree, so
+      // the pull request diff is against the new base.
+      const included =
+        recorded === base || (await containsBase(git, remote, head, base));
+      if (headTree === tree && included) {
         return success({ branch, commit: head, action: 'unchanged' });
       }
       parents.push(head);
-      if (recorded !== base) parents.push(base);
+      if (!included) parents.push(base);
     } else {
       parents.push(base);
     }
