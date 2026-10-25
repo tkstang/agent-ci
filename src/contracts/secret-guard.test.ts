@@ -2,6 +2,7 @@ import {
   assertSecretFree,
   containsSecret,
   maskSecrets,
+  secretLeaves,
   secretValuesFromEnv,
 } from '@agent-ci/contracts/secret-guard.js';
 import { describe, expect, it } from 'vitest';
@@ -38,5 +39,23 @@ describe('secret guard', () => {
         'D',
       ]),
     ).toEqual([SECRET]);
+  });
+
+  it('extracts token-like leaves from credential material', () => {
+    const material = JSON.stringify({
+      type: 'oauth',
+      access: 'synthetic-access-token-0001',
+      nested: { refresh: 'synthetic-refresh-token-0002', expires: 123 },
+      label: 'Personal',
+      short: 'abc12',
+      words: 'oauth-provider',
+    });
+    expect(secretLeaves(material).toSorted()).toEqual([
+      'synthetic-access-token-0001',
+      'synthetic-refresh-token-0002',
+    ]);
+    expect(secretLeaves('key=synthetic-plain-token-00000003 other')).toEqual([
+      'key=synthetic-plain-token-00000003',
+    ]);
   });
 });

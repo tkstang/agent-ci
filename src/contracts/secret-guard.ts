@@ -33,6 +33,39 @@ export const KNOWN_CREDENTIAL_ENV = [
 /** Values shorter than this are too ambiguous to guard by substring. */
 const MIN_SECRET_LENGTH = 8;
 
+/**
+ * Token-like values inside credential material (a login file or an exported
+ * credential store): string leaves with no whitespace that are either 16+
+ * characters, or 8+ characters mixing letters and digits. Plain words such as
+ * an account label ("Personal") are not secrets and would only cause false
+ * `E_SECRET_COPY` failures. Non-JSON text yields its token-like runs.
+ * Used to guard outputs; the values are never logged.
+ */
+export function secretLeaves(material: string): string[] {
+  const found = new Set<string>();
+  const keep = (value: string) => {
+    if (/\s/u.test(value) || value.length < MIN_SECRET_LENGTH) return;
+    const mixed = /[a-z]/iu.test(value) && /\d/u.test(value);
+    if (value.length >= 16 || mixed) found.add(value);
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(material);
+  } catch {
+    for (const run of material.split(/[\s"',{}[\]:]+/u)) keep(run);
+    return [...found];
+  }
+  const pending: unknown[] = [parsed];
+  while (pending.length > 0) {
+    const item = pending.pop();
+    if (typeof item === 'string') keep(item);
+    else if (Array.isArray(item)) pending.push(...item);
+    else if (item !== null && typeof item === 'object')
+      pending.push(...Object.values(item));
+  }
+  return [...found];
+}
+
 /** Collect secret values for the named variables that are present. */
 export function secretValuesFromEnv(
   env: Readonly<Record<string, string | undefined>>,

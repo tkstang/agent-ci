@@ -7,11 +7,13 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { secretLeaves } from '@agent-ci/contracts/secret-guard.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isCiEnvironment } from '@agent-ci/routing/policy.js';
 import type { HarnessId } from '@agent-ci/routing/schema.js';
@@ -151,7 +153,12 @@ export async function seedSkills(
 export type PipeRunner = (
   from: { command: string; args: string[]; env: Record<string, string> },
   to: { command: string; args: string[]; env: Record<string, string> },
-) => Promise<{ fromExit: number | null; toExit: number | null }>;
+) => Promise<{
+  fromExit: number | null;
+  toExit: number | null;
+  /** The bytes that crossed the pipe, kept in memory for the secret guard. */
+  transferred: string;
+}>;
 
 const defaultPipe: PipeRunner = (from, to) =>
   new Promise((resolve, reject) => {
@@ -163,6 +170,8 @@ const defaultPipe: PipeRunner = (from, to) =>
       env: to.env,
       stdio: ['pipe', 'ignore', 'ignore'],
     });
+    const chunks: Buffer[] = [];
+    producer.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
     producer.stdout.pipe(consumer.stdin);
     let fromExit: number | null = null;
     producer.on('error', reject);
@@ -170,7 +179,13 @@ const defaultPipe: PipeRunner = (from, to) =>
     producer.on('close', (code) => {
       fromExit = code;
     });
-    consumer.on('close', (code) => resolve({ fromExit, toExit: code }));
+    consumer.on('close', (code) =>
+      resolve({
+        fromExit,
+        toExit: code,
+        transferred: Buffer.concat(chunks).toString('utf8'),
+      }),
+    );
   });
 
 export interface SeedLoginOptions {
@@ -181,16 +196,26 @@ export interface SeedLoginOptions {
   readonly pipe?: PipeRunner;
 }
 
+/** Where a login was seeded, and the token-like values it carries. */
+export interface SeededLogin {
+  readonly location: string;
+  /** Secret values for the output guard. Never log them. */
+  readonly secrets: readonly string[];
+}
+
 async function copyPrivate(
   source: string,
   target: string,
   harness: string,
-): Promise<Result<string>> {
+): Promise<Result<SeededLogin>> {
   try {
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await copyFile(source, target, constants.COPYFILE_EXCL);
     await chmod(target, 0o600);
-    return success(target);
+    return success({
+      location: target,
+      secrets: secretLeaves(await readFile(target, 'utf8')),
+    });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'EEXIST') {
@@ -221,7 +246,7 @@ async function copyPrivate(
 export async function seedLogin(
   layout: HomeRoot,
   options: SeedLoginOptions,
-): Promise<Result<string>> {
+): Promise<Result<SeededLogin>> {
   if (isCiEnvironment(options.parentEnv)) {
     return failure(
       'E_SEED_REFUSED',
@@ -262,7 +287,7 @@ export async function seedLogin(
         const value = options.parentEnv[name];
         if (value !== undefined) sourceEnv[name] = value;
       }
-      const { fromExit, toExit } = await pipe(
+      const { fromExit, toExit, transferred } = await pipe(
         { command: 'opencode', args: ['auth', 'export'], env: sourceEnv },
         {
           command: 'opencode',
@@ -271,7 +296,10 @@ export async function seedLogin(
         },
       );
       return fromExit === 0 && toExit === 0
-        ? success(path.join(layout.env.XDG_DATA_HOME ?? '', 'opencode'))
+        ? success({
+            location: path.join(layout.env.XDG_DATA_HOME ?? '', 'opencode'),
+            secrets: secretLeaves(transferred),
+          })
         : failure(
             'E_SEED_UNSUPPORTED',
             `opencode login export/import failed (export ${fromExit}, import ${toExit})`,

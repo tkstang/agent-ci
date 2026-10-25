@@ -169,6 +169,7 @@ async function runInHome(
     const seeded = await seedSkills(homeRoot, options.skillsDir);
     if (!seeded.ok) return seeded;
   }
+  const seededSecrets: string[] = [];
   if (route.login) {
     const seeded = await seedLogin(homeRoot, {
       harness: route.harness,
@@ -176,14 +177,20 @@ async function runInHome(
       ...(deps.pipe === undefined ? {} : { pipe: deps.pipe }),
     });
     if (!seeded.ok) return seeded;
+    seededSecrets.push(...seeded.value.secrets);
   }
 
   // Every credential value present in the parent is a secret for output
   // guarding, not only the route's: an agent must not echo any of them.
-  const secrets = secretValuesFromEnv(options.env, [
-    ...KNOWN_CREDENTIAL_ENV,
-    ...route.credentials,
-  ]);
+  // Seeded-login material is guarded too: a read-only agent can read files
+  // under $HOME and echo them.
+  const secrets = [
+    ...secretValuesFromEnv(options.env, [
+      ...KNOWN_CREDENTIAL_ENV,
+      ...route.credentials,
+    ]),
+    ...seededSecrets,
+  ];
   const log = new RunLog(secrets);
   const outDir = path.resolve(options.cwd, options.outDir);
   await mkdir(outDir, { recursive: true });

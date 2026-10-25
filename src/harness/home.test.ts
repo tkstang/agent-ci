@@ -78,7 +78,7 @@ describe('seeding the home root', () => {
     await mkdir(path.join(realHome, '.codex'));
     await writeFile(
       path.join(realHome, '.codex', 'auth.json'),
-      '{"placeholder":"synthetic"}',
+      '{"tokens":{"access_token":"synthetic-codex-token-01"},"auth_mode":"chatgpt"}',
       { mode: 0o600 },
     );
     const created = await createHomeRoot();
@@ -88,8 +88,13 @@ describe('seeding the home root', () => {
       parentEnv: { HOME: realHome, PATH: '/usr/bin:/bin' },
     });
     expect(seeded.ok).toBe(true);
+    expect(seeded.ok && seeded.value.secrets).toEqual([
+      'synthetic-codex-token-01',
+    ]);
     const target = path.join(created.value.env.CODEX_HOME ?? '', 'auth.json');
-    expect(await readFile(target, 'utf8')).toBe('{"placeholder":"synthetic"}');
+    expect(await readFile(target, 'utf8')).toBe(
+      '{"tokens":{"access_token":"synthetic-codex-token-01"},"auth_mode":"chatgpt"}',
+    );
     expect((await stat(target)).mode & 0o077).toBe(0);
   });
 
@@ -97,7 +102,13 @@ describe('seeding the home root', () => {
     const calls: Parameters<PipeRunner>[] = [];
     const pipe: PipeRunner = async (...args) => {
       calls.push(args);
-      return { fromExit: 0, toExit: 0 };
+      return {
+        fromExit: 0,
+        toExit: 0,
+        transferred: JSON.stringify([
+          { access: 'synthetic-opencode-access-0001', label: 'Personal' },
+        ]),
+      };
     };
     const layout = homeLayout('/tmp/agent-ci-home-pipe');
     const seeded = await seedLogin(layout, {
@@ -106,6 +117,9 @@ describe('seeding the home root', () => {
       pipe,
     });
     expect(seeded.ok).toBe(true);
+    expect(seeded.ok && seeded.value.secrets).toEqual([
+      'synthetic-opencode-access-0001',
+    ]);
     const [from, to] = calls[0] ?? [];
     expect(from).toMatchObject({
       args: ['auth', 'export'],

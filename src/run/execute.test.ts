@@ -88,7 +88,7 @@ describe('runAgent', () => {
     const pipeCalls: Parameters<PipeRunner>[] = [];
     const pipe: PipeRunner = async (...args) => {
       pipeCalls.push(args);
-      return { fromExit: 0, toExit: 0 };
+      return { fromExit: 0, toExit: 0, transferred: '' };
     };
     const homeRoot = await mkdtemp(
       path.join(os.tmpdir(), 'agent-ci-kept-home-'),
@@ -149,5 +149,44 @@ describe('runAgent', () => {
     const summary = await runAgent(opts);
     expect(summary.ok && summary.value.result.ok).toBe(true);
     expect(existsSync(stale)).toBe(false);
+  });
+
+  it('treats seeded-login material as a secret: an echoed token fails the run and is never written', async () => {
+    const token = 'synthetic-seeded-access-token-0001';
+    const pipe: PipeRunner = async () => ({
+      fromExit: 0,
+      toExit: 0,
+      transferred: JSON.stringify([{ type: 'oauth', access: token }]),
+    });
+    const opts = await options({ model: 'grok-4.7', seedLogin: true });
+    const control = path.join(opts.cwd, 'control.json');
+    const leaked = JSON.stringify({
+      summary: `I found a token: ${token}`,
+      report: { title: 'T', markdown: token },
+    });
+    await writeFile(
+      control,
+      JSON.stringify({
+        observedPath: path.join(opts.cwd, 'observed.json'),
+        stdout: `${JSON.stringify({ type: 'text', sessionID: 'ses_x', part: { text: leaked } })}\n`,
+      }),
+    );
+    const summary = await runAgent(opts, {
+      pipe,
+      harness: {
+        commandOverride: {
+          command: process.execPath,
+          prefixArgs: [REPLAY_CLI, control],
+        },
+      },
+    });
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    expect(summary.value.error?.code).toBe('E_SECRET_COPY');
+    const written =
+      (await readFile(summary.value.resultPath, 'utf8')) +
+      (await readFile(summary.value.logPath, 'utf8'));
+    expect(written).not.toContain(token);
+    expect(JSON.stringify(summary.value)).not.toContain(token);
   });
 });
