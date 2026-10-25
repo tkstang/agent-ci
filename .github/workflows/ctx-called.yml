@@ -1,0 +1,17 @@
+name: ctx probe (called)
+on:
+  workflow_call:
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print contexts
+        env:
+          GH_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          GH_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GH_SHA: ${{ github.sha }}
+          JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          JOB_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          GH_JOB_WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+        run: env | grep -E "^(GH_|JOB_)" | sort
