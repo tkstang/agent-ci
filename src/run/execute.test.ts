@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,15 @@ const REPLAY_CLI = fileURLToPath(
 
 const MODELS = `version: 1
 routes:
+  - id: fake-echo
+    model: fake-echo
+    harness: fake
+    family: fake
+    providerModel: echo
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: null
   - id: fake-hang
     model: fake-hang
     harness: fake
@@ -126,5 +136,18 @@ describe('runAgent', () => {
       ok: false,
       code: 'E_CREDENTIAL_MISSING',
     });
+  });
+
+  it('clears a login left in a kept home root before a non-login route runs', async () => {
+    const homeRoot = await mkdtemp(
+      path.join(os.tmpdir(), 'agent-ci-kept-home-'),
+    );
+    const stale = path.join(homeRoot, 'home', '.codex', 'auth.json');
+    await mkdir(path.dirname(stale), { recursive: true });
+    await writeFile(stale, '{"placeholder":"synthetic-stale-login"}');
+    const opts = await options({ model: 'fake-echo', homeRoot });
+    const summary = await runAgent(opts);
+    expect(summary.ok && summary.value.result.ok).toBe(true);
+    expect(existsSync(stale)).toBe(false);
   });
 });

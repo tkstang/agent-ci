@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import {
   mkdir,
   mkdtemp,
@@ -12,6 +13,7 @@ import path from 'node:path';
 import {
   createHomeRoot,
   homeLayout,
+  loginStorePaths,
   type PipeRunner,
   seedLogin,
   seedSkills,
@@ -140,5 +142,53 @@ describe('seeding the home root', () => {
         parentEnv: { HOME: realHome },
       }),
     ).toMatchObject({ code: 'E_SEED_UNSUPPORTED' });
+  });
+
+  it('starts every run in a kept root without the previous login, and reseeds cleanly', async () => {
+    const realHome = await tempDir('agent-ci-real-home-');
+    await mkdir(path.join(realHome, '.codex'));
+    await writeFile(
+      path.join(realHome, '.codex', 'auth.json'),
+      '{"placeholder":"synthetic"}',
+    );
+    const root = await tempDir('agent-ci-kept-root-');
+    const parentEnv = { HOME: realHome, PATH: '/usr/bin:/bin' };
+    const first = await createHomeRoot(root);
+    if (!first.ok) throw new Error(first.message);
+    expect(
+      (await seedLogin(first.value, { harness: 'codex', parentEnv })).ok,
+    ).toBe(true);
+    // Simulate other harnesses' stores left behind by earlier runs.
+    const stores = loginStorePaths(first.value);
+    for (const file of stores) {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, 'synthetic');
+    }
+    const second = await createHomeRoot(root);
+    if (!second.ok) throw new Error(second.message);
+    for (const file of stores) expect(existsSync(file), file).toBe(false);
+    expect(
+      (await seedLogin(second.value, { harness: 'codex', parentEnv })).ok,
+    ).toBe(true);
+  });
+
+  it('reports a login already in the root accurately instead of blaming the source', async () => {
+    const realHome = await tempDir('agent-ci-real-home-');
+    await mkdir(path.join(realHome, '.codex'));
+    await writeFile(path.join(realHome, '.codex', 'auth.json'), '{}');
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    await writeFile(
+      path.join(created.value.env.CODEX_HOME ?? '', 'auth.json'),
+      '{}',
+    );
+    const seeded = await seedLogin(created.value, {
+      harness: 'codex',
+      parentEnv: { HOME: realHome },
+    });
+    expect(seeded).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+    expect(!seeded.ok && seeded.message).toContain(
+      'already present in the home root',
+    );
   });
 });

@@ -1,6 +1,14 @@
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
-import { copyFile, cp, lstat, mkdir, mkdtemp } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  rm,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -75,7 +83,42 @@ export async function createHomeRoot(root?: string): Promise<Result<HomeRoot>> {
   for (const dir of [...Object.values(layout.env), layout.skillsDir]) {
     await mkdir(dir, { recursive: true, mode: 0o700 });
   }
+  // A kept root (--home-root) may hold a login seeded by an earlier run.
+  // Every run starts without one; login routes seed afresh.
+  await clearLoginStores(layout);
   return success(layout);
+}
+
+/**
+ * Harness login stores that can live inside a home root. OpenCode v2 keeps
+ * its credential table in `opencode.db` (probe 2026-10-25); `auth.json` is
+ * the v1 store.
+ */
+export function loginStorePaths(layout: HomeRoot): string[] {
+  const data =
+    layout.env.XDG_DATA_HOME ?? path.join(layout.home, '.local', 'share');
+  const opencode = path.join(data, 'opencode');
+  return [
+    path.join(
+      layout.env.CODEX_HOME ?? path.join(layout.home, '.codex'),
+      'auth.json',
+    ),
+    path.join(
+      layout.env.CLAUDE_CONFIG_DIR ?? path.join(layout.home, '.claude'),
+      '.credentials.json',
+    ),
+    path.join(opencode, 'auth.json'),
+    path.join(opencode, 'opencode.db'),
+    path.join(opencode, 'opencode.db-wal'),
+    path.join(opencode, 'opencode.db-shm'),
+  ];
+}
+
+/** Remove every known login store from the root. */
+export async function clearLoginStores(layout: HomeRoot): Promise<void> {
+  for (const file of loginStorePaths(layout)) {
+    await rm(file, { force: true });
+  }
 }
 
 /**
@@ -146,11 +189,26 @@ async function copyPrivate(
   try {
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await copyFile(source, target, constants.COPYFILE_EXCL);
+    await chmod(target, 0o600);
     return success(target);
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') {
+      return failure(
+        'E_HOME_ROOT',
+        `a ${harness} login is already present in the home root at ${target}`,
+        'Each run clears login stores when it creates the home root; do not share a home root between concurrent runs.',
+      );
+    }
+    if (code === 'ENOENT') {
+      return failure(
+        'E_SEED_UNSUPPORTED',
+        `no ${harness} login file to seed at ${source}`,
+      );
+    }
     return failure(
       'E_SEED_UNSUPPORTED',
-      `no ${harness} login file to seed at ${source}`,
+      `could not seed the ${harness} login (${code ?? 'unknown error'})`,
     );
   }
 }
