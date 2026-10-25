@@ -20,7 +20,9 @@ bullet lines over rewriting whole sections, and reference backlog records by ID
 - **BL-261025-qualify-the-ci-routes-live: Qualify the CI routes live** — `claude-haiku-4-5-personal` and `grok-4.7-opencode` still `qualified: null`; needs the operator's credentials.
 - **BL-261025-close-remaining-claude-only: Close remaining Claude-only policy name-check gaps** — before adding a Cursor `auto` or separator-less Claude-like route.
 - **BL-261025-publish-to-the-calling: Publish to the calling repository with an optional GitHub App token** — so generated pull requests in the calling repository get CI automatically; today their `pull_request` runs wait for a write user's approval.
-- Release tag for consumer pins — the templates pin `@main` with a comment, and no tag exists yet.
+- **BL-261025-fleet-repositories-merged: Fleet repositories: merged target lists and protected artifacts** — two fleets (public `agent-ci-fleet` on GitHub-hosted runners, private `agent-ci-private-fleet` on self-hosted); `targets_json` merged with `targets_file`; optional artifact encryption for public-fleet artifacts.
+- **BL-261025-codex-chatgpt-login-route: Codex ChatGPT-login route for the private fleet** — runner-local `auth.json`, serialized jobs, per OpenAI's trusted-private-automation guidance.
+- **BL-261025-self-hosted-runner-and-proxy: Self-hosted runner and proxy readiness** — per-runner proxy base URL, first live `allow_pool` job, and a release tag for consumer pins.
 
 Shipped on `feat/agent-ci-v1` (archived backlog items): BL-261025-reusable-run-agent-workflow (p02), BL-261025-ai-pull-request-review (p03), BL-261025-verify-review-run-check-tool (p04), BL-261025-use-case-wrappers-and-multi (p05).
 

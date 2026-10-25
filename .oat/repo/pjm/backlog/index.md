@@ -9,8 +9,10 @@
 <!-- OAT BACKLOG-INDEX -->
 | ID | Title | Status | Priority | Scope | Estimate |
 | --- | --- | --- | --- | --- | --- |
-| BL-261025-documentation-tree-and-docs | Documentation tree and docs check | open | medium | task | M |
+| BL-261025-fleet-repositories-merged | Fleet repositories: merged target lists and protected artifacts | open | high | feature | L |
+| BL-261025-codex-chatgpt-login-route | Codex ChatGPT-login route for the private fleet | open | medium | task | M |
 | BL-261025-qualify-the-ci-routes-live | Qualify the CI routes live | open | medium | task | S |
+| BL-261025-self-hosted-runner-and-proxy | Self-hosted runner and proxy readiness | open | medium | task | S |
 | BL-261025-close-remaining-claude-only | Close remaining Claude-only policy name-check gaps | open | low | task | XS |
 | BL-261025-publish-to-the-calling | Publish to the calling repository with an optional GitHub App token | open | low | feature | S |
 <!-- END OAT BACKLOG-INDEX -->

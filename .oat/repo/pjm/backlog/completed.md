@@ -8,6 +8,7 @@
 
 ## Completed Items
 
+- 2026-10-25 — BL-261025-documentation-tree-and-docs — Documentation tree and docs check — docs/ tree, pnpm docs:check, README and pjm state shipped in p06 (accepted at 3bdbff2)
 - 2026-10-25 — BL-261025-use-case-wrappers-and-multi — Use-case wrappers and multi-repo fan-out — Done in agent-ci-v1 p05 (accepted): docs-update, instructions-update and tools-update wrappers with path policies, targets.yaml with agent-ci targets validate/matrix/resolve, fan-out.yml with scoped target tokens, fleet template and a live fake-harness fan-out run; documented in docs/workflows.md and docs/fleet-repo.md.
 - 2026-10-25 — BL-261025-verify-review-run-check-tool — Verify-review run_check tool bridge — Done in agent-ci-v1 p04 (accepted): verify-review with checks.yaml from the default branch (or verify_config_ref), a secret-free verify job, controlled per-check execution with evidence IDs, the run_check MCP bridge for Claude and Codex, and --verify-trust-pr-code for every local run; documented in docs/pr-review.md and docs/security-model.md.
 - 2026-10-25 — BL-261025-ai-pull-request-review — AI pull-request review workflow — Done in agent-ci-v1 p03 (accepted): pr-review.yml and agent-ci review stages with the permission gate (forks never reach a credential), schema or prompt-and-parse reviewer passes with one repair turn, Claude-only tool-free adjudicator, deterministic findings gate and one inline review plus summary; live local review and fake-harness Actions self-test; documented in docs/pr-review.md.

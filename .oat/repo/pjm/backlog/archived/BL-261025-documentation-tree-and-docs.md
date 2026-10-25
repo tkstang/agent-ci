@@ -1,7 +1,7 @@
 ---
 id: BL-261025-documentation-tree-and-docs
 title: Documentation tree and docs check
-status: open
+status: closed
 priority: medium
 scope: task
 scope_estimate: M
@@ -9,7 +9,7 @@ labels:
   - docs
 assignee: null
 created: 2026-10-25T05:50:36.283Z
-updated: 2026-10-25T20:30:00.000Z
+updated: '2026-10-25T22:20:44Z'
 associated_issues: []
 external_plans: []
 ---
