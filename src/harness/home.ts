@@ -8,6 +8,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readdir,
   readFile,
   rm,
@@ -437,6 +438,65 @@ export async function seedLogin(
 /** Login stores are small JSON files; anything larger is not read. */
 const MAX_LOGIN_STORE_BYTES = 1024 * 1024;
 
+/**
+ * Read a login store through one descriptor: opened with O_NOFOLLOW (a link
+ * fails instead of being followed) and O_NONBLOCK (a FIFO cannot hang the
+ * guard), then fstat-verified as a regular file under the size cap and read
+ * from that same descriptor, so a swap after the check cannot change what is
+ * read. `undefined` means the store does not exist.
+ */
+async function readStoreNoFollow(
+  file: string,
+): Promise<Result<string> | undefined> {
+  let handle;
+  try {
+    handle = await open(
+      file,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return undefined;
+    return failure(
+      'E_SECRET_GUARD',
+      code === 'ELOOP'
+        ? `credential guard incomplete: ${file} is a symlink`
+        : `credential guard incomplete: cannot open ${file} (${code ?? 'error'})`,
+    );
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) {
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: ${file} is not a regular file`,
+      );
+    }
+    if (info.size > MAX_LOGIN_STORE_BYTES) {
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: ${file} is larger than a login store should be`,
+      );
+    }
+    const buffer = Buffer.alloc(info.size + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > info.size) {
+      return failure(
+        'E_SECRET_GUARD',
+        `credential guard incomplete: ${file} grew while it was read`,
+      );
+    }
+    return success(buffer.subarray(0, bytesRead).toString('utf8'));
+  } catch {
+    return failure(
+      'E_SECRET_GUARD',
+      `credential guard incomplete: cannot read ${file}`,
+    );
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Runs a credential-export command; output stays in memory. */
 export type ExportRunner = (
   command: string,
@@ -482,37 +542,10 @@ export async function readLoginSecrets(
   const found = new Set<string>();
   for (const file of loginStorePaths(layout)) {
     if (!file.endsWith('.json')) continue;
-    let info;
-    try {
-      info = await lstat(file);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
-      return failure(
-        'E_SECRET_GUARD',
-        `credential guard incomplete: cannot inspect ${file}`,
-      );
-    }
-    if (!info.isFile()) {
-      return failure(
-        'E_SECRET_GUARD',
-        `credential guard incomplete: ${file} is not a regular file`,
-      );
-    }
-    if (info.size > MAX_LOGIN_STORE_BYTES) {
-      return failure(
-        'E_SECRET_GUARD',
-        `credential guard incomplete: ${file} is larger than a login store should be`,
-      );
-    }
-    let text: string;
-    try {
-      text = await readFile(file, 'utf8');
-    } catch {
-      return failure(
-        'E_SECRET_GUARD',
-        `credential guard incomplete: cannot read ${file}`,
-      );
-    }
+    const read = await readStoreNoFollow(file);
+    if (read === undefined) continue; // store absent
+    if (!read.ok) return read;
+    const text = read.value;
     const values = parseSecretMaterial(text, file, { requireValues: false });
     if (!values.ok) return values;
     for (const value of values.value) found.add(value);

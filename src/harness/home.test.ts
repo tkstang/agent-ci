@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import {
   lstat,
@@ -5,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -348,5 +350,31 @@ describe('kept home root validation', () => {
         includeOpencodeStore: false,
       }),
     ).toMatchObject({ ok: false, code: 'E_SECRET_GUARD' });
+  });
+
+  it('reads stores without following links or blocking on a FIFO', async () => {
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    const store = path.join(created.value.env.CODEX_HOME ?? '', 'auth.json');
+    const read = () =>
+      readLoginSecrets(created.value, {
+        harness: 'codex',
+        parentEnv: {},
+        includeOpencodeStore: false,
+      });
+    // A FIFO would block a plain read forever; the guard must fail fast.
+    execFileSync('mkfifo', [store]);
+    const started = Date.now();
+    expect(await read()).toMatchObject({ ok: false, code: 'E_SECRET_GUARD' });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    await rm(store);
+    // A link to a readable JSON file is refused, not followed.
+    const elsewhere = path.join(created.value.root, 'elsewhere.json');
+    await writeFile(
+      elsewhere,
+      '{"tokens":{"placeholder":"synthetic-link-0030"}}',
+    );
+    await symlink(elsewhere, store);
+    expect(await read()).toMatchObject({ ok: false, code: 'E_SECRET_GUARD' });
   });
 });
