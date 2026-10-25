@@ -13,6 +13,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
+import { maskSecrets } from '@agent-ci/contracts/secret-guard.js';
 import { writeOwnedFile } from '@agent-ci/files.js';
 import { failure, type Result, success } from '@agent-ci/result.js';
 import {
@@ -305,10 +306,34 @@ export function detectIsolation(
 const LINUX_NS = [
   '--user',
   '--map-root-user',
+  '--mount',
   '--pid',
   '--fork',
   '--kill-child',
+  '--mount-proc',
 ] as const;
+
+/**
+ * The Linux namespace init script (bash, run as root of the new user
+ * namespace). Arguments: the command, `1` when it keeps the network, then
+ * the paths to hide. It brings loopback up in a new network namespace,
+ * mounts an empty tmpfs over every hidden directory and `/dev/null` over
+ * every hidden file (failing with 125 when it cannot: no silent
+ * degradation), then runs the command in a NESTED user and mount namespace.
+ * Mounts inherited by a less privileged mount namespace are locked, so the
+ * command cannot unmount them to reach what they cover, and `/proc` shows
+ * only this pid namespace (no other process's environment).
+ */
+export const LINUX_INIT = [
+  'cmd=$1; net=$2; shift 2',
+  'if [ "$net" = 0 ]; then ip link set lo up >/dev/null 2>&1 || true; fi',
+  'for p in "$@"; do',
+  '  if [ -d "$p" ]; then mount -t tmpfs -o size=16k agent-ci-hidden "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
+  '  elif [ -e "$p" ]; then mount --bind /dev/null "$p" || { echo "agent-ci: could not hide $p" >&2; exit 125; }',
+  '  fi',
+  'done',
+  'exec unshare --user --map-root-user --mount -- /bin/bash -c "$cmd"',
+].join('\n');
 
 /** Real-home paths a macOS-sandboxed command may not read or write. */
 export function credentialStorePaths(realHome: string): string[] {
@@ -380,24 +405,25 @@ export function isolatedArgv(input: {
   command: string;
   network: boolean;
   profile?: string;
+  /** Linux: absolute paths hidden from the command (see LINUX_INIT). */
+  hidden?: readonly string[];
 }): string[] {
   const bash = ['/bin/bash', '-c', input.command];
   switch (input.isolation) {
     case 'linux-namespaces':
-      return input.network
-        ? ['unshare', ...LINUX_NS, '--', ...bash]
-        : [
-            'unshare',
-            ...LINUX_NS,
-            '--net',
-            '--',
-            '/bin/bash',
-            '-c',
-            // A new network namespace starts with loopback down.
-            'ip link set lo up >/dev/null 2>&1 || true; exec /bin/bash -c "$1"',
-            'agent-ci-check',
-            input.command,
-          ];
+      return [
+        'unshare',
+        ...LINUX_NS,
+        ...(input.network ? [] : ['--net']),
+        '--',
+        '/bin/bash',
+        '-c',
+        LINUX_INIT,
+        'agent-ci-check',
+        input.command,
+        input.network ? '1' : '0',
+        ...(input.hidden ?? []),
+      ];
     case 'macos-sandbox':
       return ['/usr/bin/sandbox-exec', '-p', input.profile ?? '', ...bash];
     case 'none':
@@ -418,7 +444,12 @@ async function copyTree(from: string, to: string): Promise<void> {
   });
 }
 
-/** Give every directory under `current` back its owner's write bit. */
+/**
+ * Give every directory under `current` back its owner's write bit. Only a
+ * directory reached without following a link is changed, and it is checked
+ * again (same device and inode) just before the change, so a process that
+ * outlived its command cannot swap in a link to redirect the chmod.
+ */
 async function restoreWritable(current: string): Promise<void> {
   let info;
   try {
@@ -427,7 +458,14 @@ async function restoreWritable(current: string): Promise<void> {
     return;
   }
   if (!info.isDirectory()) return;
-  await chmod(current, 0o700).catch(() => undefined);
+  const again = await lstat(current).catch(() => undefined);
+  if (
+    again !== undefined &&
+    again.isDirectory() &&
+    again.dev === info.dev &&
+    again.ino === info.ino
+  )
+    await chmod(current, 0o700).catch(() => undefined);
   for (const name of await readdir(current).catch(() => [])) {
     await restoreWritable(path.join(current, name));
   }
@@ -454,11 +492,34 @@ function real(target: string): Promise<string> {
   );
 }
 
+/**
+ * Values of credential-like variables in the parent environment (8 or more
+ * characters). A check's output tail reaches the reviewer, which could copy
+ * it into a published finding, so these values are masked in the tail.
+ * Encoded or partial copies are not caught (the output-guard limit p02
+ * records); the digest still covers the raw output.
+ */
+export function secretValues(
+  env: Readonly<Record<string, string | undefined>>,
+): string[] {
+  return [
+    ...new Set(
+      Object.entries(env)
+        .filter(
+          ([name, value]) =>
+            value !== undefined && value.length >= 8 && isSecretEnvName(name),
+        )
+        .map(([, value]) => value as string),
+    ),
+  ].toSorted((a, b) => b.length - a.length);
+}
+
 function record(
   command: string,
   result: ExecResult,
   durationMs: number,
   isolation: IsolationKind,
+  secrets: readonly string[],
 ): CommandRecord {
   const tail = result.output.subarray(
     Math.max(0, result.output.length - CHECK_LIMITS.tailBytes),
@@ -469,7 +530,7 @@ function record(
     timed_out: result.timedOut,
     truncated: result.truncated,
     output_sha256: createHash('sha256').update(result.output).digest('hex'),
-    output_tail: decoder.decode(tail),
+    output_tail: maskSecrets(decoder.decode(tail), secrets),
     duration_ms: Math.max(0, Math.round(durationMs)),
     isolation,
   };
@@ -484,9 +545,24 @@ export type VerifyOptions = {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Home roots and output directories commands must not reach. */
   readonly protectedPaths?: readonly string[];
+  /**
+   * Refuse to run commands without isolation (local runs: the operator's
+   * machine has no job boundary). Actions' verify job is the boundary there.
+   */
+  readonly requireIsolation?: boolean;
   readonly git?: string;
   readonly log?: (message: string) => void;
 };
+
+/** `agent-ci-home-*` directories under `parents` (other runs' home roots). */
+async function homeRoots(parents: readonly string[]): Promise<string[]> {
+  const found: string[] = [];
+  for (const parent of parents)
+    for (const name of await readdir(parent).catch(() => []))
+      if (name.startsWith('agent-ci-home-'))
+        found.push(path.join(parent, name));
+  return found;
+}
 
 export type VerifyDeps = {
   readonly exec?: CommandExec;
@@ -531,8 +607,22 @@ export async function runVerify(
 
   const exec = deps.exec ?? execCommand;
   const isolation = deps.isolation ?? detectIsolation();
+  if (isolation === 'none' && options.requireIsolation === true)
+    return failure(
+      'E_VERIFY_RUN',
+      'no command isolation is available here (macOS sandbox-exec, or Linux unprivileged user namespaces); refusing to run pull-request code on this machine without it',
+      'Enable unprivileged user namespaces (Linux), or pass --allow-unisolated-checks to run the checks with no containment.',
+    );
   const now = deps.now ?? Date.now;
   const log = options.log ?? (() => undefined);
+  // The output directory exists (a real directory) before any command runs,
+  // so a command cannot plant a link where checks.json will be written.
+  await mkdir(outDir, { recursive: true });
+  if (!(await lstat(outDir)).isDirectory())
+    return failure(
+      'E_OUTPUT_PATH',
+      'the verify output path is not a directory',
+    );
   const work = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-verify-'));
   try {
     // Real paths throughout: sandbox rules match resolved locations.
@@ -556,16 +646,31 @@ export async function runVerify(
     });
     env.PATH = await controlledRealPath(options.env.PATH ?? '', excluded);
     const realHome = deps.realHome ?? options.env.HOME ?? os.homedir();
-    const denied = await Promise.all(
-      [
-        outDir,
-        ...(options.protectedPaths ?? []),
-        ...credentialStorePaths(realHome),
-      ].map(real),
-    );
     const homeParents = [
       ...new Set(await Promise.all([os.tmpdir(), '/tmp'].map(real))),
     ];
+    // Hidden from every command: agent-ci's output, the protected paths,
+    // the checkout (already copied), credential stores in the real home,
+    // the runner's temp (step outputs, helpers, the spec), and other runs'
+    // home roots. macOS denies them in the profile; Linux mounts over them.
+    const denied = [
+      ...new Set(
+        await Promise.all(
+          [
+            outDir,
+            ...(options.protectedPaths ?? []),
+            root.value.root,
+            ...credentialStorePaths(realHome),
+            ...(options.env.RUNNER_TEMP === undefined ||
+            options.env.RUNNER_TEMP === ''
+              ? []
+              : [options.env.RUNNER_TEMP]),
+          ].map(real),
+        ),
+      ),
+    ].filter((dir) => !isWithin(dir, realWork) && !isWithin(realWork, dir));
+    const hidden = [...denied, ...(await homeRoots(homeParents))];
+    const secrets = secretValues(options.env);
     const profile = (network: boolean) =>
       sandboxProfile({ work: realWork, denied, homeParents, network });
     const runOne = async (
@@ -580,6 +685,7 @@ export async function runVerify(
         command,
         network,
         ...(isolation === 'macos-sandbox' ? { profile: profile(network) } : {}),
+        ...(isolation === 'linux-namespaces' ? { hidden } : {}),
       });
       let result: ExecResult;
       try {
@@ -601,7 +707,7 @@ export async function runVerify(
           cleanupError: null,
         };
       }
-      return record(command, result, now() - started, isolation);
+      return record(command, result, now() - started, isolation, secrets);
     };
 
     const config = verify.config;
@@ -664,7 +770,11 @@ export async function runVerify(
       head_sha: spec.head_sha,
       verify,
     });
-    await mkdir(outDir, { recursive: true });
+    // Still the real directory created above (Linux commands saw a tmpfs
+    // over it; macOS commands could not write it).
+    const outInfo = await lstat(outDir);
+    if (outInfo.isSymbolicLink() || !outInfo.isDirectory())
+      return failure('E_OUTPUT_PATH', 'the verify output path changed');
     const evidencePath = path.join(outDir, VERIFY_FILES.evidence);
     await writeOwnedFile(
       evidencePath,

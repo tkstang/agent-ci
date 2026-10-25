@@ -23,8 +23,10 @@ import {
   detectIsolation,
   execCommand,
   isolatedArgv,
+  LINUX_INIT,
   runVerify,
   sandboxProfile,
+  secretValues,
 } from '@agent-ci/review/verify.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -344,29 +346,43 @@ describe('controlled environment', () => {
         isolation: 'linux-namespaces',
         command: 'pnpm test',
         network: false,
+        hidden: ['/out', '/home/me/.ssh'],
       }),
     ).toEqual([
       'unshare',
       '--user',
       '--map-root-user',
+      '--mount',
       '--pid',
       '--fork',
       '--kill-child',
+      '--mount-proc',
       '--net',
       '--',
       '/bin/bash',
       '-c',
-      'ip link set lo up >/dev/null 2>&1 || true; exec /bin/bash -c "$1"',
+      LINUX_INIT,
       'agent-ci-check',
       'pnpm test',
+      '0',
+      '/out',
+      '/home/me/.ssh',
     ]);
-    expect(
-      isolatedArgv({
-        isolation: 'linux-namespaces',
-        command: 'pnpm i',
-        network: true,
-      }),
-    ).not.toContain('--net');
+    // The init hides each path, fails closed, and runs the command in a
+    // nested namespace where those mounts are locked.
+    expect(LINUX_INIT).toContain('mount -t tmpfs');
+    expect(LINUX_INIT).toContain('mount --bind /dev/null');
+    expect(LINUX_INIT).toContain('exit 125');
+    expect(LINUX_INIT).toMatch(
+      /exec unshare --user --map-root-user --mount -- \/bin\/bash -c "\$cmd"$/u,
+    );
+    const setup = isolatedArgv({
+      isolation: 'linux-namespaces',
+      command: 'pnpm i',
+      network: true,
+    });
+    expect(setup).not.toContain('--net');
+    expect(setup.at(-1)).toBe('1');
     const profile = sandboxProfile({
       work: '/w',
       denied: ['/out', '/Users/me/.ssh'],
@@ -389,6 +405,61 @@ describe('controlled environment', () => {
     expect(
       isolatedArgv({ isolation: 'none', command: 'x', network: false }),
     ).toEqual(['/bin/bash', '-c', 'x']);
+  });
+});
+
+describe('secret masking and the isolation requirement', () => {
+  it('collects credential-like values (8+ characters) longest first', () => {
+    expect(
+      secretValues({
+        GITHUB_TOKEN: 'ghs_short1',
+        ANTHROPIC_AUTH_TOKEN: 'synthetic-longer-secret-1',
+        PATH: '/usr/bin:/bin',
+        API_KEY: 'tiny',
+      }),
+    ).toEqual(['synthetic-longer-secret-1', 'ghs_short1']);
+  });
+
+  it('masks those values in output tails while the digest covers the raw output', async () => {
+    const s = await verifyScenario(
+      'version: 1\nchecks:\n  - name: leak\n    command: echo "x synthetic-github-token-value y"\n',
+    );
+    const ran = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: s.out,
+        env: {
+          PATH: '/usr/bin:/bin',
+          GITHUB_TOKEN: 'synthetic-github-token-value',
+        },
+      },
+      { isolation: 'none' },
+    );
+    expect(ran.ok).toBe(true);
+    if (!ran.ok) return;
+    const [entry] = ran.value.evidence.entries;
+    expect(entry?.output_tail).toBe('x [REDACTED] y\n');
+    expect(entry?.output_sha256).toBe(
+      sha256('x synthetic-github-token-value y\n'),
+    );
+  });
+
+  it('refuses to run unisolated when isolation is required (local runs)', async () => {
+    const s = await verifyScenario(
+      'version: 1\nchecks:\n  - name: test\n    command: "true"\n',
+    );
+    const ran = await runVerify(
+      {
+        cwd: s.repo,
+        spec: s.spec,
+        outDir: s.out,
+        env: { PATH: '/usr/bin:/bin' },
+        requireIsolation: true,
+      },
+      { isolation: 'none' },
+    );
+    expect(ran).toMatchObject({ ok: false, code: 'E_VERIFY_RUN' });
   });
 });
 
@@ -591,9 +662,14 @@ describe('runVerify', () => {
       );
       expect(byName.get('net')?.isolation).toBe(isolation);
       expect(byName.get('net')?.output_tail).toContain('neterr');
+      // Protected paths are unreadable on both hosts (denied by the macOS
+      // profile, an empty tmpfs on Linux).
+      expect(byName.get('read')?.output_tail).toContain('read-denied');
+      expect(byName.get('read')?.output_tail).not.toContain(
+        'synthetic-protected',
+      );
       if (isolation === 'macos-sandbox') {
         expect(byName.get('write')?.output_tail).toContain('write-denied');
-        expect(byName.get('read')?.output_tail).toContain('read-denied');
         expect(existsSync(path.join(outside, 'escape.txt'))).toBe(false);
       }
       await new Promise((resolve) => setTimeout(resolve, 3000));

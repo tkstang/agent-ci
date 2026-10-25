@@ -75,6 +75,8 @@ export type LocalReviewOptions = {
   readonly publish: boolean;
   /** Run as verify-review (checks first, then reviewers with run_check). */
   readonly verify?: boolean;
+  /** Run the checks even where no isolation is available (off: refuse). */
+  readonly allowUnisolatedChecks?: boolean;
   readonly scope: string;
   readonly policy: ReviewPolicyInputs;
   readonly outDir?: string | undefined;
@@ -274,6 +276,7 @@ async function localReview(
         outDir: checksDir,
         env: options.env,
         protectedPaths: [outDir, root.value.root],
+        requireIsolation: options.allowUnisolatedChecks !== true,
         log,
         ...(options.git === undefined ? {} : { git: options.git }),
       });

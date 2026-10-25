@@ -1080,7 +1080,9 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
                                the PR head, then give the reviewers run_check
                                (Claude or Codex routes). The PR's code runs on
                                this machine as you, sandboxed where the host
-                               allows (sandbox-exec, user namespaces).
+                               allows (sandbox-exec, user namespaces);
+                               refused where neither exists unless
+  --allow-unisolated-checks    is also given.
   --scope <scope>              Marker scope (default local).
   --out <dir>                  Keep the stage artifacts here.
   --timeout-minutes <n>        Per stage (default 30).
@@ -1108,6 +1110,7 @@ async function runLocal(
       'seed-login': { type: 'boolean' },
       publish: { type: 'boolean' },
       verify: { type: 'boolean' },
+      'allow-unisolated-checks': { type: 'boolean' },
       scope: { type: 'string' },
       out: { type: 'string' },
       'timeout-minutes': { type: 'string' },
@@ -1134,6 +1137,7 @@ async function runLocal(
     seedLogin: flags['seed-login'] === true,
     publish: flags.publish === true,
     verify: flags.verify === true,
+    allowUnisolatedChecks: flags['allow-unisolated-checks'] === true,
     scope,
     policy: {
       failOnSeverity: flags['fail-on-severity'],
