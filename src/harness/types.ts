@@ -75,7 +75,8 @@ export type HarnessFailureCode =
   | 'E_SECRET_GUARD'
   | 'E_WORKSPACE_STATUS'
   | 'E_UNSAFE_WORKSPACE'
-  | 'E_POLICY_HARNESS';
+  | 'E_POLICY_HARNESS'
+  | 'E_HOME_ROOT';
 
 export type HarnessOutcome =
   | {

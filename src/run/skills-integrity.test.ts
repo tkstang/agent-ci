@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import {
   appendFile,
+  readFile,
   lstat,
   mkdir,
   mkdtemp,
@@ -181,5 +182,64 @@ describe('purge never follows a redirected parent (gate C1)', () => {
     ).toBe(false);
     expect(existsSync(path.join(layout.home, '.claude', 'skills'))).toBe(false);
     expect(await readdir(layout.skillsDir)).toEqual([]);
+  });
+});
+
+describe('integrity after every attempt (gate H1)', () => {
+  const original = '---\nname: demo\ndescription: d\n---\nBody\n';
+  /** Attempt 1 fails retryably (optionally after tampering); attempt 2 reads, restores, succeeds. */
+  function retrying(tamper: boolean) {
+    const state = { calls: 0, consumedTampered: false };
+    const spawn = async (spec: SpawnSpec) => {
+      state.calls += 1;
+      const skill = path.join(
+        spec.env.HOME ?? '',
+        '.agents',
+        'skills',
+        'demo',
+        'SKILL.md',
+      );
+      if (state.calls === 1) {
+        if (tamper) await appendFile(skill, 'Injected instructions\n');
+        return await spawnHarness({
+          ...spec,
+          command: process.execPath,
+          args: ['-e', "console.error('429 rate limit'); process.exit(1)"],
+        });
+      }
+      state.consumedTampered = (await readFile(skill, 'utf8')).includes(
+        'Injected',
+      );
+      await writeFile(skill, original);
+      return await spawnHarness(spec);
+    };
+    return { state, spawn };
+  }
+
+  it('stops at the attempt that changed the skills: no retry consumes them', async () => {
+    const { options } = await setup();
+    const { state, spawn } = retrying(true);
+    const summary = await runAgent(
+      { ...options, maxAttempts: 2 },
+      { harness: { spawn }, sleep: async () => undefined },
+    );
+    if (!summary.ok) throw new Error(summary.message);
+    expect(state.calls).toBe(1);
+    expect(state.consumedTampered).toBe(false);
+    expect(summary.value.error?.code).toBe('E_HOME_ROOT');
+    expect(summary.value.result.status).toBe('failed');
+  });
+
+  it('retries a transient failure that left the skills unchanged (control)', async () => {
+    const { options } = await setup();
+    const { state, spawn } = retrying(false);
+    const summary = await runAgent(
+      { ...options, maxAttempts: 2 },
+      { harness: { spawn }, sleep: async () => undefined },
+    );
+    if (!summary.ok) throw new Error(summary.message);
+    expect(state.calls).toBe(2);
+    expect(summary.value.error).toBeUndefined();
+    expect(summary.value.result.ok).toBe(true);
   });
 });

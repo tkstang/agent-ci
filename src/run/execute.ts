@@ -435,6 +435,34 @@ async function runInHome(
     log.addSecrets(observed.value);
     return true;
   };
+  // The harness had write access to its home. After every harness turn
+  // (each attempt, before promotion or a retry, and the repair turn), refuse
+  // to trust anything if it redirected part of the home out of the root or
+  // into the workspace, or changed the installed skills (trusted
+  // instructions a later attempt would load). A changed or unreachable skill
+  // tree is purged without following any link, so a kept home never carries
+  // it forward. Returns false when the home can no longer be trusted.
+  const checkHome = async (): Promise<boolean> => {
+    let trusted = true;
+    const valid = await validateHomeTree(homeRoot.root, boundaryRoot);
+    if (!valid.ok) {
+      guardFailure ??= { code: valid.code, message: valid.message };
+      trusted = false;
+    }
+    const after = await fingerprintSkills(homeRoot);
+    if (!after.ok || after.value !== skillsBefore.value) {
+      await purgeSkills(homeRoot);
+      log.add('skills.changed', { purged: true });
+      guardFailure ??= {
+        code: 'E_HOME_ROOT',
+        message:
+          'the run changed the skills installed for it; they were removed from the home root',
+      };
+      trusted = false;
+    }
+    if (!trusted) log.withholdFreeText();
+    return trusted;
+  };
   // `outDir` is the canonical path validated before the home was created;
   // every write below goes through it (never a recomputed path).
   await mkdir(outDir, { recursive: true });
@@ -646,6 +674,20 @@ async function runInHome(
                 message: guardFailure?.message ?? 'credential guard incomplete',
               };
             }
+            // Before promotion and before a retry could load the same home.
+            if (!(await checkHome())) {
+              const reason = guardFailure as
+                | { code: ErrorCode; message: string }
+                | undefined;
+              outcome = {
+                ok: false,
+                // The run's error comes from guardFailure; this stops retries.
+                code: 'E_HOME_ROOT',
+                retryable: false,
+                message:
+                  reason?.message ?? 'the home root can no longer be trusted',
+              };
+            }
             let promoted: readonly string[] | undefined;
             if (copy !== undefined) {
               // Only a successful attempt's changes reach the workspace; a
@@ -727,29 +769,8 @@ async function runInHome(
           },
         });
 
-  // The harness had write access to its home: refuse to trust or publish
-  // anything if it redirected part of the home out of the root or into the
-  // workspace (for example `home/.codex -> <repo>`).
-  const homeAfter = await validateHomeTree(homeRoot.root, boundaryRoot);
-  if (!homeAfter.ok) {
-    guardFailure ??= { code: homeAfter.code, message: homeAfter.message };
-    log.withholdFreeText();
-  }
-  // The installed skills must be byte-for-byte what the run started with;
-  // a changed skill is purged so a kept home never carries it forward.
-  const checkSkills = async (): Promise<void> => {
-    const after = await fingerprintSkills(homeRoot);
-    if (after.ok && after.value === skillsBefore.value) return;
-    await purgeSkills(homeRoot);
-    log.add('skills.changed', { purged: true });
-    guardFailure ??= {
-      code: 'E_HOME_ROOT',
-      message:
-        'the run changed the skills installed for it; they were removed from the home root',
-    };
-    log.withholdFreeText();
-  };
-  await checkSkills();
+  // Once more after the supervisor (also covers a run with no attempt).
+  await checkHome();
   let outcome = supervised.result.outcome;
   let result: ValidatedRunResult;
   let error: { code: ErrorCode; message: string } | undefined;
@@ -796,20 +817,8 @@ async function runInHome(
               'credential guard incomplete',
           };
         }
-        // The repair turn had the same write access to its home: validate
-        // the tree again, as after the attempts.
-        const homeAfterRepair = await validateHomeTree(
-          homeRoot.root,
-          boundaryRoot,
-        );
-        if (!homeAfterRepair.ok) {
-          guardFailure ??= {
-            code: homeAfterRepair.code,
-            message: homeAfterRepair.message,
-          };
-          log.withholdFreeText();
-        }
-        await checkSkills();
+        // The repair turn had the same write access to its home.
+        await checkHome();
         log.add('repair', {
           harness: route.harness,
           ok: repaired.outcome.ok,
