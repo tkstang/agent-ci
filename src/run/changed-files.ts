@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import {
   filterDriverOverrides,
+  type GitPin,
+  pinEnv,
   SAFE_GIT_ENV,
   safeGitArgs,
 } from '@agent-ci/git/safe-git.js';
@@ -33,8 +35,9 @@ async function listChanges(
   cwd: string,
   excludeDirs: readonly string[],
   git: string,
+  pin?: GitPin,
 ): Promise<Result<WorkspaceChanges>> {
-  const workspace = await findWorkspaceRoot(cwd, git);
+  const workspace = await findWorkspaceRoot(cwd, git, pin);
   if (!workspace.ok) return workspace;
   const { root } = workspace.value;
   if (!workspace.value.git) return success({ root, files: [] });
@@ -57,7 +60,7 @@ async function listChanges(
   // A configured filter driver would run when status compares content.
   let filters: string[];
   try {
-    filters = await filterDriverOverrides(root, git);
+    filters = await filterDriverOverrides(root, git, pin);
   } catch (err) {
     return failure(
       'E_WORKSPACE_STATUS',
@@ -76,7 +79,11 @@ async function listChanges(
       ]),
       {
         cwd: root,
-        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },
+        env: {
+          PATH: process.env.PATH ?? '/usr/bin:/bin',
+          ...SAFE_GIT_ENV,
+          ...pinEnv(pin),
+        },
         maxBuffer: 16 * 1024 * 1024,
       },
       (error, stdout, stderr) => {
@@ -119,8 +126,9 @@ export async function detectChangedFiles(
   cwd: string,
   excludeDirs: readonly string[] = [],
   git = 'git',
+  pin?: GitPin,
 ): Promise<Result<string[]>> {
-  const changes = await listChanges(cwd, excludeDirs, git);
+  const changes = await listChanges(cwd, excludeDirs, git, pin);
   return changes.ok ? success(changes.value.files) : changes;
 }
 
@@ -157,8 +165,9 @@ export async function snapshotWorkspace(
   cwd: string,
   excludeDirs: readonly string[] = [],
   git = 'git',
+  pin?: GitPin,
 ): Promise<Result<WorkspaceSnapshot>> {
-  const changes = await listChanges(cwd, excludeDirs, git);
+  const changes = await listChanges(cwd, excludeDirs, git, pin);
   if (!changes.ok) return changes;
   const entries = new Map<string, string>();
   for (const file of changes.value.files) {
@@ -179,8 +188,9 @@ export async function changedSince(
   before: WorkspaceSnapshot,
   excludeDirs: readonly string[] = [],
   git = 'git',
+  pin?: GitPin,
 ): Promise<Result<string[]>> {
-  const after = await snapshotWorkspace(cwd, excludeDirs, git);
+  const after = await snapshotWorkspace(cwd, excludeDirs, git, pin);
   if (!after.ok) return after;
   const changed = new Set<string>();
   for (const [file, print] of after.value) {
@@ -199,6 +209,7 @@ export async function changedSince(
 export function readHead(
   cwd: string,
   git = 'git',
+  pin?: GitPin,
 ): Promise<Result<string | null>> {
   return new Promise((resolve) => {
     const child = execFile(
@@ -206,7 +217,11 @@ export function readHead(
       safeGitArgs(['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']),
       {
         cwd,
-        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },
+        env: {
+          PATH: process.env.PATH ?? '/usr/bin:/bin',
+          ...SAFE_GIT_ENV,
+          ...pinEnv(pin),
+        },
       },
       (error, stdout, stderr) => {
         const sha = String(stdout).trim();

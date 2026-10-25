@@ -274,17 +274,28 @@ async function copyTree(
  * 1. every symlink anywhere in the copy, the copied `.git` included,
  *    resolves physically (chains, `..` after links) inside the copy root
  *    (the root itself included);
- * 2. every git metadata pointer in the copy resolves inside the copy root: `core.worktree` in any `config` under a `.git` directory,
- *    the `gitdir`/`commondir` pointer files there, and `gitdir:` in any
- *    `.git` file in the worktree.
+ * 2. every git metadata pointer in the copy resolves inside the copy root,
+ *    first as a cheap file-level screen (`core.worktree` in any `config` or
+ *    `config.worktree` under a `.git` directory, the `gitdir`/`commondir`
+ *    pointer files there, and `gitdir:` in any `.git` file in the worktree),
+ *    then authoritatively by asking git itself (phase gate p02 round 2 H1):
+ *    for the copy root and every directory holding a `.git` entry,
+ *    `git rev-parse --show-toplevel --absolute-git-dir --git-common-dir` and
+ *    `--show-superproject-working-tree`; for every git directory in the copy
+ *    (`.git`, `.git/modules/*`, ...), its effective `core.worktree` (config,
+ *    `config.worktree` under `extensions.worktreeConfig`, and includes, as
+ *    git reads them) and `--git-common-dir`. Every answer must resolve inside
+ *    the copy root; any git error fails closed.
  *
  * Why this is enough: walk any path that descends from the copy root (no
  * `..` segment). Every real directory or file the copy holds is inside it;
  * every symlink met on the way is resolved from its own location, which is
  * inside the copy, and by (1) lands inside the copy; so by induction every
- * step stays inside. Git commands run in the copy write only where its
- * metadata points, inside the copy by (2). A write through the copy can
- * therefore never change the original (or any ancestor or other location).
+ * step stays inside. Git commands run in the copy operate on the work tree
+ * and git directories git itself reports, inside the copy by (2), so they
+ * cannot write elsewhere either. A write through the copy can therefore
+ * never change the original (or any ancestor or other location). agent-ci's
+ * own git calls in a copy additionally pin `GIT_DIR`/`GIT_WORK_TREE` to it.
  * Not covered, by design: paths an agent constructs to climb above the
  * copy (`../..`) or absolute paths. An edit agent is not filesystem
  * sandboxed; isolation is about discarding failed attempts, not containment.
@@ -307,11 +318,19 @@ export async function copyIsolationProblem(
   const pending: { dir: string; inGitDir: boolean }[] = [
     { dir: root, inGitDir: false },
   ];
+  // Directories git treats as a work tree root, and git directories.
+  const worktrees: string[] = [root];
+  const gitDirs: string[] = [];
   while (pending.length > 0) {
     const { dir, inGitDir } = pending.pop() ?? { dir: root, inGitDir: false };
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    if (inGitDir && isGitDirectory(entries)) gitDirs.push(dir);
+    for (const entry of entries) {
       const full = path.join(dir, entry.name);
       const rel = path.relative(root, full);
+      if (entry.name === '.git' && !inGitDir && dir !== root) {
+        worktrees.push(dir);
+      }
       if (entry.isSymbolicLink()) {
         if (!(await inside(full))) {
           return `${rel} is a symlink that does not resolve inside the copy`;
@@ -329,7 +348,127 @@ export async function copyIsolationProblem(
       }
     }
   }
+  return gitAnswerProblem(root, worktrees, gitDirs, inside, git);
+}
+
+/**
+ * A git directory as git recognizes one: a `HEAD` file plus an `objects`
+ * directory or a `commondir` file (so `.git/logs`, which holds a `HEAD`, is
+ * not one).
+ */
+function isGitDirectory(entries: readonly Dirent[]): boolean {
+  const has = (name: string, test: (entry: Dirent) => boolean) =>
+    entries.some((entry) => entry.name === name && test(entry));
+  return (
+    has('HEAD', (e) => e.isFile()) &&
+    (has('objects', (e) => e.isDirectory()) ||
+      has('commondir', (e) => e.isFile()))
+  );
+}
+
+/**
+ * Rule 2, asked of git itself: what git would actually use from each work
+ * tree root and git directory in the copy. Relative answers resolve against
+ * the directory git ran in.
+ */
+async function gitAnswerProblem(
+  root: string,
+  worktrees: readonly string[],
+  gitDirs: readonly string[],
+  inside: (target: string) => Promise<boolean>,
+  git: string,
+): Promise<string | undefined> {
+  const outside = async (cwd: string, answers: readonly string[]) => {
+    for (const answer of answers) {
+      if (!(await inside(path.resolve(cwd, answer)))) return answer;
+    }
+    return undefined;
+  };
+  for (const dir of worktrees) {
+    const rel = path.relative(root, dir) || '.';
+    const located = await gitOutput(
+      git,
+      [
+        'rev-parse',
+        '--show-toplevel',
+        '--absolute-git-dir',
+        '--git-common-dir',
+      ],
+      dir,
+    );
+    if (located === undefined || located.length !== 3) {
+      return `git cannot locate the repository at ${rel} in the copy`;
+    }
+    const superproject = await gitOutput(
+      git,
+      ['rev-parse', '--show-superproject-working-tree'],
+      dir,
+    );
+    if (superproject === undefined || superproject.length > 1) {
+      return `git cannot locate the superproject of ${rel} in the copy`;
+    }
+    const escaped = await outside(dir, [...located, ...superproject]);
+    if (escaped !== undefined) {
+      return `git resolves ${rel} in the copy to ${escaped}, outside the copy`;
+    }
+  }
+  for (const dir of gitDirs) {
+    const rel = path.relative(root, dir);
+    const worktree = await gitOutput(
+      git,
+      [`--git-dir=${dir}`, 'config', '--get', 'core.worktree'],
+      dir,
+      true,
+    );
+    const common = await gitOutput(
+      git,
+      [`--git-dir=${dir}`, 'rev-parse', '--git-common-dir'],
+      dir,
+    );
+    if (worktree === undefined || common === undefined || common.length !== 1) {
+      return `git cannot read the git directory ${rel} in the copy`;
+    }
+    const escaped = await outside(dir, [...worktree, ...common]);
+    if (escaped !== undefined) {
+      return `git directory ${rel} in the copy points git at ${escaped}, outside the copy`;
+    }
+  }
   return undefined;
+}
+
+/**
+ * The non-empty output lines of one safe git call with no inherited `GIT_*`
+ * environment, or undefined on any failure. With `unsetOk`, exit 1 (a
+ * `config --get` miss) is an empty answer.
+ */
+function gitOutput(
+  git: string,
+  args: readonly string[],
+  cwd: string,
+  unsetOk = false,
+): Promise<string[] | undefined> {
+  return new Promise((resolve) => {
+    const child = execFile(
+      git,
+      safeGitArgs([...args]),
+      {
+        cwd,
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },
+      },
+      (error, stdout) => {
+        if (error !== null) {
+          resolve(unsetOk && error.code === 1 ? [] : undefined);
+          return;
+        }
+        resolve(
+          String(stdout)
+            .split('\n')
+            .filter((line) => line !== ''),
+        );
+      },
+    );
+    child.stdin?.end();
+  });
 }
 
 /**
@@ -356,7 +495,7 @@ async function gitPointer(
     const value = (await readFile(file, 'utf8')).trim();
     return value === '' ? undefined : resolve(value);
   }
-  if (name === 'config') {
+  if (name === 'config' || name === 'config.worktree') {
     const worktree = await configValue(file, 'core.worktree', git);
     return worktree === undefined ? undefined : resolve(worktree);
   }

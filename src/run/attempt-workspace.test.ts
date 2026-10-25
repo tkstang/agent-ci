@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -19,6 +20,7 @@ import {
   isolationSupport,
   promoteChanges,
 } from '@agent-ci/run/attempt-workspace.js';
+import { detectChangedFiles } from '@agent-ci/run/changed-files.js';
 import { type RunOptions, runAgent } from '@agent-ci/run/execute.js';
 import { describe, expect, it } from 'vitest';
 
@@ -386,6 +388,155 @@ describe('copy qualification (phase gate H1)', () => {
     expect(await readFile(path.join(repo, 'README.md'), 'utf8')).toBe(
       '# Scratch\n',
     );
+  });
+});
+
+/**
+ * An absorbed submodule at `sub` with a committed `s.txt`: `sub/.git` is a
+ * relative `gitdir:` file and the module's git directory lives under
+ * `.git/modules/sub`, with `core.worktree` in its `config.worktree`.
+ */
+async function withSubmodule(repo: string, worktree: string): Promise<void> {
+  const gitDir = path.join(repo, '.git', 'modules', 'sub');
+  const sub = path.join(repo, 'sub');
+  await mkdir(path.dirname(gitDir), { recursive: true });
+  git(repo, 'init', '-q', '--separate-git-dir', gitDir, sub);
+  await writeFile(path.join(sub, '.git'), 'gitdir: ../.git/modules/sub\n');
+  git(sub, 'config', 'extensions.worktreeConfig', 'true');
+  git(sub, 'config', '--worktree', 'core.worktree', worktree);
+  await writeFile(path.join(sub, 's.txt'), 'sub committed\n');
+  git(sub, 'add', 's.txt');
+  git(sub, 'commit', '-qm', 'sub');
+}
+
+describe('git-authoritative copy qualification (phase gate round 2 H1)', () => {
+  it('refuses config.worktree core.worktree pointing at the original', async () => {
+    const repo = await scratchRepo();
+    git(repo, 'config', 'extensions.worktreeConfig', 'true');
+    git(repo, 'config', '--worktree', 'core.worktree', repo);
+    const copy = await copyOf(repo);
+    // The vector is live: git run in the copy works on the original.
+    expect(git(copy.root, 'rev-parse', '--show-toplevel').trim()).toBe(repo);
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      '.git/config.worktree points git outside the copy',
+    );
+    await copy.dispose();
+  });
+
+  it('refuses a submodule whose config.worktree points at the original', async () => {
+    const repo = await scratchRepo();
+    await withSubmodule(repo, path.join(repo, 'sub'));
+    const copy = await copyOf(repo);
+    expect(
+      git(path.join(copy.root, 'sub'), 'rev-parse', '--show-toplevel').trim(),
+    ).toBe(path.join(repo, 'sub'));
+    expect(await copyIsolationProblem(copy.root)).toBe(
+      '.git/modules/sub/config.worktree points git outside the copy',
+    );
+    await copy.dispose();
+  });
+
+  it('trusts git, not the file screen: an outside or failed git answer is refused', async () => {
+    const repo = await scratchRepo();
+    const copy = await copyOf(repo);
+    const bin = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-qual-git-'));
+    // Stand-ins for a git whose own answer escapes, or that cannot answer;
+    // every other git call goes to the real git.
+    const stub = async (name: string, flag: string, answer: string) => {
+      const file = path.join(bin, name);
+      await writeFile(
+        file,
+        `#!/bin/sh\nfor a in "$@"; do [ "$a" = ${flag} ] && { ${answer}; }; done\nexec git "$@"\n`,
+      );
+      await chmod(file, 0o755);
+      return file;
+    };
+    expect(
+      await copyIsolationProblem(
+        copy.root,
+        await stub(
+          'escapes',
+          '--show-toplevel',
+          `printf '%s\\n' ${repo} ${repo}/.git .git; exit 0`,
+        ),
+      ),
+    ).toBe(`git resolves . in the copy to ${repo}, outside the copy`);
+    expect(
+      await copyIsolationProblem(
+        copy.root,
+        await stub('fails', 'rev-parse', 'exit 128'),
+      ),
+    ).toBe('git cannot locate the repository at . in the copy');
+    await copy.dispose();
+  });
+
+  it('refuses a git directory whose effective config names an outside work tree', async () => {
+    const sub = await scratchRepo();
+    await withSubmodule(sub, '../../../sub');
+    const modules = path.join(sub, '.git', 'modules', 'sub');
+    // Included after the honest value, so it wins; the file screen reads
+    // config.worktree without includes and sees only the honest value.
+    await writeFile(
+      path.join(modules, 'extra.cfg'),
+      `[core]\n\tworktree = ${path.join(sub, 'sub')}\n`,
+    );
+    git(
+      sub,
+      'config',
+      '--file',
+      path.join(modules, 'config.worktree'),
+      'include.path',
+      'extra.cfg',
+    );
+    const subCopy = await copyOf(sub);
+    expect(await copyIsolationProblem(subCopy.root)).toBe(
+      `git directory .git/modules/sub in the copy points git at ${path.join(sub, 'sub')}, outside the copy`,
+    );
+    await subCopy.dispose();
+  });
+
+  it('qualifies an honest repository and submodule; git rm and checkout in the copy leave the original alone', async () => {
+    const repo = await scratchRepo();
+    await withSubmodule(repo, '../../../sub');
+    await writeFile(path.join(repo, 'notes.txt'), 'dirty\n');
+    await writeFile(path.join(repo, 'sub', 's.txt'), 'sub dirty\n');
+    const copy = await copyOf(repo);
+    expect(await copyIsolationProblem(copy.root)).toBeUndefined();
+    const copySub = path.join(copy.root, 'sub');
+    git(copy.root, 'rm', '-q', 'README.md');
+    git(copy.root, 'checkout', '-q', '--', 'notes.txt');
+    git(copySub, 'checkout', '-q', '--', 's.txt');
+    git(copySub, 'rm', '-q', 's.txt');
+    expect(await readFile(path.join(copy.root, 'notes.txt'), 'utf8')).toBe(
+      'committed\n',
+    );
+    expect(await readFile(path.join(repo, 'README.md'), 'utf8')).toBe(
+      '# Scratch\n',
+    );
+    expect(await readFile(path.join(repo, 'notes.txt'), 'utf8')).toBe(
+      'dirty\n',
+    );
+    expect(await readFile(path.join(repo, 'sub', 's.txt'), 'utf8')).toBe(
+      'sub dirty\n',
+    );
+    expect(git(repo, 'status', '--porcelain')).toContain(' M notes.txt');
+    expect(git(repo, 'ls-files')).toContain('README.md');
+    await copy.dispose();
+  });
+
+  it("agent-ci's own git calls in a copy are pinned to it even if its config redirects", async () => {
+    const repo = await scratchRepo();
+    git(repo, 'config', 'extensions.worktreeConfig', 'true');
+    git(repo, 'config', '--worktree', 'core.worktree', repo);
+    const copy = await copyOf(repo);
+    await writeFile(path.join(copy.root, 'copy-only.txt'), 'new\n');
+    await writeFile(path.join(repo, 'orig-only.txt'), 'new\n');
+    const pin = { gitDir: path.join(copy.root, '.git'), workTree: copy.root };
+    const pinned = await detectChangedFiles(copy.root, [], 'git', pin);
+    expect(pinned).toEqual({ ok: true, value: ['copy-only.txt'] });
+    const unpinned = await detectChangedFiles(copy.root);
+    expect(unpinned.ok && unpinned.value).toContain('orig-only.txt');
+    await copy.dispose();
   });
 });
 

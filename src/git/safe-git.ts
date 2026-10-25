@@ -23,6 +23,23 @@ import { execFile } from 'node:child_process';
  * config and attributes and never prompts.
  */
 
+/**
+ * Pin a git call to one repository: `GIT_DIR` and `GIT_WORK_TREE` override
+ * repository discovery and `core.worktree` (including `config.worktree`),
+ * so configuration inside an attempt copy cannot redirect agent-ci's own
+ * calls to another checkout.
+ */
+export interface GitPin {
+  readonly gitDir: string;
+  readonly workTree: string;
+}
+
+export function pinEnv(pin?: GitPin): Record<string, string> {
+  return pin === undefined
+    ? {}
+    : { GIT_DIR: pin.gitDir, GIT_WORK_TREE: pin.workTree };
+}
+
 /** The empty tree: an attribute source with no attributes. */
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
@@ -90,6 +107,7 @@ export function overridesFor(configOutput: string): string[] {
 export function filterDriverOverrides(
   cwd: string,
   git = 'git',
+  pin?: GitPin,
 ): Promise<string[]> {
   return new Promise((resolve, reject) => {
     const child = execFile(
@@ -97,7 +115,11 @@ export function filterDriverOverrides(
       safeGitArgs(['config', '-z', '--get-regexp', '^filter\\.']),
       {
         cwd,
-        env: { PATH: process.env.PATH ?? '/usr/bin:/bin', ...SAFE_GIT_ENV },
+        env: {
+          PATH: process.env.PATH ?? '/usr/bin:/bin',
+          ...SAFE_GIT_ENV,
+          ...pinEnv(pin),
+        },
         maxBuffer: 4 * 1024 * 1024,
       },
       (error, stdout, stderr) => {

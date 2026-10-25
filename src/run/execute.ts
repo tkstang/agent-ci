@@ -557,7 +557,13 @@ async function runInHome(
               // Only a successful attempt's changes reach the workspace; a
               // failed attempt's copy is discarded with its partial edits.
               if (outcome.ok && baseline.ok && baseHead.ok) {
-                const copyHead = await readHead(copy.value.root, deps.git);
+                // Pinned to the copy: its configuration (core.worktree,
+                // config.worktree) cannot redirect agent-ci's own git calls.
+                const pin = {
+                  gitDir: path.join(copy.value.root, '.git'),
+                  workTree: copy.value.root,
+                };
+                const copyHead = await readHead(copy.value.root, deps.git, pin);
                 const inCopy =
                   !copyHead.ok || copyHead.value !== baseHead.value
                     ? failure(
@@ -569,6 +575,7 @@ async function runInHome(
                         baseline.value,
                         [copy.value.outDir],
                         deps.git,
+                        pin,
                       );
                 const moved = inCopy.ok
                   ? await promoteChanges(
