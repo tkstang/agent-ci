@@ -220,6 +220,20 @@ export async function createHomeRoot(
       } catch {
         exists = false;
       }
+      // Before anything is created or cleared: the root and the workspace
+      // must be disjoint both ways (every derived home lives under the root).
+      if (options.workspaceRoot !== undefined) {
+        const planned = await resolveRealPath(root);
+        if (
+          isWithin(options.workspaceRoot, planned) ||
+          isWithin(planned, options.workspaceRoot)
+        ) {
+          return failure(
+            'E_HOME_ROOT',
+            `home root ${root} overlaps the workspace ${options.workspaceRoot}`,
+          );
+        }
+      }
       if (!exists) await mkdir(root, { recursive: true, mode: 0o700 });
       resolved = await resolveRealPath(root);
       const valid = await validateHomeTree(resolved, options.workspaceRoot);

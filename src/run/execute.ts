@@ -173,9 +173,15 @@ export async function runAgent(
     boundaryRoot,
   );
   if (!outputDir.ok) return outputDir;
+  // Every derived destination (HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*,
+  // skills, attempt scratch) lives under the home root, so the root and the
+  // workspace must be disjoint in BOTH directions: a root inside the checkout,
+  // or a checkout inside the root (repository at <root>/home), both put
+  // credentials and config homes into the repository.
   const homeOutside = async (root: string): Promise<boolean> => {
     try {
-      return !isWithin(boundaryRoot, await resolveRealPath(root));
+      const real = await resolveRealPath(root);
+      return !isWithin(boundaryRoot, real) && !isWithin(real, boundaryRoot);
     } catch {
       return false; // unresolvable (symlink loop): fail closed
     }
@@ -186,8 +192,8 @@ export async function runAgent(
   ) {
     return failure(
       'E_HOME_ROOT',
-      `home root ${options.homeRoot} is inside the workspace ${boundaryRoot}`,
-      'Choose a --home-root outside the repository (for example under the system temp directory).',
+      `home root ${options.homeRoot} overlaps the workspace ${boundaryRoot}`,
+      'Choose a --home-root that neither contains nor sits inside the repository (for example a fresh directory under the system temp directory).',
     );
   }
   const home = await createHomeRoot(options.homeRoot, {
@@ -201,7 +207,7 @@ export async function runAgent(
     if (!keepHome) await rm(home.value.root, { recursive: true, force: true });
     return failure(
       'E_HOME_ROOT',
-      `the home root resolves inside the workspace ${boundaryRoot}`,
+      `the home root overlaps the workspace ${boundaryRoot}`,
       'Run with TMPDIR outside the repository, or pass a --home-root outside it.',
     );
   }

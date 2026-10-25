@@ -936,4 +936,93 @@ describe('runAgent', () => {
       );
     });
   });
+
+  describe('home root and workspace must be disjoint', () => {
+    async function overlapCase(repoBelowRoot: string) {
+      const opts = await options({ model: 'codex-login', seedLogin: true });
+      const root = `${opts.cwd}-job`;
+      const repo = path.join(root, repoBelowRoot);
+      await mkdir(repo, { recursive: true });
+      execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
+      // A workspace-owned file at a path a derived login store would use.
+      await mkdir(path.join(repo, '.codex'), { recursive: true });
+      await writeFile(
+        path.join(repo, '.codex', 'auth.json'),
+        'workspace-owned',
+      );
+      await writeFile(path.join(repo, 'auth.json'), 'workspace-owned');
+      const operatorHome = `${opts.cwd}-operator`;
+      await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
+      await writeFile(
+        path.join(operatorHome, '.codex', 'auth.json'),
+        JSON.stringify({ tokens: { placeholder: 'synthetic-overlap-0033' } }),
+      );
+      return {
+        opts: {
+          ...opts,
+          cwd: repo,
+          homeRoot: root,
+          env: { PATH: process.env.PATH, HOME: operatorHome },
+        },
+        repo,
+      };
+    }
+
+    for (const repoBelowRoot of ['home', path.join('home', '.codex')]) {
+      it(`refuses a home root that contains the repository at <root>/${repoBelowRoot}`, async () => {
+        const { opts, repo } = await overlapCase(repoBelowRoot);
+        const before = execFileSync(
+          'git',
+          ['status', '--porcelain', '--untracked-files=all'],
+          { cwd: repo, encoding: 'utf8' },
+        );
+        expect(await runAgent(opts)).toMatchObject({
+          ok: false,
+          code: 'E_HOME_ROOT',
+        });
+        // Nothing created, cleared or seeded inside the repository.
+        expect(
+          execFileSync(
+            'git',
+            ['status', '--porcelain', '--untracked-files=all'],
+            {
+              cwd: repo,
+              encoding: 'utf8',
+            },
+          ),
+        ).toBe(before);
+        expect(
+          await readFile(path.join(repo, '.codex', 'auth.json'), 'utf8'),
+        ).toBe('workspace-owned');
+        expect(await readFile(path.join(repo, 'auth.json'), 'utf8')).toBe(
+          'workspace-owned',
+        );
+      });
+    }
+
+    it('accepts a home root disjoint from the repository (control)', async () => {
+      const { opts } = await overlapCase('repo');
+      const disjoint = { ...opts, homeRoot: `${opts.homeRoot}-separate` };
+      const summary = await runAgent(disjoint, {
+        harness: {
+          spawn: async (spec) => {
+            await writeFile(
+              spec.args[spec.args.indexOf('-o') + 1] ?? '',
+              JSON.stringify({
+                summary: 's',
+                report: { title: 'T', markdown: 'M' },
+              }),
+            );
+            return okProcess(
+              `${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`,
+            );
+          },
+        },
+      });
+      expect(summary.ok && summary.value.result).toMatchObject({
+        ok: true,
+        changedFiles: [],
+      });
+    });
+  });
 });

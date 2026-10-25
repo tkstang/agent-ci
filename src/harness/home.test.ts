@@ -421,4 +421,21 @@ describe('kept home root validation', () => {
     await symlink(elsewhere, store);
     expect(await read()).toMatchObject({ ok: false, code: 'E_SECRET_GUARD' });
   });
+
+  it('refuses a kept root that contains the workspace before creating anything', async () => {
+    const { root } = await keptRoot();
+    const workspace = path.join(root, 'home');
+    await mkdir(path.join(workspace, '.codex'), { recursive: true });
+    await writeFile(
+      path.join(workspace, '.codex', 'auth.json'),
+      'workspace-owned',
+    );
+    expect(
+      await createHomeRoot(root, { workspaceRoot: workspace }),
+    ).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+    expect(
+      await readFile(path.join(workspace, '.codex', 'auth.json'), 'utf8'),
+    ).toBe('workspace-owned');
+    expect(existsSync(path.join(workspace, '.claude'))).toBe(false);
+  });
 });
