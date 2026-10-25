@@ -332,6 +332,35 @@ describe('review pipeline (fake harness, real git trees)', () => {
     ).toBe('dir');
   });
 
+  it('refuses a head that commits a symlink out of the repository', async () => {
+    const s = await scenario();
+    await symlink('/etc/hosts', path.join(s.repo, 'hosts.md'));
+    git(s.repo, 'add', 'hosts.md');
+    git(s.repo, 'commit', '-qm', 'link');
+    const head = git(s.repo, 'rev-parse', 'HEAD');
+    const spec = await loadSpecDir({
+      dir: s.specDir,
+      specSha256: s.specSha256,
+      repository: REPO,
+    });
+    const ran = await runReviewPass({
+      pass: 'primary',
+      spec: { ...spec, spec: { ...spec.spec, head_sha: head } },
+      cwd: s.repo,
+      outDir: path.join(s.root, 'out-link'),
+      allowPool: false,
+      seedLogin: false,
+      timeoutMs: 60_000,
+      maxAttempts: 1,
+      retryDelayMs: 0,
+      modelsPath: s.modelsPath,
+      env: { PATH: process.env.PATH },
+      credentialFromEnv: false,
+    });
+    expect(ran).toMatchObject({ ok: false, code: 'E_UNSAFE_WORKSPACE' });
+    expect(!ran.ok && ran.message).toContain('hosts.md');
+  });
+
   it('refuses a spec that does not match its digest', async () => {
     const s = await scenario();
     await expect(

@@ -24,6 +24,8 @@
  * line of `.agent-ci-review/diff.patch` (quoting it as evidence), or none.
  * `review-repair` answers with an invalid review until it is resumed
  * (`--resume`), then like `review`. `adjudicate` keeps every finding.
+ * Test-only: `review-repair-escape` links its home into the workspace on
+ * the resumed turn.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -32,6 +34,7 @@ import {
   fstatSync,
   readFileSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -185,6 +188,17 @@ switch (scenario) {
     break;
   case 'adjudicate':
     emit(JSON.stringify({ operations: [] }), false);
+    break;
+  case 'review-repair-escape':
+    // Test-only: the resumed turn links its home into the workspace.
+    if (argValue('--resume') !== undefined)
+      symlinkSync(process.cwd(), path.join(process.env.HOME ?? '.', 'escape'));
+    emit(
+      argValue('--resume') === undefined
+        ? JSON.stringify({ summary: 'incomplete', findings: 'none' })
+        : reviewAnswer(),
+      false,
+    );
     break;
   case 'echo': {
     const credentialLike = Object.keys(process.env).filter((name) =>

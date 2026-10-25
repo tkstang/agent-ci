@@ -10,6 +10,7 @@ import {
   type ReviewPass,
 } from '@agent-ci/review/contracts.js';
 import { readArtifactFile } from '@agent-ci/review/files.js';
+import { escapingLink } from '@agent-ci/review/links.js';
 import {
   type LoadedSpec,
   SPEC_FILES,
@@ -169,6 +170,16 @@ export async function runReviewPass(
     return failure(
       'E_REVIEW_STALE_HEAD',
       `the checkout is at ${head.value ?? 'no commit'}, not the captured head ${spec.head_sha}`,
+    );
+
+  // The reviewer's read tools allow workspace paths: a committed link out of
+  // the checkout (for example to /proc/self/environ) must not reach them.
+  const escaping = await escapingLink(root.value.root, options.git);
+  if (!escaping.ok) return escaping;
+  if (escaping.value !== undefined)
+    return failure(
+      'E_UNSAFE_WORKSPACE',
+      `the pull request head has a symlink that leaves the repository (${escaping.value}); agent-ci does not review it`,
     );
 
   const inputDir = path.join(root.value.root, REVIEW_INPUT_DIR);

@@ -773,6 +773,19 @@ async function runInHome(
               'credential guard incomplete',
           };
         }
+        // The repair turn had the same write access to its home: validate
+        // the tree again, as after the attempts.
+        const homeAfterRepair = await validateHomeTree(
+          homeRoot.root,
+          boundaryRoot,
+        );
+        if (!homeAfterRepair.ok) {
+          guardFailure ??= {
+            code: homeAfterRepair.code,
+            message: homeAfterRepair.message,
+          };
+          log.withholdFreeText();
+        }
         log.add('repair', {
           harness: route.harness,
           ok: repaired.outcome.ok,
