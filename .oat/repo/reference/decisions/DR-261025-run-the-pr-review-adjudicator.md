@@ -14,7 +14,7 @@ The adjudicator reads untrusted pull-request text (reviewer findings and cited s
 
 ## Decision
 
-The adjudicator runs only on harnesses with a verified tool-free posture: Claude (and the credential-free fake harness used by tests and the self-test). The run core refuses a tool-free run on any other harness before anything starts (E_POLICY_HARNESS), the gate refuses an adjudicator model whose route is not on such a harness, and adapters declare the capability (supportsNoTools). The adjudicator gets its candidates and line-numbered source windows in the prompt (sources fetched from the contents API in a step without the model credential), runs in an empty scratch directory outside any checkout with --json-schema, and its answer is validated after the run with one repair turn by session resume; the findings gate re-enforces every limit.
+The adjudicator runs only on harnesses with a verified tool-free posture: Claude (and the credential-free fake harness used by tests and the self-test). The run core refuses a tool-free run on any other harness before anything starts (E_POLICY_HARNESS), the gate refuses an adjudicator model whose route is not on such a harness, and adapters declare the capability (supportsNoTools). The adjudicator gets its candidates and line-numbered source windows in the prompt (sources fetched from the git database API (trees and blobs) in a step without the model credential), runs in an empty scratch directory outside any checkout with --json-schema, and its answer is validated after the run with one repair turn by session resume; the findings gate re-enforces every limit.
 
 ## Consequences
 

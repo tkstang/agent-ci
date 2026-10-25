@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -55,49 +55,80 @@ describe('citedSources', () => {
 });
 
 describe('fetchSources', () => {
-  it('reads files through the contents API at each side SHA and refuses non-files', async () => {
+  it('reads regular files through git trees at each side SHA, like the local git reader', async () => {
+    const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-api-reader-'));
+    const run = (...args: string[]) =>
+      execFileSync(
+        'git',
+        ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args],
+        {
+          cwd: repo,
+          encoding: 'utf8',
+        },
+      ).trim();
+    run('init', '-q');
+    await mkdir(path.join(repo, 'src'));
+    await writeFile(path.join(repo, 'src', 'a.ts'), 'base\n');
+    run('add', '.');
+    run('commit', '-qm', 'base');
+    const base = run('rev-parse', 'HEAD');
+    await writeFile(path.join(repo, 'src', 'a.ts'), 'head!\n');
+    // An in-repository file symlink (GitHub's contents API would serve the
+    // target's text for it) and a symlinked directory.
+    await symlink('a.ts', path.join(repo, 'src', 'alias.ts'));
+    await symlink('src', path.join(repo, 'linked'));
+    run('add', '.');
+    run('commit', '-qm', 'head');
+    const head = run('rev-parse', 'HEAD');
+    const github = new FakeGithub().serveGitDatabase(API, repo);
+    const wanted = [
+      { side: 'RIGHT', path: 'src/a.ts' },
+      { side: 'LEFT', path: 'src/a.ts' },
+      { side: 'RIGHT', path: 'src/alias.ts' },
+      { side: 'RIGHT', path: 'linked/a.ts' },
+      { side: 'RIGHT', path: 'src' },
+      { side: 'RIGHT', path: 'src/missing.ts' },
+    ] as const;
+    const api = mapReader(
+      await fetchSources({
+        github: github.client(),
+        repository: 'tkstang/app',
+        shas: { RIGHT: head, LEFT: base },
+        wanted,
+      }),
+    );
+    const local = gitSourceReader(repo, { RIGHT: head, LEFT: base });
+    for (const { side, path: file } of wanted)
+      expect(api(side, file), `${side} ${file}`).toBe(local(side, file));
+    expect(api('RIGHT', 'src/a.ts')).toBe('head!\n');
+    expect(api('LEFT', 'src/a.ts')).toBe('base\n');
+    expect(api('RIGHT', 'src/alias.ts')).toBeNull();
+    expect(api('RIGHT', 'linked/a.ts')).toBeNull();
+    // Only GETs, and never the contents API.
+    expect(github.requests.every((r) => r.method === 'GET')).toBe(true);
+    expect(github.requests.some((r) => r.path.includes('/contents/'))).toBe(
+      false,
+    );
+  });
+
+  it('refuses a blob whose bytes disagree with the tree size', async () => {
+    const blob = 'c'.repeat(40);
     const github = new FakeGithub()
-      .on('GET', `${API}/contents/src/a.ts`, (request) =>
-        request.path.endsWith(`ref=${HEAD}`)
-          ? {
-              body: {
-                type: 'file',
-                size: 6,
-                encoding: 'base64',
-                content: Buffer.from('head!\n').toString('base64'),
-              },
-            }
-          : {
-              body: {
-                type: 'file',
-                size: 5,
-                encoding: 'base64',
-                content: Buffer.from('base\n').toString('base64'),
-              },
+      .on('GET', `${API}/git/trees/${HEAD}`, {
+        body: {
+          tree: [
+            {
+              path: 'lie.ts',
+              mode: '100644',
+              type: 'blob',
+              sha: blob,
+              size: 1,
             },
-      )
-      .on('GET', `${API}/contents/src/link.ts`, {
-        body: { type: 'symlink', target: '/etc/passwd', size: 11 },
-      })
-      .on('GET', `${API}/contents/src/big.ts`, {
-        body: {
-          type: 'file',
-          size: 3,
-          encoding: 'none',
-          content: '',
-          sha: 'c'.repeat(40),
+          ],
         },
       })
-      .on('GET', `${API}/git/blobs/${'c'.repeat(40)}`, {
+      .on('GET', `${API}/git/blobs/${blob}`, {
         body: {
-          encoding: 'base64',
-          content: Buffer.from('big').toString('base64'),
-        },
-      })
-      .on('GET', `${API}/contents/src/lie.ts`, {
-        body: {
-          type: 'file',
-          size: 1,
           encoding: 'base64',
           content: Buffer.from('longer').toString('base64'),
         },
@@ -106,24 +137,9 @@ describe('fetchSources', () => {
       github: github.client(),
       repository: 'tkstang/app',
       shas: { RIGHT: HEAD, LEFT: MERGE },
-      wanted: [
-        { side: 'RIGHT', path: 'src/a.ts' },
-        { side: 'LEFT', path: 'src/a.ts' },
-        { side: 'RIGHT', path: 'src/link.ts' },
-        { side: 'RIGHT', path: 'src/big.ts' },
-        { side: 'RIGHT', path: 'src/lie.ts' },
-        { side: 'RIGHT', path: 'src/missing.ts' },
-      ],
+      wanted: [{ side: 'RIGHT', path: 'lie.ts' }],
     });
-    const read = mapReader(texts);
-    expect(read('RIGHT', 'src/a.ts')).toBe('head!\n');
-    expect(read('LEFT', 'src/a.ts')).toBe('base\n');
-    expect(read('RIGHT', 'src/link.ts')).toBeNull();
-    expect(read('RIGHT', 'src/big.ts')).toBe('big');
-    expect(read('RIGHT', 'src/lie.ts')).toBeNull();
-    expect(read('RIGHT', 'src/missing.ts')).toBeNull();
-    // Only GETs: the reader never writes.
-    expect(github.requests.every((r) => r.method === 'GET')).toBe(true);
+    expect(texts.size).toBe(0);
   });
 
   it('round-trips through a snapshot directory', async () => {

@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+
 import {
   GithubClient,
   type GithubRequest,
@@ -26,9 +28,71 @@ export type FakeHandler =
 export class FakeGithub {
   readonly requests: GithubRequest[] = [];
   readonly routes = new Map<string, FakeHandler>();
+  readonly prefixes: [string, FakeHandler][] = [];
 
   on(method: string, routePath: string, handler: FakeHandler): this {
     this.routes.set(`${method} ${routePath}`, handler);
+    return this;
+  }
+
+  /** Answer every `METHOD <prefix>...` request not matched exactly. */
+  onPrefix(method: string, prefix: string, handler: FakeHandler): this {
+    this.prefixes.push([`${method} ${prefix}`, handler]);
+    return this;
+  }
+
+  /**
+   * Serve `GET /git/trees/{sha}` and `GET /git/blobs/{sha}` from a real
+   * local repository, the way GitHub's git database API answers them
+   * (tree entries with mode, type, sha and size; base64 blobs).
+   */
+  serveGitDatabase(apiRepoPath: string, localRepo: string): this {
+    const git = (...args: string[]) =>
+      execFileSync('git', args, {
+        cwd: localRepo,
+        maxBuffer: 64 * 1024 * 1024,
+      });
+    this.onPrefix('GET', `${apiRepoPath}/git/trees/`, (request) => {
+      const sha = request.path.split('?')[0]?.split('/').at(-1) ?? '';
+      let listing: string;
+      try {
+        listing = git('ls-tree', '-l', '-z', sha).toString('utf8');
+      } catch {
+        return { status: 404, body: { message: 'Not Found' } };
+      }
+      const tree = listing
+        .split('\u0000')
+        .filter(Boolean)
+        .map((line) => {
+          const [meta = '', name = ''] = line.split('\t');
+          const [mode = '', type = '', object = '', size = '-'] =
+            meta.split(/ +/u);
+          return {
+            path: name,
+            mode,
+            type,
+            sha: object,
+            size: size === '-' ? null : Number(size),
+          };
+        });
+      return { body: { sha, tree, truncated: false } };
+    });
+    this.onPrefix('GET', `${apiRepoPath}/git/blobs/`, (request) => {
+      const sha = request.path.split('?')[0]?.split('/').at(-1) ?? '';
+      try {
+        const bytes = git('cat-file', 'blob', sha);
+        return {
+          body: {
+            sha,
+            size: bytes.length,
+            encoding: 'base64',
+            content: bytes.toString('base64'),
+          },
+        };
+      } catch {
+        return { status: 404, body: { message: 'Not Found' } };
+      }
+    });
     return this;
   }
 
@@ -36,7 +100,9 @@ export class FakeGithub {
     return new GithubClient(async (request): Promise<GithubResponse> => {
       this.requests.push(request);
       const key = `${request.method} ${request.path.split('?')[0]}`;
-      const handler = this.routes.get(key);
+      const handler =
+        this.routes.get(key) ??
+        this.prefixes.find(([prefix]) => key.startsWith(prefix))?.[1];
       const route =
         handler === undefined
           ? { status: 404, body: { message: 'Not Found' } }

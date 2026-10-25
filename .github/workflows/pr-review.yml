@@ -13,12 +13,12 @@
 #                and ONLY the route's model credential, in the pass step
 #                only. The harness runs read-only: no setup command, no
 #                skills, no repository code.
-# - adjudicate:  contents: read. Sources come from the contents API in a
+# - adjudicate:  contents: read. Sources come from the git database API (trees and blobs) in a
 #                step without the model credential; the adjudicator runs
 #                tool-free (Claude only) in an empty scratch directory. No
 #                PR checkout.
 # - findings:    contents/pull-requests: read. Deterministic gate over the
-#                digest-bound artifacts with sources from the contents API.
+#                digest-bound artifacts with sources from the git database API (trees and blobs).
 #                No model credential, no PR checkout.
 # - publish:     issues/pull-requests: write. No model credential, no PR
 #                checkout. Rechecks the PR head, posts, and fails the run
@@ -497,7 +497,7 @@ jobs:
           merge-multiple: true
 
       # GitHub token, no model credential: the cited source at the captured
-      # SHAs from the contents API.
+      # SHAs from the git database API (trees and blobs).
       - name: Fetch the cited source
         env:
           GITHUB_TOKEN: ${{ github.token }}

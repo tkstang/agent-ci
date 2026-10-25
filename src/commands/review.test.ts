@@ -7,7 +7,6 @@ import { run } from '@agent-ci/cli.js';
 import { createReviewCommand } from '@agent-ci/commands/review.js';
 import type { CommandContext } from '@agent-ci/commands/types.js';
 import { digestResultDir } from '@agent-ci/publish/digest.js';
-import { gitSourceReader } from '@agent-ci/review/sources.js';
 import { FakeGithub } from '@agent-ci/review/testing/fake-github.js';
 import { describe, expect, it } from 'vitest';
 
@@ -54,7 +53,6 @@ async function setup() {
   await writeFile(modelsPath, MODELS);
   const outputFile = path.join(root, 'github-output');
   await writeFile(outputFile, '');
-  const read = gitSourceReader(repo, { RIGHT: head, LEFT: base });
 
   const posted: unknown[] = [];
   const fake = new FakeGithub()
@@ -84,18 +82,7 @@ async function setup() {
     )
     .on('GET', `${API}/pulls/7/files`, { body: [{ filename: 'src/a.ts' }] })
     .on('DELETE', `${API}/issues/7/labels/agent-ci%3Areview`, { status: 204 })
-    .on('GET', `${API}/contents/src/a.ts`, (request) => {
-      const side = request.path.endsWith(`ref=${head}`) ? 'RIGHT' : 'LEFT';
-      const text = read(side, 'src/a.ts') ?? '';
-      return {
-        body: {
-          type: 'file',
-          size: Buffer.byteLength(text),
-          encoding: 'base64',
-          content: Buffer.from(text).toString('base64'),
-        },
-      };
-    })
+    .serveGitDatabase(API, repo)
     .on('GET', `${API}/pulls/7/comments`, { body: [] })
     .on('GET', `${API}/issues/7/comments`, () => ({ body: posted }))
     .on('POST', `${API}/issues/7/comments`, (request) => {
@@ -248,12 +235,11 @@ describe('agent-ci review stages (one process, fake GitHub, real git)', () => {
       envelope: { data: { reviewStatus: 'complete', findings: 1 } },
     });
     const findingsOut = await t.outputs();
-    // The findings job never reads a checkout of PR code: only GETs.
-    expect(
-      t.fake.requests
-        .filter((r) => r.path.includes('/contents/'))
-        .every((r) => r.method === 'GET'),
-    ).toBe(true);
+    // The findings job reads sources from the git database API (GETs only),
+    // never from a checkout of PR code.
+    const sourceReads = t.fake.requests.filter((r) => r.path.includes('/git/'));
+    expect(sourceReads.length).toBeGreaterThan(0);
+    expect(sourceReads.every((r) => r.method === 'GET')).toBe(true);
 
     const published = await t.cli([
       'publish',

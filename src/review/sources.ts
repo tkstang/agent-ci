@@ -11,19 +11,16 @@ import {
 } from '@agent-ci/review/contracts.js';
 import type { SourceReader } from '@agent-ci/review/diff-position.js';
 import { readArtifactFile } from '@agent-ci/review/files.js';
-import {
-  encodePath,
-  type GithubClient,
-  repositoryPath,
-} from '@agent-ci/review/github.js';
+import { type GithubClient, repositoryPath } from '@agent-ci/review/github.js';
 
 /**
  * Trusted source at the captured SHAs for the findings gate and the
  * adjudicator, read WITHOUT a checkout of pull-request code: from the
- * GitHub API (Actions jobs that hold only a read token) or from the git
- * object store of a local repository (blobs only: no checkout, filter,
- * hook or textconv runs). Only regular files count; a symlink, submodule or
- * directory at a cited path reads as missing on both sources.
+ * GitHub git database API (Actions jobs that hold only a read token) or
+ * from the git object store of a local repository (blobs only: no checkout,
+ * filter, hook or textconv runs). Both read tree entry modes, so only
+ * regular files count: a symlink, submodule or directory at a cited path
+ * (or a symlinked parent directory) reads as missing on both sources.
  */
 
 export const SOURCE_LIMITS = Object.freeze({
@@ -95,10 +92,39 @@ function field(value: unknown, key: string): unknown {
     : undefined;
 }
 
+type TreeEntry = {
+  path: string;
+  mode: string;
+  type: string;
+  sha: string;
+  size?: number;
+};
+
+/** The entries of one git tree (or of a commit's tree), `null` if unusable. */
+function treeEntries(value: unknown): TreeEntry[] | null {
+  const tree = field(value, 'tree');
+  if (!Array.isArray(tree)) return null;
+  return tree.filter(
+    (entry): entry is TreeEntry =>
+      typeof field(entry, 'path') === 'string' &&
+      typeof field(entry, 'mode') === 'string' &&
+      typeof field(entry, 'type') === 'string' &&
+      typeof field(entry, 'sha') === 'string',
+  );
+}
+
+const REGULAR_FILE = new Set(['100644', '100755']);
+const OBJECT_ID = /^[0-9a-f]{40,64}$/u;
+
 /**
- * Fetch each source through the contents API at the side's SHA (RIGHT =
- * head, LEFT = merge base). Only `type: file` counts; larger files come
- * from the blob API by the blob id the contents API named.
+ * Fetch each source the way the local git reader does, through the git
+ * database API at the side's SHA (RIGHT = head, LEFT = merge base): walk
+ * the trees one path component at a time (`GET /git/trees/{sha}`, cached),
+ * require every parent to be a tree (mode 040000) and the entry to be a
+ * regular blob (mode 100644 or 100755), then read it with `GET
+ * /git/blobs/{sha}`. A symlink (mode 120000), submodule or directory reads
+ * as missing; the contents API is not used because it serves a symlink to
+ * an in-repository file as that file's content (live 2026-10-25).
  */
 export async function fetchSources(input: {
   github: GithubClient;
@@ -109,41 +135,62 @@ export async function fetchSources(input: {
   if (!isSha(input.shas.RIGHT) || !isSha(input.shas.LEFT))
     contractError('E_REVIEW_INPUT', 'source SHAs must be full SHAs');
   const repo = repositoryPath(input.repository);
+  const trees = new Map<string, TreeEntry[] | null>();
+  const tree = async (sha: string): Promise<TreeEntry[] | null> => {
+    if (!trees.has(sha))
+      trees.set(
+        sha,
+        treeEntries(
+          await input.github.json(
+            { method: 'GET', path: `${repo}/git/trees/${sha}` },
+            [200, 404, 409, 422],
+          ),
+        ),
+      );
+    return trees.get(sha) ?? null;
+  };
   const texts = new Map<string, string>();
   for (const { side, path: repoPath } of input.wanted.slice(
     0,
     SOURCE_LIMITS.sources,
   )) {
-    const meta = await input.github.json(
-      {
-        method: 'GET',
-        path: `${repo}/contents/${encodePath(repoPath)}?ref=${input.shas[side]}`,
-      },
+    if (!isRepoPath(repoPath)) continue;
+    const parts = repoPath.split('/');
+    let treeish = input.shas[side];
+    let entry: TreeEntry | undefined;
+    for (const [index, part] of parts.entries()) {
+      const found = (await tree(treeish))?.find((e) => e.path === part);
+      if (found === undefined || !OBJECT_ID.test(found.sha)) {
+        entry = undefined;
+        break;
+      }
+      if (index < parts.length - 1) {
+        if (found.type !== 'tree' || found.mode !== '040000') {
+          entry = undefined;
+          break;
+        }
+        treeish = found.sha;
+      } else {
+        entry = found;
+      }
+    }
+    if (
+      entry === undefined ||
+      entry.type !== 'blob' ||
+      !REGULAR_FILE.has(entry.mode) ||
+      typeof entry.size !== 'number' ||
+      entry.size > SOURCE_LIMITS.fileBytes
+    )
+      continue;
+    const blob = await input.github.json(
+      { method: 'GET', path: `${repo}/git/blobs/${entry.sha}` },
       [200, 404],
     );
-    if (field(meta, 'type') !== 'file') continue;
-    const size = field(meta, 'size');
-    if (typeof size !== 'number' || size > SOURCE_LIMITS.fileBytes) continue;
-    let content = field(meta, 'content');
-    let encoding = field(meta, 'encoding');
-    if (
-      encoding !== 'base64' ||
-      typeof content !== 'string' ||
-      content === ''
-    ) {
-      const blobSha = field(meta, 'sha');
-      if (typeof blobSha !== 'string' || !/^[0-9a-f]{40,64}$/u.test(blobSha))
-        continue;
-      const blob = await input.github.json(
-        { method: 'GET', path: `${repo}/git/blobs/${blobSha}` },
-        [200, 404],
-      );
-      content = field(blob, 'content');
-      encoding = field(blob, 'encoding');
-    }
-    if (encoding !== 'base64' || typeof content !== 'string') continue;
+    const content = field(blob, 'content');
+    if (field(blob, 'encoding') !== 'base64' || typeof content !== 'string')
+      continue;
     const bytes = Buffer.from(content, 'base64');
-    if (bytes.length !== size) continue;
+    if (bytes.length !== entry.size) continue;
     texts.set(keyOf(side, repoPath), bytes.toString('utf8'));
   }
   return texts;
