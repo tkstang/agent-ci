@@ -142,3 +142,15 @@ routes:
     structuredOutput: prompt
     qualified: '2026-10-25'
     notes: Built-in plumbing harness; returns a valid report without a model.
+  - id: fake-edit
+    model: fake-edit
+    harness: fake
+    family: fake
+    providerModel: edit
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: >-
+      Built-in plumbing harness for edit runs; writes agent-ci-fake-edit.md
+      (content depends only on the prompt) without a model.

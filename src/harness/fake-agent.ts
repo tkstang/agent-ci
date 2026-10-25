@@ -8,10 +8,16 @@
  * Self-contained on purpose (node: imports only, erasable TypeScript) so Node
  * can run the source file directly in tests and `dist/` in production.
  *
- * Usage: fake-agent --scenario <echo|invalid|fail|auth|hang> -- <prompt>
+ * Usage: fake-agent --scenario <echo|edit|flaky-edit|invalid|fail|auth|hang> -- <prompt>
+ *
+ * `edit` writes `agent-ci-fake-edit.md` in the working directory (content
+ * derived from the prompt only, so reruns are identical). `flaky-edit` fails
+ * its first attempt in a home root with a transient error after writing
+ * `fake-partial.txt`, then behaves like `edit`.
  */
 import { createHash } from 'node:crypto';
-import { fstatSync, statSync } from 'node:fs';
+import { existsSync, fstatSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
 
 function argValue(name: string): string | undefined {
@@ -51,6 +57,28 @@ function emit(result: string, isError: boolean): void {
 const scenario = argValue('--scenario') ?? 'echo';
 const prompt = promptText();
 
+function editWorkspace(): void {
+  const digest = createHash('sha256').update(prompt).digest('hex');
+  writeFileSync(
+    path.join(process.cwd(), 'agent-ci-fake-edit.md'),
+    `# agent-ci fake edit\n\nWritten by the credential-free fake harness (no model was called).\nPrompt sha256: ${digest.slice(0, 16)}\n`,
+  );
+  emit(
+    JSON.stringify({
+      summary:
+        'Fake harness edited agent-ci-fake-edit.md (no model was called).',
+      report: {
+        title: 'agent-ci fake harness edit',
+        markdown: `- Wrote \`agent-ci-fake-edit.md\`\n- stdin is /dev/null: ${stdinIsDevNull()}`,
+      },
+      artifacts: [],
+      changedFiles: [],
+      errors: [],
+    }),
+    false,
+  );
+}
+
 switch (scenario) {
   case 'echo': {
     const credentialLike = Object.keys(process.env).filter((name) =>
@@ -77,6 +105,24 @@ switch (scenario) {
       }),
       false,
     );
+    break;
+  }
+  case 'edit':
+    editWorkspace();
+    break;
+  case 'flaky-edit': {
+    const marker = path.join(
+      process.env.HOME ?? '.',
+      '.agent-ci-fake-attempted',
+    );
+    if (existsSync(marker)) {
+      editWorkspace();
+    } else {
+      writeFileSync(marker, 'attempted\n');
+      writeFileSync(path.join(process.cwd(), 'fake-partial.txt'), 'partial\n');
+      process.stderr.write('API Error: 503 Service Unavailable (overloaded)\n');
+      process.exitCode = 1;
+    }
     break;
   }
   case 'invalid':

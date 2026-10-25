@@ -47,6 +47,11 @@ import {
 } from '@agent-ci/routing/resolve.js';
 import type { HarnessId, Route } from '@agent-ci/routing/schema.js';
 import {
+  createAttemptWorkspace,
+  isolationSupport,
+  promoteChanges,
+} from '@agent-ci/run/attempt-workspace.js';
+import {
   changedSince,
   snapshotWorkspace,
 } from '@agent-ci/run/changed-files.js';
@@ -219,7 +224,7 @@ export async function runAgent(
       resolved.value.skipped,
       prompt.value,
       home.value,
-      boundaryRoot,
+      { root: boundaryRoot, git: boundary.value.git },
       outputDir.value,
     );
   } finally {
@@ -235,9 +240,10 @@ async function runInHome(
   skipped: readonly SkippedRoute[],
   promptText: string,
   homeRoot: HomeRoot,
-  boundaryRoot: string,
+  boundary: { readonly root: string; readonly git: boolean },
   outDir: string,
 ): Promise<Result<RunSummary>> {
+  const boundaryRoot = boundary.root;
   const now = deps.now ?? Date.now;
   // Baseline first: anything that lands in the workspace from here on,
   // including a seeded login, is a change the run reports, never hidden dirt.
@@ -371,12 +377,38 @@ async function runInHome(
           },
         }
       : undefined;
+  // An edit run that may retry runs each attempt in a fresh copy of the
+  // repository and promotes only the successful attempt's changes, so a
+  // failed attempt's partial edits never reach a retry. Without a trustworthy
+  // copy the run makes a single attempt instead.
+  const isolation =
+    options.mode === 'edit' && options.maxAttempts > 1 && baseline.ok
+      ? await isolationSupport(boundaryRoot, boundary.git)
+      : undefined;
+  const maxAttempts =
+    isolation !== undefined && isolation.mode !== 'copy'
+      ? 1
+      : options.maxAttempts;
+  if (isolation !== undefined) {
+    log.add('attempt.isolation', {
+      mode: isolation.mode === 'copy' ? 'copy' : 'single-attempt',
+      ...(isolation.mode === 'copy' ? {} : { reason: isolation.reason }),
+    });
+  }
+  let realCwd = options.cwd;
+  if (isolation?.mode === 'copy') {
+    try {
+      realCwd = await resolveRealPath(options.cwd);
+    } catch {
+      realCwd = options.cwd;
+    }
+  }
   const adapter = adapterFor(route.harness);
   const supervised =
     preflight !== undefined
       ? { result: preflight, attempts: 0, stopReason: 'not-retryable' as const }
       : await superviseAttempts<AttemptRecord>({
-          maxAttempts: options.maxAttempts,
+          maxAttempts,
           retryDelayMs: options.retryDelayMs,
           deadlineAtMs: now() + options.timeoutMs,
           now,
@@ -387,13 +419,44 @@ async function runInHome(
             );
             let run: Awaited<ReturnType<typeof runHarness>> | undefined;
             let outcome: HarnessOutcome;
+            const copy =
+              isolation?.mode === 'copy'
+                ? await createAttemptWorkspace({
+                    boundaryRoot,
+                    cwd: realCwd,
+                    outDir,
+                    homeRoot: homeRoot.root,
+                    attempt,
+                  })
+                : undefined;
+            if (copy !== undefined && !copy.ok) {
+              log.add('attempt', {
+                attempt,
+                harness: route.harness,
+                ok: false,
+                code: copy.code,
+                retryable: false,
+                message: maskSecrets(copy.message, secrets),
+              });
+              return {
+                ok: false,
+                retryable: false,
+                outcome: {
+                  ok: false,
+                  code: 'E_WORKSPACE_STATUS',
+                  retryable: false,
+                  message: copy.message,
+                },
+              };
+            }
+            const attemptCwd = copy?.value.cwd ?? options.cwd;
             try {
               run = await runHarness(
                 adapter,
                 {
                   route,
                   prompt: promptText,
-                  cwd: options.cwd,
+                  cwd: attemptCwd,
                   mode: options.mode,
                   home: homeRoot,
                   scratchDir,
@@ -427,6 +490,37 @@ async function runInHome(
                 message: guardFailure?.message ?? 'credential guard incomplete',
               };
             }
+            let promoted: readonly string[] | undefined;
+            if (copy !== undefined) {
+              // Only a successful attempt's changes reach the workspace; a
+              // failed attempt's copy is discarded with its partial edits.
+              if (outcome.ok && baseline.ok) {
+                const inCopy = await changedSince(
+                  copy.value.cwd,
+                  baseline.value,
+                  [copy.value.outDir],
+                  deps.git,
+                );
+                const moved = inCopy.ok
+                  ? await promoteChanges(
+                      copy.value.root,
+                      boundaryRoot,
+                      inCopy.value,
+                    )
+                  : inCopy;
+                if (moved.ok) {
+                  promoted = moved.value;
+                } else {
+                  outcome = {
+                    ok: false,
+                    code: 'E_WORKSPACE_STATUS',
+                    retryable: false,
+                    message: moved.message,
+                  };
+                }
+              }
+              await copy.value.dispose();
+            }
             log.add('attempt', {
               attempt,
               harness: route.harness,
@@ -441,6 +535,14 @@ async function runInHome(
               usage: outcome.usage ?? null,
               sessionId: outcome.sessionId ?? null,
               durationMs: run?.durationMs ?? null,
+              ...(copy === undefined
+                ? {}
+                : {
+                    workspace: 'isolated-copy',
+                    ...(promoted === undefined
+                      ? {}
+                      : { promotedFiles: promoted.length }),
+                  }),
             });
             return {
               ok: outcome.ok,
