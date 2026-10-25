@@ -10,7 +10,6 @@ import {
   mkdtemp,
   readdir,
   readFile,
-  realpath,
   rm,
 } from 'node:fs/promises';
 import os from 'node:os';
@@ -165,7 +164,7 @@ export async function createHomeRoot(
         exists = false;
       }
       if (!exists) await mkdir(root, { recursive: true, mode: 0o700 });
-      resolved = await realpath(root);
+      resolved = await resolveRealPath(root);
       const valid = await validateKeptRoot(resolved, options.workspaceRoot);
       if (!valid.ok) return valid;
     }

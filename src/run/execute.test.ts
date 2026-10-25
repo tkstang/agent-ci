@@ -499,6 +499,68 @@ describe('runAgent', () => {
       expect(existsSync(path.join(redirected, 'config.toml'))).toBe(false);
     });
 
+    it('refuses a kept root whose link reaches the repository through self/..', async () => {
+      const opts = await gitWorkspace();
+      const homeRoot = `${opts.cwd}-home`;
+      await mkdir(path.join(homeRoot, 'home'), { recursive: true });
+      await symlink(homeRoot, path.join(homeRoot, 'self'));
+      await mkdir(path.join(opts.cwd, 'loc'));
+      await symlink(
+        `${homeRoot}/self/../${path.basename(opts.cwd)}/loc`,
+        path.join(homeRoot, 'home', '.local'),
+      );
+      expect(await runAgent({ ...opts, homeRoot })).toMatchObject({
+        ok: false,
+        code: 'E_HOME_ROOT',
+      });
+      expect(readdirSync(path.join(opts.cwd, 'loc'))).toEqual([]);
+    });
+
+    it('refuses a case-variant link into a workspace inside the kept root (case-insensitive volumes)', async () => {
+      const opts = await gitWorkspace();
+      const parent = path.dirname(opts.cwd);
+      await mkdir(path.join(parent, 'CaseProbe'));
+      const insensitive = existsSync(path.join(parent, 'caseprobe'));
+      if (!insensitive) return; // a different-case path is a different path here
+      const homeRoot = `${opts.cwd}-outer`;
+      const repo = path.join(homeRoot, 'Repo');
+      await mkdir(path.join(repo, 'loc'), { recursive: true });
+      execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
+      await mkdir(path.join(homeRoot, 'home'), { recursive: true });
+      await symlink(
+        path.join(homeRoot, 'repo', 'loc'),
+        path.join(homeRoot, 'home', '.local'),
+      );
+      expect(await runAgent({ ...opts, cwd: repo, homeRoot })).toMatchObject({
+        ok: false,
+        code: 'E_HOME_ROOT',
+      });
+      expect(readdirSync(path.join(repo, 'loc'))).toEqual([]);
+    });
+
+    it('refuses a home inside a non-git workspace reached with a case-variant cwd', async () => {
+      const opts = await options({ model: 'codex-login', seedLogin: true });
+      const parent = path.dirname(opts.cwd);
+      const work = path.join(parent, `${path.basename(opts.cwd)}-Work`);
+      await mkdir(work);
+      const lower = path.join(parent, `${path.basename(opts.cwd)}-work`);
+      if (!existsSync(lower)) return; // case-sensitive volume: cannot alias
+      const operatorHome = `${opts.cwd}-operator`;
+      await mkdir(path.join(operatorHome, '.codex'), { recursive: true });
+      await writeFile(
+        path.join(operatorHome, '.codex', 'auth.json'),
+        JSON.stringify({ tokens: { placeholder: 'synthetic-nongit-0027' } }),
+      );
+      const summary = await runAgent({
+        ...opts,
+        cwd: lower,
+        homeRoot: path.join(work, 'h2'),
+        env: { PATH: process.env.PATH, HOME: operatorHome },
+      });
+      expect(summary).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
+      expect(existsSync(path.join(work, 'h2'))).toBe(false);
+    });
+
     it('refuses a home root that reaches the repository through a symlink', async () => {
       const opts = await gitWorkspace();
       const link = `${opts.cwd}-link`;

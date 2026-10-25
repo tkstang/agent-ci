@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { lstat, readlink } from 'node:fs/promises';
+import { lstat, readlink, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { failure, success, type Result } from '@agent-ci/result.js';
@@ -11,56 +11,86 @@ export class PathResolutionError extends Error {
   override readonly name = 'PathResolutionError';
 }
 
-function components(absolute: string): { root: string; parts: string[] } {
-  const { root } = path.parse(absolute);
-  return {
-    root,
-    parts: absolute.slice(root.length).split(path.sep).filter(Boolean),
-  };
+/** Raw path segments, WITHOUT lexical normalization ('..' is kept). */
+function rawSegments(text: string): string[] {
+  return text.split(path.sep).filter((part) => part !== '' && part !== '.');
+}
+
+export interface PhysicalPath {
+  /** Canonical real path (on-disk case for existing components). */
+  readonly real: string;
+  /** Canonical locations of every symlink traversed on the way. */
+  readonly links: readonly string[];
 }
 
 /**
- * The real path of `target`, following symlinks at EVERY component, dangling
- * ones included: a link whose target does not exist yet still resolves to
- * where a write through it would land. Components that do not exist are
- * appended lexically, so a home root about to be created compares correctly
- * with resolved paths (`/tmp` vs `/private/tmp` on macOS). Throws
- * `PathResolutionError` on a symlink loop; callers fail closed.
+ * Resolve a path the way the filesystem does, component by component:
+ *
+ * - every existing component is canonicalized by `fs.promises.realpath`
+ *   (physical, and on-disk letter case on case-insensitive volumes);
+ * - a symlink (dangling ones included) is expanded from its raw link text, so
+ *   a `..` after it applies to the link's resolved target, never lexically;
+ * - the first missing component ends the walk: the remainder is appended
+ *   as-is, and a remainder containing `..` is rejected (it cannot be
+ *   resolved physically);
+ * - more than 40 link hops (a loop) is rejected.
+ *
+ * Relative inputs are taken against `process.cwd()` without normalizing.
+ * Throws `PathResolutionError`; callers fail closed.
  */
-export async function resolveRealPath(target: string): Promise<string> {
-  const start = components(path.resolve(target));
-  let current = start.root;
-  const queue = [...start.parts];
-  let hops = 0;
+export async function resolvePhysical(target: string): Promise<PhysicalPath> {
+  const raw = path.isAbsolute(target)
+    ? target
+    : `${process.cwd()}${path.sep}${target}`;
+  let current = path.parse(raw).root;
+  const queue = rawSegments(raw.slice(current.length));
+  const links: string[] = [];
   while (queue.length > 0) {
     const part = queue.shift() ?? '';
-    if (part === '.') continue;
     if (part === '..') {
       current = path.dirname(current);
       continue;
     }
-    const next = path.join(current, part);
-    let isLink = false;
+    const candidate = path.join(current, part);
+    let info;
     try {
-      isLink = (await lstat(next)).isSymbolicLink();
-    } catch {
-      // Missing from here on: the rest of the path is lexical.
-      return path.resolve(next, ...queue);
+      info = await lstat(candidate);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw new PathResolutionError(
+          `cannot inspect ${candidate} (${(err as NodeJS.ErrnoException).code ?? 'error'})`,
+        );
+      }
+      if (queue.includes('..')) {
+        throw new PathResolutionError(
+          `cannot resolve '..' below the missing component ${candidate}`,
+        );
+      }
+      return { real: path.join(candidate, ...queue), links };
     }
-    if (!isLink) {
-      current = next;
+    if (info.isSymbolicLink()) {
+      links.push(candidate);
+      if (links.length > MAX_SYMLINK_HOPS) {
+        throw new PathResolutionError(`too many symlinks resolving ${target}`);
+      }
+      const text = await readlink(candidate);
+      if (path.isAbsolute(text)) current = path.parse(text).root;
+      queue.unshift(
+        ...rawSegments(
+          text.slice(path.isAbsolute(text) ? path.parse(text).root.length : 0),
+        ),
+      );
       continue;
     }
-    hops += 1;
-    if (hops > MAX_SYMLINK_HOPS) {
-      throw new PathResolutionError(`too many symlinks resolving ${target}`);
-    }
-    const link = await readlink(next);
-    const resolved = components(path.resolve(current, link));
-    current = resolved.root;
-    queue.unshift(...resolved.parts);
+    // Not a link: let the filesystem name it (canonical case).
+    current = await realpath(candidate);
   }
-  return current;
+  return { real: current, links };
+}
+
+/** The canonical real path of `target` (see `resolvePhysical`). */
+export async function resolveRealPath(target: string): Promise<string> {
+  return (await resolvePhysical(target)).real;
 }
 
 /**
