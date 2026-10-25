@@ -423,7 +423,7 @@ async function runInHome(
   // copy the run makes a single attempt instead.
   const isolation =
     options.mode === 'edit' && options.maxAttempts > 1 && baseline.ok
-      ? await isolationSupport(boundaryRoot, boundary.git)
+      ? await isolationSupport(boundaryRoot, boundary.git, outDir)
       : undefined;
   const maxAttempts =
     isolation !== undefined && isolation.mode !== 'copy'

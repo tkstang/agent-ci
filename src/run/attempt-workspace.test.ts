@@ -23,6 +23,15 @@ import { describe, expect, it } from 'vitest';
 
 const MODELS = `version: 1
 routes:
+  - id: fake-edit
+    model: fake-edit
+    harness: fake
+    family: fake
+    providerModel: edit
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: null
   - id: fake-flaky-edit
     model: fake-flaky-edit
     harness: fake
@@ -179,8 +188,42 @@ describe('edit-mode retries run in isolated attempt workspaces', () => {
   });
 });
 
+describe('absolute links into the repository', () => {
+  it('keep an unchanged committed link out of the changes and the workspace untouched (review probe)', async () => {
+    const repo = await scratchRepo();
+    await writeFile(path.join(repo, 'a.txt'), 'a\n');
+    await symlink(path.join(repo, 'a.txt'), path.join(repo, 'abs-link'));
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-qm', 'link');
+    const summary = await runAgent(
+      await runOptions(repo, { model: 'fake-edit' }),
+    );
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    const events = await logEvents(summary.value.logPath);
+    expect(events.find((e) => e.event === 'attempt.isolation')).toMatchObject({
+      mode: 'single-attempt',
+      reason: 'abs-link is an absolute symlink into the repository',
+    });
+    expect(await readlink(path.join(repo, 'abs-link'))).toBe(
+      path.join(repo, 'a.txt'),
+    );
+    expect(git(repo, 'status', '--porcelain')).not.toContain('abs-link');
+    expect(summary.value.result.changedFiles).toEqual([
+      'agent-ci-fake-edit.md',
+    ]);
+  });
+
+  it('isolation stays available for relative and outside links', async () => {
+    const repo = await scratchRepo();
+    await symlink('README.md', path.join(repo, 'rel-link'));
+    await symlink(os.tmpdir(), path.join(repo, 'outside-link'));
+    expect(await isolationSupport(repo, true)).toEqual({ mode: 'copy' });
+  });
+});
+
 describe('createAttemptWorkspace', () => {
-  it('copies the repository, retargets absolute links into it and skips the output directory', async () => {
+  it('copies the repository with links byte-for-byte and skips the output directory', async () => {
     const repo = await scratchRepo();
     await symlink(path.join(repo, 'README.md'), path.join(repo, 'abs-link'));
     await symlink('README.md', path.join(repo, 'rel-link'));
@@ -197,8 +240,9 @@ describe('createAttemptWorkspace', () => {
     });
     expect(copy.ok).toBe(true);
     if (!copy.ok) return;
+    // Byte-for-byte, never retargeted (review p02 M2).
     expect(await readlink(path.join(copy.value.root, 'abs-link'))).toBe(
-      path.join(copy.value.root, 'README.md'),
+      path.join(repo, 'README.md'),
     );
     expect(await readlink(path.join(copy.value.root, 'rel-link'))).toBe(
       'README.md',
@@ -275,6 +319,14 @@ describe('promoteChanges', () => {
     const promoted = await promoteChanges(copy, repo, ['docs/x.txt']);
     expect(promoted.ok ? 'ok' : promoted.code).toBe('E_WORKSPACE_STATUS');
     expect(await readdir(outside)).toEqual([]);
+  });
+
+  it('refuses to promote a link that points into the attempt copy', async () => {
+    const { copy, repo } = await pair();
+    await symlink(path.join(copy, 'target.txt'), path.join(copy, 'link'));
+    const promoted = await promoteChanges(copy, repo, ['link']);
+    expect(promoted.ok ? 'ok' : promoted.code).toBe('E_WORKSPACE_STATUS');
+    await expect(lstat(path.join(repo, 'link'))).rejects.toThrow();
   });
 
   it('refuses unsafe paths', async () => {

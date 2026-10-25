@@ -38,6 +38,7 @@ export type IsolationSupport =
 export async function isolationSupport(
   boundaryRoot: string,
   git: boolean,
+  skipDir?: string,
 ): Promise<IsolationSupport> {
   if (!git) {
     return {
@@ -47,15 +48,68 @@ export async function isolationSupport(
   }
   try {
     const info = await lstat(path.join(boundaryRoot, '.git'));
-    if (info.isDirectory()) return { mode: 'copy' };
-    return {
-      mode: 'unavailable',
-      reason:
-        'the repository .git is not a directory (linked worktree or submodule)',
-    };
+    if (!info.isDirectory()) {
+      return {
+        mode: 'unavailable',
+        reason:
+          'the repository .git is not a directory (linked worktree or submodule)',
+      };
+    }
   } catch {
     return { mode: 'unavailable', reason: 'the repository .git is missing' };
   }
+  // Copies keep link text byte-for-byte; an absolute link into the
+  // repository would then let an attempt write the original through it.
+  try {
+    const link = await findAbsoluteInRepoLink(boundaryRoot, skipDir);
+    if (link !== undefined) {
+      return {
+        mode: 'unavailable',
+        reason: `${path.relative(boundaryRoot, link)} is an absolute symlink into the repository`,
+      };
+    }
+  } catch {
+    return {
+      mode: 'unavailable',
+      reason: 'the repository could not be scanned for symlinks',
+    };
+  }
+  return { mode: 'copy' };
+}
+
+/** True when an absolute link target points into `root` (lexically or physically). */
+async function pointsInto(root: string, target: string): Promise<boolean> {
+  if (!path.isAbsolute(target)) return false;
+  if (isWithin(root, path.resolve(target))) return true;
+  try {
+    return isWithin(root, await resolveRealPath(target));
+  } catch {
+    return false;
+  }
+}
+
+/** The first symlink under `root` whose absolute target lies inside it. */
+async function findAbsoluteInRepoLink(
+  root: string,
+  skipDir: string | undefined,
+): Promise<string | undefined> {
+  const pending = [root];
+  while (pending.length > 0) {
+    const dir = pending.pop() ?? root;
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (full === skipDir || (dir === root && entry.name === '.git')) continue;
+      if (entry.isDirectory()) {
+        pending.push(full);
+      } else if (
+        entry.isSymbolicLink() &&
+        (await pointsInto(root, await readlink(full)))
+      ) {
+        return full;
+      }
+    }
+  }
+  return undefined;
 }
 
 export interface AttemptWorkspace {
@@ -87,10 +141,10 @@ const disjoint = (a: string, b: string): boolean =>
   !isWithin(a, b) && !isWithin(b, a);
 
 /**
- * Copy the repository into a fresh private directory. Symlinks are copied as
- * links; an absolute link into the repository is retargeted into the copy so
- * an attempt cannot write the original through it. Sockets, FIFOs and device
- * files are not copied (git does not track them).
+ * Copy the repository into a fresh private directory. Symlinks are copied
+ * byte-for-byte (`isolationSupport` refuses repositories with absolute links
+ * into themselves, which an attempt could write the original through).
+ * Sockets, FIFOs and device files are not copied (git does not track them).
  */
 export async function createAttemptWorkspace(
   options: CreateAttemptWorkspaceOptions,
@@ -170,14 +224,8 @@ async function copyTree(
         await copyFile(s, d, constants.COPYFILE_FICLONE);
         await chmod(d, (await lstat(s)).mode & 0o777);
       } else if (entry.isSymbolicLink()) {
-        const target = await readlink(s);
-        const absolute = path.isAbsolute(target) ? path.resolve(target) : '';
-        await symlink(
-          absolute !== '' && isWithin(originalRoot, absolute)
-            ? path.join(copyRoot, path.relative(originalRoot, absolute))
-            : target,
-          d,
-        );
+        // Byte-for-byte: an unchanged link must stay unchanged.
+        await symlink(await readlink(s), d);
       }
       // sockets, FIFOs and devices are skipped
     }
@@ -264,6 +312,16 @@ export async function promoteChanges(
       const kind = await kindOf(path.join(copyRoot, file));
       if (kind === 'other') {
         throw new Error(`${file} is not a file or symlink in the attempt`);
+      }
+      // A link into the attempt copy would dangle once the copy is removed.
+      if (
+        kind === 'link' &&
+        (await pointsInto(
+          path.dirname(copyRoot),
+          await readlink(path.join(copyRoot, file)),
+        ))
+      ) {
+        throw new Error(`${file} links into the attempt workspace`);
       }
       kinds.set(file, kind);
     }
