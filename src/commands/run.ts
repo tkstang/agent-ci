@@ -51,7 +51,8 @@ Execution:
   --skills-dir <dir>         Seed these skills into the isolated home.
   --home-root <dir>          Keep the home root here (default: a temp root,
                              removed after the run).
-  --timeout-minutes <n>      Deadline for all attempts (default 30).
+  --timeout-minutes <n>      Deadline for a seeded login transfer and all
+                             attempts (default 30).
   --max-attempts <n>         Attempts for transient failures (default 2).
   --retry-delay-seconds <n>  Delay between attempts (default 30).
   --credential-from-env      Take the route's single credential from

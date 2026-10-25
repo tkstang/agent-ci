@@ -118,7 +118,9 @@ describe('seeding the home root', () => {
         ]),
       };
     };
-    const layout = homeLayout('/tmp/agent-ci-home-pipe');
+    const layout = homeLayout(
+      await mkdtemp(path.join(os.tmpdir(), 'agent-ci-home-pipe-')),
+    );
     const seeded = await seedLogin(layout, {
       harness: 'opencode',
       parentEnv: { HOME: '/Users/operator', PATH: '/usr/bin' },
@@ -253,6 +255,173 @@ describe('seeding the home root', () => {
       value: ['synthetic-file-token-0017'],
     });
     expect(calls).toHaveLength(1);
+  });
+});
+
+/**
+ * A stand-in `opencode` whose `auth export` and `auth import` run the given
+ * shell snippets, on a PATH of its own, with a scratch HOME.
+ */
+async function standIn(
+  exportScript: string,
+  importScript: string,
+): Promise<{ bin: string; dir: string; parentEnv: Record<string, string> }> {
+  const dir = await realpath(
+    await mkdtemp(path.join(os.tmpdir(), 'agent-ci-seed-pipe-')),
+  );
+  const bin = path.join(dir, 'bin');
+  await mkdir(bin);
+  await writeFile(
+    path.join(bin, 'opencode'),
+    `#!/bin/sh\nif [ "$2" = export ]; then\n${exportScript}\nelse\n${importScript}\nfi\n`,
+    { mode: 0o755 },
+  );
+  const home = path.join(dir, 'operator');
+  await mkdir(home);
+  return {
+    bin,
+    dir,
+    parentEnv: { PATH: `${bin}:/usr/bin:/bin`, HOME: home },
+  };
+}
+
+/** Wait until `pid` is gone (killed with its group), up to 3 s. */
+async function gone(pid: number): Promise<boolean> {
+  for (let tries = 0; tries < 60; tries += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+describe('opencode login transfer (real supervised pipe, final M2)', () => {
+  const token = 'synthetic-opencode-access-0002';
+  const exportToken = `printf '%s' '[{"access":"${token}"}]'`;
+
+  it('transfers the export into the import inside the isolated home', async () => {
+    const stand = await standIn(
+      `pwd > "$HOME/export-cwd"; ${exportToken}`,
+      'pwd > "$XDG_DATA_HOME/import-cwd"; cat > "$XDG_DATA_HOME/imported.json"',
+    );
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    const layout = created.value;
+    const seeded = await seedLogin(layout, {
+      harness: 'opencode',
+      parentEnv: stand.parentEnv,
+      timeoutMs: 10_000,
+    });
+    expect(seeded.ok && seeded.value.secrets).toEqual([token]);
+    const data = layout.env.XDG_DATA_HOME ?? '';
+    expect(await readFile(path.join(data, 'imported.json'), 'utf8')).toBe(
+      `[{"access":"${token}"}]`,
+    );
+    // Both commands run in the isolated home, not the caller's directory.
+    for (const cwdFile of [
+      path.join(data, 'import-cwd'),
+      path.join(stand.parentEnv.HOME ?? '', 'export-cwd'),
+    ]) {
+      expect((await readFile(cwdFile, 'utf8')).trim()).toBe(
+        await realpath(layout.home),
+      );
+    }
+  });
+
+  it('stops a hung export at the deadline, kills its process group and never imports', async () => {
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    const layout = created.value;
+    const stand = await standIn('', '');
+    const pidFile = path.join(stand.dir, 'export.pid');
+    const marker = path.join(stand.dir, 'imported');
+    await writeFile(
+      path.join(stand.bin, 'opencode'),
+      `#!/bin/sh\nif [ "$2" = export ]; then\n/bin/sleep 30 &\necho $! > ${pidFile}\nwait\nelse\ntouch ${marker}\nfi\n`,
+      { mode: 0o755 },
+    );
+    const started = Date.now();
+    const seeded = await seedLogin(layout, {
+      harness: 'opencode',
+      parentEnv: stand.parentEnv,
+      timeoutMs: 500,
+      killGraceMs: 100,
+    });
+    expect(seeded.ok ? 'ok' : seeded.code).toBe('E_HARNESS_TIMEOUT');
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    expect(await gone(pid)).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('stops a hung import at the deadline and kills its process group', async () => {
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    const stand = await standIn(exportToken, '');
+    const pidFile = path.join(stand.dir, 'import.pid');
+    await writeFile(
+      path.join(stand.bin, 'opencode'),
+      `#!/bin/sh\nif [ "$2" = export ]; then\n${exportToken}\nelse\ncat > /dev/null\n/bin/sleep 30 &\necho $! > ${pidFile}\nwait\nfi\n`,
+      { mode: 0o755 },
+    );
+    const started = Date.now();
+    const seeded = await seedLogin(created.value, {
+      harness: 'opencode',
+      parentEnv: stand.parentEnv,
+      timeoutMs: 700,
+      killGraceMs: 100,
+    });
+    expect(seeded.ok ? 'ok' : seeded.code).toBe('E_HARNESS_TIMEOUT');
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    expect(await gone(pid)).toBe(true);
+  });
+
+  it('stops an oversize export at the output cap and never imports', async () => {
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    const stand = await standIn('', '');
+    const marker = path.join(stand.dir, 'imported');
+    await writeFile(
+      path.join(stand.bin, 'opencode'),
+      `#!/bin/sh\nif [ "$2" = export ]; then\nhead -c 4000000 /dev/zero | tr '\\000' x\nelse\ntouch ${marker}\nfi\n`,
+      { mode: 0o755 },
+    );
+    const seeded = await seedLogin(created.value, {
+      harness: 'opencode',
+      parentEnv: stand.parentEnv,
+      timeoutMs: 10_000,
+      killGraceMs: 100,
+    });
+    expect(seeded.ok ? 'ok' : seeded.code).toBe('E_HARNESS_OUTPUT_LIMIT');
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('reports an import that exits without reading its input, and a failed export', async () => {
+    const created = await createHomeRoot();
+    if (!created.ok) throw new Error(created.message);
+    // 600 KB: more than a pipe buffer, so the import's early exit breaks
+    // the write (EPIPE) instead of the bytes fitting in the pipe.
+    const early = await standIn(
+      `printf '%s' '[{"access":"${token}"}]'; head -c 600000 /dev/zero | tr '\\000' ' '`,
+      'exit 3',
+    );
+    const seeded = await seedLogin(created.value, {
+      harness: 'opencode',
+      parentEnv: early.parentEnv,
+      timeoutMs: 10_000,
+    });
+    expect(seeded.ok ? 'ok' : seeded.message).toContain('import 3');
+    const failed = await standIn('exit 4', 'exit 0');
+    const refused = await seedLogin(created.value, {
+      harness: 'opencode',
+      parentEnv: failed.parentEnv,
+      timeoutMs: 10_000,
+    });
+    expect(refused.ok ? 'ok' : refused.message).toContain('export 4');
   });
 });
 

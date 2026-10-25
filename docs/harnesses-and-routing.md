@@ -149,7 +149,9 @@ run's isolated home, for routes with `login: true`. It is refused in CI
 - `claude`: `.claude/.credentials.json` in your home, which exists on Linux;
   the macOS Keychain login cannot be seeded.
 - `opencode`: exported from your OpenCode login store and imported into the
-  isolated home.
+  isolated home. Both commands run in the isolated home with a deadline, an
+  output cap and a process-group kill, and the time they take counts against
+  the run's `--timeout-minutes` (`E_HARNESS_TIMEOUT`, `E_HARNESS_OUTPUT_LIMIT`).
 - `cursor`: not supported (`E_SEED_UNSUPPORTED`).
 
 Token-like values from the seeded login are added to the output secret

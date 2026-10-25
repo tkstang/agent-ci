@@ -207,6 +207,51 @@ describe('runAgent', () => {
     );
   });
 
+  it('counts a hung login transfer against the run timeout (final M2)', async () => {
+    // A real stand-in opencode whose export never finishes; the run's own
+    // timeout, not a separate seeding default, must stop it.
+    const bin = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-seed-bin-'));
+    const pidFile = path.join(bin, 'export.pid');
+    await writeFile(
+      path.join(bin, 'opencode'),
+      `#!/bin/sh\n/bin/sleep 30 &\necho $! > ${pidFile}\nwait\n`,
+      { mode: 0o755 },
+    );
+    const opts = await options({
+      model: 'grok-4.7',
+      seedLogin: true,
+      timeoutMs: 600,
+      env: { PATH: `${bin}:/usr/bin:/bin`, HOME: bin },
+    });
+    const pipeLimits: Parameters<PipeRunner>[2][] = [];
+    const started = Date.now();
+    const summary = await runAgent(opts);
+    expect(summary.ok ? 'ok' : summary.code).toBe('E_HARNESS_TIMEOUT');
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    let alive = true;
+    for (let tries = 0; tries < 60 && alive; tries += 1) {
+      try {
+        process.kill(pid, 0);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      } catch {
+        alive = false;
+      }
+    }
+    expect(alive).toBe(false);
+    // An injected transfer sees the run's remaining time, never more.
+    await runAgent(
+      await options({ model: 'grok-4.7', seedLogin: true, timeoutMs: 600 }),
+      {
+        pipe: async (_from, _to, limits) => {
+          pipeLimits.push(limits);
+          return { fromExit: 1, toExit: null, transferred: '' };
+        },
+      },
+    );
+    expect(pipeLimits[0]?.timeoutMs).toBeLessThanOrEqual(600);
+  });
+
   it('refuses a login route without --seed-login before creating anything', async () => {
     const opts = await options({ model: 'grok-4.7' });
     expect(await runAgent(opts)).toMatchObject({

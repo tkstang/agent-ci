@@ -371,11 +371,15 @@ async function runInHome(
   // any agent turn, so a turn that changes them fails closed (below).
   const skillsBefore = await fingerprintSkills(homeRoot);
   if (!skillsBefore.ok) return skillsBefore;
+  // The run's timeout starts here, so the login transfer below counts
+  // against it: a hung export or import cannot outlive the run's deadline.
+  const deadlineAtMs = now() + options.timeoutMs;
   const seededSecrets: string[] = [];
   if (route.login) {
     const seeded = await seedLogin(homeRoot, {
       harness: route.harness,
       parentEnv: options.env,
+      timeoutMs: Math.max(1, deadlineAtMs - now()),
       ...(deps.pipe === undefined ? {} : { pipe: deps.pipe }),
     });
     if (!seeded.ok) return seeded;
@@ -567,7 +571,6 @@ async function runInHome(
     }
   }
   const adapter = adapterFor(route.harness);
-  const deadlineAtMs = now() + options.timeoutMs;
   const supervised =
     preflight !== undefined
       ? { result: preflight, attempts: 0, stopReason: 'not-retryable' as const }

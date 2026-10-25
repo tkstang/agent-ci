@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import {
@@ -17,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { parseSecretMaterial } from '@agent-ci/contracts/secret-guard.js';
-import { spawnHarness } from '@agent-ci/harness/spawn.js';
+import { type SpawnResult, spawnHarness } from '@agent-ci/harness/spawn.js';
 import { failure, success, type Result } from '@agent-ci/result.js';
 import { isCiEnvironment } from '@agent-ci/routing/policy.js';
 import type { HarnessId } from '@agent-ci/routing/schema.js';
@@ -380,44 +379,102 @@ export async function seedSkills(
   return success(targets);
 }
 
-/** Pipes one command's stdout into another's stdin; never surfaces either stream. */
+/** One side of the login transfer. */
+export interface PipeCommand {
+  readonly command: string;
+  readonly args: string[];
+  readonly env: Record<string, string>;
+  /** Working directory (default: the command's HOME). */
+  readonly cwd?: string;
+}
+
+/** Bounds for the whole transfer, both commands together. */
+export interface PipeLimits {
+  readonly timeoutMs: number;
+  /** Per command, stdout and stderr together. */
+  readonly maxOutputBytes: number;
+  readonly killGraceMs?: number;
+}
+
+/**
+ * Feeds one command's stdout to another's stdin; never surfaces either
+ * stream. `stopped` is set when supervision ended the transfer.
+ */
 export type PipeRunner = (
-  from: { command: string; args: string[]; env: Record<string, string> },
-  to: { command: string; args: string[]; env: Record<string, string> },
+  from: PipeCommand,
+  to: PipeCommand,
+  limits: PipeLimits,
 ) => Promise<{
   fromExit: number | null;
   toExit: number | null;
   /** The bytes that crossed the pipe, kept in memory for the secret guard. */
   transferred: string;
+  stopped?: 'timeout' | 'output-limit' | 'not-started';
 }>;
 
-const defaultPipe: PipeRunner = (from, to) =>
-  new Promise((resolve, reject) => {
-    const producer = spawn(from.command, from.args, {
-      env: from.env,
-      stdio: ['ignore', 'pipe', 'ignore'],
+/** Why supervision ended a command, if it did. */
+function stopReason(
+  result: SpawnResult,
+): 'timeout' | 'output-limit' | 'not-started' | undefined {
+  if (!result.started) return 'not-started';
+  if (result.timedOut) return 'timeout';
+  if (result.outputLimitExceeded) return 'output-limit';
+  return undefined;
+}
+
+/**
+ * The real login transfer, under the same supervision as a harness run
+ * (`spawnHarness`): each command leads its own process group, is killed with
+ * it at the shared deadline or when its output passes the cap, and is waited
+ * for before the next step. The export runs to completion first, so its
+ * output is complete and bounded before the import starts; the import gets
+ * those bytes on stdin (an import that exits without reading them reports
+ * through its exit status) and the time left before the deadline.
+ */
+export const supervisedPipe: PipeRunner = async (from, to, limits) => {
+  const deadline = Date.now() + limits.timeoutMs;
+  const run = (side: PipeCommand, timeoutMs: number, stdin?: Buffer) =>
+    spawnHarness({
+      command: side.command,
+      args: side.args,
+      cwd: side.cwd ?? side.env.HOME ?? os.tmpdir(),
+      env: side.env,
+      timeoutMs,
+      maxOutputBytes: limits.maxOutputBytes,
+      ...(limits.killGraceMs === undefined
+        ? {}
+        : { killGraceMs: limits.killGraceMs }),
+      ...(stdin === undefined ? {} : { stdin }),
     });
-    const consumer = spawn(to.command, to.args, {
-      env: to.env,
-      stdio: ['pipe', 'ignore', 'ignore'],
-    });
-    const chunks: Buffer[] = [];
-    producer.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
-    producer.stdout.pipe(consumer.stdin);
-    let fromExit: number | null = null;
-    producer.on('error', reject);
-    consumer.on('error', reject);
-    producer.on('close', (code) => {
-      fromExit = code;
-    });
-    consumer.on('close', (code) =>
-      resolve({
-        fromExit,
-        toExit: code,
-        transferred: Buffer.concat(chunks).toString('utf8'),
-      }),
-    );
-  });
+  const exported = await run(from, limits.timeoutMs);
+  const exportStop = stopReason(exported);
+  if (exportStop !== undefined || !exported.started) {
+    return {
+      fromExit: null,
+      toExit: null,
+      transferred: '',
+      stopped: exportStop ?? 'not-started',
+    };
+  }
+  if (exported.exitCode !== 0) {
+    return { fromExit: exported.exitCode, toExit: null, transferred: '' };
+  }
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return { fromExit: 0, toExit: null, transferred: '', stopped: 'timeout' };
+  }
+  const imported = await run(to, remaining, Buffer.from(exported.stdout));
+  const importStop = stopReason(imported);
+  return {
+    fromExit: exported.exitCode,
+    toExit: imported.started ? imported.exitCode : null,
+    transferred: exported.stdout,
+    ...(importStop === undefined ? {} : { stopped: importStop }),
+  };
+};
+
+/** Default bound for the login transfer when the caller gives none. */
+export const SEED_LOGIN_TIMEOUT_MS = 30_000;
 
 export interface SeedLoginOptions {
   readonly harness: HarnessId;
@@ -425,6 +482,13 @@ export interface SeedLoginOptions {
   /** The operator's real home; defaults to the parent HOME. */
   readonly realHome?: string;
   readonly pipe?: PipeRunner;
+  /**
+   * Bound for the whole login transfer (default
+   * {@link SEED_LOGIN_TIMEOUT_MS}); a run passes what is left of its own
+   * timeout.
+   */
+  readonly timeoutMs?: number;
+  readonly killGraceMs?: number;
 }
 
 /** Where a login was seeded, and the token-like values it carries. */
@@ -510,7 +574,7 @@ export async function seedLogin(
         'claude',
       );
     case 'opencode': {
-      const pipe = options.pipe ?? defaultPipe;
+      const pipe = options.pipe ?? supervisedPipe;
       const sourceEnv: Record<string, string> = {
         PATH: basePath,
         HOME: realHome,
@@ -524,14 +588,49 @@ export async function seedLogin(
         const value = options.parentEnv[name];
         if (value !== undefined) sourceEnv[name] = value;
       }
-      const { fromExit, toExit, transferred } = await pipe(
-        { command: 'opencode', args: ['auth', 'export'], env: sourceEnv },
+      const timeoutMs = options.timeoutMs ?? SEED_LOGIN_TIMEOUT_MS;
+      // Both commands run in the isolated home, never in the workspace, so
+      // no project configuration there can apply to them.
+      await mkdir(layout.home, { recursive: true, mode: 0o700 });
+      const { fromExit, toExit, transferred, stopped } = await pipe(
+        {
+          command: 'opencode',
+          args: ['auth', 'export'],
+          env: sourceEnv,
+          cwd: layout.home,
+        },
         {
           command: 'opencode',
           args: ['auth', 'import', '--standalone'],
           env: { PATH: basePath, ...layout.env },
+          cwd: layout.home,
+        },
+        {
+          timeoutMs,
+          maxOutputBytes: MAX_LOGIN_STORE_BYTES,
+          ...(options.killGraceMs === undefined
+            ? {}
+            : { killGraceMs: options.killGraceMs }),
         },
       );
+      if (stopped === 'timeout') {
+        return failure(
+          'E_HARNESS_TIMEOUT',
+          `the opencode login export/import did not finish within ${timeoutMs} ms; both commands were stopped`,
+        );
+      }
+      if (stopped === 'output-limit') {
+        return failure(
+          'E_HARNESS_OUTPUT_LIMIT',
+          `the opencode login export/import wrote more than ${MAX_LOGIN_STORE_BYTES} bytes; both commands were stopped`,
+        );
+      }
+      if (stopped === 'not-started') {
+        return failure(
+          'E_SEED_UNSUPPORTED',
+          'could not start opencode to export or import the login',
+        );
+      }
       if (fromExit !== 0 || toExit !== 0) {
         return failure(
           'E_SEED_UNSUPPORTED',

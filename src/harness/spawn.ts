@@ -6,8 +6,10 @@ import type { ProcessOutput } from '@agent-ci/harness/types.js';
  * The shared harness spawn, ported from pntr's supervisor `spawnAttempt`
  * (voxmedia/pntr@06cd380). Invariants:
  *
- * - stdin is ALWAYS ignored (`/dev/null`); `opencode run` and `codex exec`
- *   hang on an inherited stdin.
+ * - stdin is `/dev/null` (`opencode run` and `codex exec` hang on an
+ *   inherited stdin), unless the spec supplies finite `stdin` bytes, which
+ *   are written and then closed (EOF); a child that exits without reading
+ *   them is not an error.
  * - the child leads its own process group, so a deadline or output overflow
  *   kills the whole tree (SIGTERM, then SIGKILL after a grace period), and
  *   stragglers are killed when the leader exits.
@@ -31,6 +33,11 @@ export interface SpawnSpec {
   readonly timeoutMs: number;
   readonly maxOutputBytes?: number;
   readonly killGraceMs?: number;
+  /**
+   * Bytes for the child's stdin, then EOF. Only for helper commands that
+   * read their input (the OpenCode login import); harness runs never set it.
+   */
+  readonly stdin?: Buffer;
 }
 
 export type SpawnResult =
@@ -59,12 +66,21 @@ export function spawnHarness(
 
   return new Promise<SpawnResult>((resolve) => {
     const startedAt = now();
-    const child = spawn(spec.command, [...spec.args], {
+    const options = {
       cwd: spec.cwd,
       env: { ...spec.env },
       detached: groupKill,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    };
+    const child =
+      spec.stdin === undefined
+        ? spawn(spec.command, [...spec.args], {
+            ...options,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+        : spawn(spec.command, [...spec.args], {
+            ...options,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let captured = 0;
@@ -154,6 +170,12 @@ export function spawnHarness(
     child.stderr.on('data', (chunk: Buffer) => capture(stderr, chunk));
     child.stdout.on('error', () => undefined);
     child.stderr.on('error', () => undefined);
+    if (spec.stdin !== undefined && child.stdin !== null) {
+      // EPIPE when the child exits before reading everything: its exit
+      // status reports the outcome.
+      child.stdin.on('error', () => undefined);
+      child.stdin.end(spec.stdin);
+    }
     // When the leader exits, take its group with it, and give the pipes a
     // short drain window before settling with the leader's exit status.
     child.on('exit', (code, signal) => {
