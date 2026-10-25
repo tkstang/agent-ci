@@ -63,8 +63,8 @@ routes:
     billing: subscription
     account: pool
     structuredOutput: json-schema
-    qualified: null
-    notes: Listed by the proxy catalog; not yet live-verified through agent-ci.
+    qualified: '2026-10-25'
+    notes: Local CLIProxyAPI pool (loopback); local runs only.
 
   # --- Codex -----------------------------------------------------------------
   - id: gpt-5.6-luna-pool
@@ -115,8 +115,8 @@ routes:
     billing: subscription
     account: personal
     structuredOutput: prompt
-    qualified: null
-    notes: Answered on 2026-10-24 with the stored login outside an isolated home.
+    qualified: '2026-10-25'
+    notes: OpenCode Console (Go) login seeded with --seed-login; local only.
 
   # --- Cursor ----------------------------------------------------------------
   - id: grok-4.7-cursor
