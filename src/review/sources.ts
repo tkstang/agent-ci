@@ -9,7 +9,11 @@ import {
   isSha,
   type Side,
 } from '@agent-ci/review/contracts.js';
-import type { SourceReader } from '@agent-ci/review/diff-position.js';
+import {
+  anchorSourcePath,
+  type ParsedDiff,
+  type SourceReader,
+} from '@agent-ci/review/diff-position.js';
 import { readArtifactFile } from '@agent-ci/review/files.js';
 import { type GithubClient, repositoryPath } from '@agent-ci/review/github.js';
 
@@ -33,8 +37,17 @@ export const SOURCE_LIMITS = Object.freeze({
 export type SourceKey = { side: Side; path: string };
 const keyOf = (side: Side, repoPath: string) => `${side}\u0000${repoPath}`;
 
-/** Sources the gate will read for one set of reviewer answers. */
-export function citedSources(reviews: readonly unknown[]): SourceKey[] {
+/**
+ * Sources the gate will read for one set of reviewer answers. An anchor is
+ * read at the path the diff maps it to (`anchorSourcePath`: the old path of
+ * a LEFT anchor on a renamed file, which may be cited by its new name);
+ * code evidence and rule files are read at their literal paths. Without a
+ * diff, anchors are taken literally.
+ */
+export function citedSources(
+  reviews: readonly unknown[],
+  diff?: ParsedDiff,
+): SourceKey[] {
   const seen = new Set<string>();
   const out: SourceKey[] = [];
   const add = (side: unknown, repoPath: unknown) => {
@@ -50,7 +63,16 @@ export function citedSources(reviews: readonly unknown[]): SourceKey[] {
     for (const raw of findings) {
       const finding = raw as Record<string, unknown> | null;
       if (finding === null || typeof finding !== 'object') continue;
-      add(finding.side, finding.path);
+      if (
+        diff !== undefined &&
+        (finding.side === 'RIGHT' || finding.side === 'LEFT') &&
+        isRepoPath(finding.path)
+      ) {
+        const mapped = anchorSourcePath(diff, finding.side, finding.path);
+        if (mapped !== null) add(finding.side, mapped);
+      } else {
+        add(finding.side, finding.path);
+      }
       if (Array.isArray(finding.evidence))
         for (const item of finding.evidence as unknown[]) {
           const evidence = item as Record<string, unknown> | null;

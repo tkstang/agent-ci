@@ -432,6 +432,21 @@ function findFile(
 }
 
 /**
+ * The tree path an anchor at `(side, path)` is read from: the head path for
+ * RIGHT, the merge-base (old) path for LEFT, which for a rename may be
+ * cited by either name. `null` when the diff has no such file or side.
+ */
+export function anchorSourcePath(
+  diff: ParsedDiff,
+  side: Side,
+  path: string,
+): string | null {
+  const file = findFile(diff, path, side);
+  if (!file || file.binary) return null;
+  return side === 'RIGHT' ? file.newPath : file.oldPath;
+}
+
+/**
  * Resolve a cited range to a GitHub review-comment position. RIGHT lines are
  * checked against the head tree and LEFT lines against the merge-base tree.
  */

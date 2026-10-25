@@ -3,6 +3,12 @@ import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { quoteSha256 } from '@agent-ci/review/contracts.js';
+import {
+  parseUnifiedDiff,
+  type SourceReader,
+} from '@agent-ci/review/diff-position.js';
+import { gateReview } from '@agent-ci/review/gate.js';
 import {
   citedSources,
   fetchSources,
@@ -187,4 +193,118 @@ describe('gitSourceReader', () => {
     expect(read('LEFT', 'hosts.ts')).toBeNull();
     expect(read('RIGHT', '../a.ts')).toBeNull();
   });
+});
+
+describe('rename anchors through API source collection', () => {
+  it.each([
+    ['the new path', 'new.ts'],
+    ['the old path (control)', 'old.ts'],
+  ])(
+    'posts a LEFT finding on a renamed file cited by %s, as the local reader does',
+    async (_name, cited) => {
+      const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-rename-'));
+      const run = (...args: string[]) =>
+        execFileSync(
+          'git',
+          ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args],
+          {
+            cwd: repo,
+            encoding: 'utf8',
+          },
+        ).trim();
+      run('init', '-q');
+      await writeFile(
+        path.join(repo, 'old.ts'),
+        'keep();\nold();\nalpha();\nbeta();\ngamma();\ndelta();\n',
+      );
+      await writeFile(path.join(repo, 'evidence.ts'), 'proof();\n');
+      run('add', '.');
+      run('commit', '-qm', 'base');
+      const base = run('rev-parse', 'HEAD');
+      run('mv', 'old.ts', 'new.ts');
+      await writeFile(
+        path.join(repo, 'new.ts'),
+        'keep();\nnext();\nalpha();\nbeta();\ngamma();\ndelta();\n',
+      );
+      run('add', '.');
+      run('commit', '-qm', 'rename');
+      const head = run('rev-parse', 'HEAD');
+      const diff = parseUnifiedDiff(
+        `${run('diff', '-M', '--no-color', `${base}...${head}`)}\n`,
+      );
+      expect(diff.files[0]).toMatchObject({
+        oldPath: 'old.ts',
+        newPath: 'new.ts',
+      });
+      const review = {
+        version: 1,
+        mode: 'review',
+        pass: 'primary',
+        base_sha: base,
+        merge_base_sha: base,
+        head_sha: head,
+        summary: 's',
+        findings: [
+          {
+            id: 'f1',
+            severity: 'medium',
+            category: 'correctness',
+            rule_id: null,
+            title: 'Removed call',
+            body: 'The old call is gone.',
+            path: cited,
+            line: 2,
+            end_line: 2,
+            side: 'LEFT',
+            original_code: 'old();',
+            suggestion: null,
+            evidence: [
+              {
+                kind: 'code',
+                path: 'evidence.ts',
+                line: 1,
+                end_line: 1,
+                side: 'RIGHT',
+                quote_sha256: quoteSha256('proof();'),
+              },
+            ],
+          },
+        ],
+      };
+      const wanted = citedSources([review], diff);
+      expect(wanted).toContainEqual({ side: 'LEFT', path: 'old.ts' });
+      expect(wanted).toContainEqual({ side: 'RIGHT', path: 'evidence.ts' });
+      const github = new FakeGithub().serveGitDatabase(API, repo);
+      const api = mapReader(
+        await fetchSources({
+          github: github.client(),
+          repository: 'tkstang/app',
+          shas: { RIGHT: head, LEFT: base },
+          wanted,
+        }),
+      );
+      const local = gitSourceReader(repo, { RIGHT: head, LEFT: base });
+      const gate = (read: SourceReader) =>
+        gateReview({
+          identity: {
+            repository: 'tkstang/app',
+            workflow: 'agent-ci-pr-review',
+            pr_number: 7,
+            scope: 'default',
+            run_id: '1',
+            run_attempt: '1',
+          },
+          mode: 'review',
+          base_sha: base,
+          merge_base_sha: base,
+          head_sha: head,
+          diff,
+          read,
+          passes: [{ pass: 'primary', enabled: true, attempt: '1', review }],
+          adjudication: { enabled: false, value: null },
+        }).candidates.map((c) => c.disposition);
+      expect(gate(api)).toEqual(['posted']);
+      expect(gate(api)).toEqual(gate(local));
+    },
+  );
 });

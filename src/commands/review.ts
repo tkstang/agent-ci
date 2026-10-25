@@ -27,6 +27,7 @@ import {
   SCOPE,
   sha256,
 } from '@agent-ci/review/contracts.js';
+import { parseUnifiedDiff } from '@agent-ci/review/diff-position.js';
 import {
   gateArtifacts,
   GATED_FILES,
@@ -814,7 +815,12 @@ async function findings(
         repository,
         shas: { RIGHT: spec.spec.head_sha, LEFT: spec.spec.merge_base_sha },
         wanted: [
-          ...citedSources(passes.map((p) => p.review)),
+          ...citedSources(
+            passes.map((p) => p.review),
+            parseUnifiedDiff(spec.diffText, {
+              truncated: spec.spec.diff.truncated,
+            }),
+          ),
           ...referencedSources(adjudication.value),
         ],
       });
