@@ -97,8 +97,10 @@ Publishing details (`agent-ci publish`):
   (for example a rewritten base branch) is refused too, unless `adopt_branch`
   is set. Rerun the agent on the current base branch.
 - The path policy and the workflow-file rule apply to the whole pull request
-  diff (the new commit against its merge base with the base branch), not only
-  to the run's change set, before anything is pushed.
+  diff (the branch head against its merge base with the base branch), not only
+  to the run's change set. The check runs before anything is pushed and before
+  the pull request or comment is created or updated, also when the branch is
+  `unchanged` (the same branch can be a different diff against another base).
 - Changes under `.github/workflows/` are refused; `GITHUB_TOKEN` cannot push
   them.
 

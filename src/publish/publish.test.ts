@@ -787,6 +787,71 @@ describe('use-case path policy', () => {
     expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/docs')).toBe(human);
   });
 
+  it('checks an unchanged branch against the base the pull request will use, before any GitHub write (final H1 r2)', async () => {
+    for (const variant of ['policy', 'workflow'] as const) {
+      const { remote, clone, seed } = await remoteAndClone();
+      // `release` carries a path the publish must not bring into `main`.
+      git(seed, 'checkout', '-q', '-b', 'release');
+      const extra =
+        variant === 'policy' ? 'src/new.ts' : '.github/workflows/ci.yml';
+      await mkdir(path.join(seed, path.dirname(extra)), { recursive: true });
+      await writeFile(path.join(seed, extra), 'x\n');
+      git(seed, 'add', '.');
+      git(seed, 'commit', '-qm', 'release only');
+      git(seed, 'push', '-q', 'origin', 'release');
+      const releaseSha = git(seed, 'rev-parse', 'HEAD');
+      const gh = fakeGitHub();
+      const publish = (baseBranch: string, adoptBranch = false) =>
+        publishRun({
+          outputs: outputs(
+            {},
+            {
+              version: 1,
+              baseSha: releaseSha,
+              files: [write('docs/new.md', 'n\n')],
+            },
+          ),
+          github: gh.client,
+          git: createGit(clone, { PATH: process.env.PATH }),
+          pullRequest: true,
+          branch: 'agent-ci/docs',
+          baseBranch,
+          author: ACTIONS_BOT,
+          commentOn: 7,
+          adoptBranch,
+          ...(variant === 'policy'
+            ? {
+                pathPolicy: {
+                  name: 'docs-update',
+                  policy: PATH_POLICIES['docs-update'],
+                },
+              }
+            : {}),
+        });
+      // Accepted: against release the diff is docs-only.
+      const created = await publish('release');
+      expect(created.ok && created.value.pull.action).toBe('created');
+      // Accepted control: the same artifact again is unchanged.
+      const unchanged = await publish('release');
+      expect(unchanged.ok && unchanged.value.pull.action).toBe('unchanged');
+      const head = git(remote, 'rev-parse', 'refs/heads/agent-ci/docs');
+      const comments = gh.comments.get(7)?.length;
+      // The same artifact and branch against main would carry `extra`:
+      // refused before a pull request or comment is written, also when
+      // the branch is adopted.
+      for (const adopt of [false, true]) {
+        const refused = await publish('main', adopt);
+        expect(refused.ok ? 'ok' : refused.code).toBe(
+          variant === 'policy' ? 'E_PATH_POLICY' : 'E_PUBLISH',
+        );
+        expect(refused.ok ? '' : refused.message).toContain(extra);
+      }
+      expect(gh.pulls.map((pull) => pull.base)).toEqual(['release']);
+      expect(gh.comments.get(7)?.length).toBe(comments);
+      expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/docs')).toBe(head);
+    }
+  });
+
   it('validates --path-policy and --adopt values at the command boundary', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-pub-flags-'));
     for (const flags of [

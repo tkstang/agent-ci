@@ -55,9 +55,11 @@ export interface StaticBranchOptions {
    */
   readonly adoptBranch?: boolean;
   /**
-   * Called with the complete pull request diff (the new commit against its
-   * merge base with `baseBranch` on the remote) before anything is pushed;
-   * a failure stops the publish. Not called when the result is `unchanged`.
+   * Called with the complete pull request diff (the branch's resulting head,
+   * new or `unchanged`, against its merge base with `baseBranch` on the
+   * remote) before anything is pushed and before the caller writes to
+   * GitHub; a failure stops the publish. An `unchanged` branch is checked
+   * too: the same tree can be a different diff against another base.
    */
   readonly checkPullDiff?: (entries: readonly PullDiffEntry[]) => Result<void>;
 }
@@ -370,6 +372,21 @@ export async function publishStaticBranch(
 ): Promise<Result<StaticBranchResult>> {
   const { git, changeSet, branch } = options;
   const remote = options.remote ?? 'origin';
+  /** The caller's whole-diff check of `commit` against the PR's base. */
+  const verifyPullDiff = async (
+    commit: string,
+    parents: readonly string[],
+  ): Promise<Result<void>> => {
+    if (options.checkPullDiff === undefined) return success(undefined);
+    const diff = await pullRequestDiff(
+      git,
+      remote,
+      options.baseBranch,
+      commit,
+      parents,
+    );
+    return diff.ok ? options.checkPullDiff(diff.value) : diff;
+  };
   const named = await checkBranchName(
     git,
     branch,
@@ -510,6 +527,10 @@ export async function publishStaticBranch(
       const included =
         recorded === base || (await containsBase(git, remote, head, base));
       if (headTree === tree && included) {
+        // Nothing is pushed, but the caller will open or update a pull
+        // request from this head against `baseBranch`: check that diff.
+        const checked = await verifyPullDiff(head, [head]);
+        if (!checked.ok) return checked;
         return success({ branch, commit: head, action: 'unchanged' });
       }
       parents.push(head);
@@ -543,18 +564,8 @@ export async function publishStaticBranch(
         `git commit-tree failed: ${gitError(committed)}`,
       );
     }
-    if (options.checkPullDiff !== undefined) {
-      const diff = await pullRequestDiff(
-        git,
-        remote,
-        options.baseBranch,
-        commit,
-        parents,
-      );
-      if (!diff.ok) return diff;
-      const checked = options.checkPullDiff(diff.value);
-      if (!checked.ok) return checked;
-    }
+    const checked = await verifyPullDiff(commit, parents);
+    if (!checked.ok) return checked;
     // A fast-forward push: never --force. A concurrent update is refused by
     // the remote and reported instead of overwritten.
     const pushed = await git([
