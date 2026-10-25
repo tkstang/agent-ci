@@ -17,9 +17,12 @@ import { z } from 'zod';
  * verify-review's repository checks and their evidence.
  *
  * The checks are a fixed allowlist of named commands in
- * `.github/agent-ci/checks.yaml`, read from the pull request's BASE commit,
- * so a pull request can neither add a check nor redefine one (its code
- * still runs inside them: that is what a check is). The reviewer can only
+ * `.github/agent-ci/checks.yaml`, read from the head of the repository's
+ * DEFAULT branch (or a branch the trusted workflow names with
+ * `verify_config_ref`), never from the PR or the PR's base, which a
+ * write-access author can retarget to a branch they pushed. A pull request
+ * can therefore neither add a check nor redefine one (its code still runs
+ * inside them: that is what a check is). The reviewer can only
  * pick a name; it never supplies a command or an argument.
  *
  * The verify stage runs every configured check once, where no model
@@ -106,10 +109,17 @@ export type ChecksConfig = {
 /** The checks configuration as bound into the review spec. */
 export type VerifySpec = {
   config_path: string;
-  /** sha256 of the configuration file bytes read from the base commit. */
+  /** The branch the configuration was read from (default branch or named). */
+  config_ref: string;
+  /** That branch's head commit when it was read. */
+  config_commit: string;
+  /** sha256 of the configuration file bytes. */
   config_sha256: string;
   config: ChecksConfig;
 };
+
+/** A plausible branch name for the record (git's rules are checked when read). */
+const CONFIG_REF = /^[^\p{Cc}\s~^:?*[\\]{1,255}$/u;
 
 function configError(message: string): never {
   return contractError('E_VERIFY_CONFIG', message);
@@ -144,10 +154,18 @@ export function parseChecksConfig(text: string): ChecksConfig {
   };
 }
 
-/** Build the spec's verify section from the file text. */
-export function verifySpecFromText(text: string): VerifySpec {
+/** Build the spec's verify section from the file text and where it came from. */
+export function verifySpecFromText(
+  text: string,
+  source: { ref: string; commit: string } = {
+    ref: 'main',
+    commit: '0'.repeat(40),
+  },
+): VerifySpec {
   return {
     config_path: CHECKS_CONFIG_PATH,
+    config_ref: source.ref,
+    config_commit: source.commit,
     config_sha256: sha256(text),
     config: parseChecksConfig(text),
   };
@@ -156,8 +174,17 @@ export function verifySpecFromText(text: string): VerifySpec {
 /** Re-validate a verify section read back from a spec file. */
 export function validateVerifySpec(value: unknown): VerifySpec {
   if (
-    !closedRecord(value, ['config_path', 'config_sha256', 'config']) ||
+    !closedRecord(value, [
+      'config_path',
+      'config_ref',
+      'config_commit',
+      'config_sha256',
+      'config',
+    ]) ||
     value.config_path !== CHECKS_CONFIG_PATH ||
+    typeof value.config_ref !== 'string' ||
+    !CONFIG_REF.test(value.config_ref) ||
+    !isSha(value.config_commit) ||
     !isHex64(value.config_sha256)
   )
     return contractError(
@@ -192,6 +219,8 @@ export function validateVerifySpec(value: unknown): VerifySpec {
     contractError('E_REVIEW_INPUT', 'the spec verify section is invalid');
   return {
     config_path: CHECKS_CONFIG_PATH,
+    config_ref: value.config_ref,
+    config_commit: value.config_commit,
     config_sha256: value.config_sha256,
     config,
   };

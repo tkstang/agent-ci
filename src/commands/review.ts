@@ -415,6 +415,9 @@ const PREPARE_USAGE = `agent-ci review prepare — bind the review spec and diff
   --out <dir>                               spec.json and pr.diff.
   --repo <owner/name>                       Default $GITHUB_REPOSITORY.
   --repo-guidance <text> --repo-guidance-path <path> --context-paths <list>
+  --verify-config-ref <branch>              verify-review: the branch whose head
+                                            holds checks.yaml (default: the
+                                            repository's default branch).
   --github-output                           spec_sha256, diff_truncated, error_code.`;
 
 async function prepare(
@@ -432,6 +435,7 @@ async function prepare(
       'repo-guidance': { type: 'string' },
       'repo-guidance-path': { type: 'string' },
       'context-paths': { type: 'string' },
+      'verify-config-ref': { type: 'string' },
       'github-output': { type: 'boolean' },
     },
     PREPARE_USAGE,
@@ -461,6 +465,7 @@ async function prepare(
           repo_guidance_path: flags['repo-guidance-path'] ?? '',
           context_paths: flags['context-paths'] ?? '',
         },
+        verifyConfigRef: optional(flags['verify-config-ref']),
       });
       await mkdir(out, { recursive: true });
       await writeFile(path.join(out, SPEC_FILES.spec), result.specText, {
@@ -1076,7 +1081,7 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
   --publish                    Post the inline review and summary as the
                                token's user (default: gate only, no posting).
   --verify                     verify-review: first run the checks in
-                               .github/agent-ci/checks.yaml (base commit) on
+                               .github/agent-ci/checks.yaml (default branch) on
                                the PR head, then give the reviewers run_check
                                (Claude or Codex routes). The PR's code runs on
                                this machine as you: only Linux user namespaces
@@ -1085,6 +1090,8 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
                                processes' environments or the Keychain) or
                                without namespaces it is refused unless
   --verify-trust-pr-code       is also given: run only code you would run.
+  --verify-config-ref <branch> Branch whose head holds checks.yaml (default:
+                               the repository's default branch).
 
   --scope <scope>              Marker scope (default local).
   --out <dir>                  Keep the stage artifacts here.
@@ -1114,6 +1121,7 @@ async function runLocal(
       publish: { type: 'boolean' },
       verify: { type: 'boolean' },
       'verify-trust-pr-code': { type: 'boolean' },
+      'verify-config-ref': { type: 'string' },
       scope: { type: 'string' },
       out: { type: 'string' },
       'timeout-minutes': { type: 'string' },
@@ -1141,6 +1149,7 @@ async function runLocal(
     publish: flags.publish === true,
     verify: flags.verify === true,
     trustPrCode: flags['verify-trust-pr-code'] === true,
+    verifyConfigRef: optional(flags['verify-config-ref']),
     scope,
     policy: {
       failOnSeverity: flags['fail-on-severity'],

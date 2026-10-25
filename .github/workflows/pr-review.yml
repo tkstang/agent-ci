@@ -13,7 +13,7 @@
 #                secret of any kind: no model credential and no helper
 #                token (agent-ci arrives as the gate's helper bundle, checked
 #                against its sha256). Runs the checks in
-#                .github/agent-ci/checks.yaml (read from the base commit) on
+#                .github/agent-ci/checks.yaml (read from the default branch head) on
 #                the PR head in a controlled environment and uploads
 #                checks.json. This job runs pull-request code; its output
 #                is untrusted and the reviewer passes validate it.
@@ -116,11 +116,17 @@ on:
         description: >-
           Allow verify-review requests (/agent-ci-verify-review, the agent-ci:verify-review
           label). A verify job without any secret runs the checks in
-          .github/agent-ci/checks.yaml (read from the base commit) on the PR head, and
+          .github/agent-ci/checks.yaml (read from the default branch head) on the PR head, and
           Claude or Codex reviewers read the results through run_check. This runs
           pull-request code in that job.
         type: boolean
         default: false
+      verify_config_ref:
+        description: >-
+          Branch whose head holds .github/agent-ci/checks.yaml for verify-review. Empty means
+          the repository's default branch. Never the PR's base, which its author can retarget.
+        type: string
+        default: ''
       verify_on_self_hosted:
         description: >-
           Let the verify job run on a self-hosted runner. Only for ephemeral runners that
@@ -261,10 +267,12 @@ jobs:
           REPO_GUIDANCE: ${{ inputs.repo_guidance }}
           REPO_GUIDANCE_PATH: ${{ inputs.repo_guidance_path }}
           CONTEXT_PATHS: ${{ inputs.context_paths }}
+          VERIFY_CONFIG_REF: ${{ inputs.verify_config_ref }}
         run: >-
           agent-ci review prepare --request "$RUNNER_TEMP/review-gate/request.json" --request-sha256 "$REQUEST_SHA256"
           --out "$RUNNER_TEMP/review-spec" --repo-guidance "$REPO_GUIDANCE"
-          --repo-guidance-path "$REPO_GUIDANCE_PATH" --context-paths "$CONTEXT_PATHS" --github-output
+          --repo-guidance-path "$REPO_GUIDANCE_PATH" --context-paths "$CONTEXT_PATHS"
+          --verify-config-ref "$VERIFY_CONFIG_REF" --github-output
 
       - name: Upload the review spec
         id: spec-upload

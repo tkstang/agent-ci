@@ -24,7 +24,7 @@ import {
   validateRequestConfig,
 } from '@agent-ci/review/request.js';
 import { fetchSources } from '@agent-ci/review/sources.js';
-import type { RequestRecord } from '@agent-ci/review/trigger.js';
+import { isBranchName, type RequestRecord } from '@agent-ci/review/trigger.js';
 
 /**
  * The review spec: the gate's bound request turned into the digest-bound
@@ -84,27 +84,62 @@ export type ReviewSpecDocument = {
 };
 
 /**
- * Read `.github/agent-ci/checks.yaml` from the base commit through the git
- * database API (a regular file only; a symlink reads as missing).
+ * Read `.github/agent-ci/checks.yaml` from the head of the repository's
+ * default branch, or of `configRef` when the trusted workflow names one,
+ * through the git database API (a regular file only; a symlink reads as
+ * missing). Never the PR's base: a write-access author can retarget the PR
+ * to a branch they pushed and so choose the checks.
  */
 export async function readChecksConfig(input: {
   github: GithubClient;
   repository: string;
-  baseSha: string;
+  configRef?: string | undefined;
 }): Promise<VerifySpec> {
+  const repo = repositoryPath(input.repository);
+  let ref = (input.configRef ?? '').trim();
+  if (ref === '') {
+    const meta = (await input.github.json({ method: 'GET', path: repo })) as {
+      default_branch?: unknown;
+    } | null;
+    if (typeof meta?.default_branch !== 'string')
+      contractError(
+        'E_GITHUB_API',
+        'the repository lookup returned no default branch',
+      );
+    ref = meta.default_branch;
+  }
+  if (!isBranchName(ref))
+    contractError('E_VERIFY_CONFIG', `verify_config_ref is not a branch name`);
+  const head = (await input.github.json(
+    {
+      method: 'GET',
+      path: `${repo}/git/ref/heads/${ref.split('/').map(encodeURIComponent).join('/')}`,
+    },
+    [200, 404],
+  )) as { object?: { sha?: unknown; type?: unknown } } | null;
+  const commit = head?.object?.sha;
+  if (
+    head?.object?.type !== 'commit' ||
+    typeof commit !== 'string' ||
+    !isSha(commit)
+  )
+    contractError(
+      'E_VERIFY_CONFIG',
+      `verify-review reads ${CHECKS_CONFIG_PATH} from branch ${ref}, which was not found`,
+    );
   const texts = await fetchSources({
     github: input.github,
     repository: input.repository,
-    shas: { RIGHT: input.baseSha, LEFT: input.baseSha },
+    shas: { RIGHT: commit, LEFT: commit },
     wanted: [{ side: 'RIGHT', path: CHECKS_CONFIG_PATH }],
   });
   const text = [...texts.values()][0];
   if (text === undefined)
     contractError(
       'E_VERIFY_CONFIG',
-      `verify-review needs ${CHECKS_CONFIG_PATH} as a regular file on the base commit ${input.baseSha.slice(0, 12)}`,
+      `verify-review needs ${CHECKS_CONFIG_PATH} as a regular file on branch ${ref} (${commit.slice(0, 12)})`,
     );
-  return verifySpecFromText(text);
+  return verifySpecFromText(text, { ref, commit });
 }
 
 /** Read and verify a request record against its trusted digest. */
@@ -202,6 +237,8 @@ export async function prepareReview(input: {
   github: GithubClient;
   request: RequestRecord;
   guidance: ReviewGuidanceInputs;
+  /** verify-review: the branch to read checks.yaml from (default branch). */
+  verifyConfigRef?: string | undefined;
 }): Promise<PrepareResult> {
   const { github, request } = input;
   // Caller configuration fails here, before any reviewer starts.
@@ -279,7 +316,7 @@ export async function prepareReview(input: {
       ? await readChecksConfig({
           github,
           repository: request.repository,
-          baseSha: request.base_sha,
+          configRef: input.verifyConfigRef,
         })
       : undefined;
   const spec: ReviewSpecDocument = {

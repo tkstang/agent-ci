@@ -53,7 +53,7 @@ import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
  * `seedLogin`); the routing policy still applies (checkPoolPolicy).
  *
  * With `verify`, the request is verify-review: the checks configured on the
- * base commit run first, in their own worktree at the head, before any
+ * default branch (or `--verify-config-ref`) run first, in their own worktree at the head, before any
  * reviewer home root exists or any harness starts
  * (DR-261025-run-verify-review-checks-where). They run the pull request's
  * code on this machine as you; containment is what the host offers
@@ -80,6 +80,8 @@ export type LocalReviewOptions = {
    * user namespaces): the operator acknowledges the PR code runs as them.
    */
   readonly trustPrCode?: boolean;
+  /** verify-review: the branch whose head holds checks.yaml. */
+  readonly verifyConfigRef?: string | undefined;
   readonly scope: string;
   readonly policy: ReviewPolicyInputs;
   readonly outDir?: string | undefined;
@@ -211,6 +213,7 @@ async function localReview(
     github,
     request: record,
     guidance: {},
+    verifyConfigRef: options.verifyConfigRef,
   });
   await writeFile(path.join(specDir, SPEC_FILES.spec), prepared.specText);
   await writeFile(path.join(specDir, SPEC_FILES.diff), prepared.diffText);

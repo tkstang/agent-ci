@@ -256,6 +256,18 @@ describe('pr-review.yml verify-review', () => {
     const gate = (workflow.jobs.gate?.steps ?? []).find((s) => s.id === 'gate');
     expect(gate?.env?.VERIFY).toBe('${{ inputs.verify }}');
     expect(gate?.run).toContain('--verify "$VERIFY"');
+    // checks.yaml comes from the default branch unless the caller names one.
+    expect(inputs.verify_config_ref).toMatchObject({
+      type: 'string',
+      default: '',
+    });
+    const prepare = (workflow.jobs.gate?.steps ?? []).find(
+      (s) => s.id === 'prepare',
+    );
+    expect(prepare?.env?.VERIFY_CONFIG_REF).toBe(
+      '${{ inputs.verify_config_ref }}',
+    );
+    expect(prepare?.run).toContain('--verify-config-ref "$VERIFY_CONFIG_REF"');
   });
 
   it('runs the checks in a job that holds no secret, no helper token and no GitHub token step', async () => {
@@ -352,6 +364,7 @@ describe('agent-ci-review-selftest.yml', () => {
     );
     expect(verify.with).toMatchObject({
       verify: true,
+      verify_config_ref: '${{ github.base_ref }}',
       reviewer_model: 'fake-verify-review',
       artifact_scope: 'selftest-verify',
     });

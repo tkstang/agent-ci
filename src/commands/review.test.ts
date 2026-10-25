@@ -121,6 +121,12 @@ async function setup(options: { occupied?: boolean; checks?: string } = {}) {
       status: 204,
     })
     .serveGitDatabase(API, repo)
+    // verify-review reads checks.yaml from the default branch head (here the
+    // base commit, which holds it in the checks scenarios).
+    .on('GET', API, { body: { default_branch: 'main' } })
+    .on('GET', `${API}/git/ref/heads/main`, {
+      body: { object: { sha: base, type: 'commit' } },
+    })
     .on('GET', `${API}/pulls/7/comments`, { body: [] })
     .on('GET', `${API}/issues/7/comments`, () => ({ body: posted }))
     .on('POST', `${API}/issues/7/comments`, (request) => {

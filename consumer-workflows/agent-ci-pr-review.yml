@@ -34,7 +34,8 @@
 #
 # verify-review (off by default): set `verify: true` below and add
 # .github/agent-ci/checks.yaml (an optional setup command and up to 10 named
-# checks) on the default branch. `/agent-ci-verify-review` or the
+# checks) on the default branch (agent-ci reads it from the default branch
+# head, never from the PR or its base). `/agent-ci-verify-review` or the
 # `agent-ci:verify-review` label then runs those checks on the PR head in a
 # separate job that holds NO secret (not even AGENT_CI_SOURCE_TOKEN), and
 # Claude or Codex reviewers read the results through the run_check tool and

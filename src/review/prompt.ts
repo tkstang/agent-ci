@@ -305,7 +305,7 @@ function verifyModeSection(checks: PromptChecks | undefined): string[] {
     return lines;
   }
   lines.push(
-    '- Checks (JSON strings; names and descriptions come from the base branch config):',
+    '- Checks (JSON strings; names and descriptions come from the trusted checks config):',
     ...checks.entries.map(
       (entry) =>
         `  - ${JSON.stringify(entry.name)}${entry.description === '' ? '' : `: ${JSON.stringify(entry.description)}`}`,
