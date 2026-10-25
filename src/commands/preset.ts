@@ -28,6 +28,36 @@ const USAGE = `agent-ci preset — the use-case wrappers (docs-update, instructi
       --branch names the static branch in the prompt (default
       agent-ci/<use-case>; --use-case defaults to the preset's).`;
 
+function rule(re: RegExp): { source: string; flags: string } {
+  return { source: re.source, flags: re.flags };
+}
+
+/**
+ * The path policies as JSON: each RegExp as `{source, flags}` (a RegExp
+ * serializes as `{}` through JSON.stringify).
+ */
+export function serializePathPolicies(): Record<
+  string,
+  {
+    allow: { source: string; flags: string }[];
+    deny: { source: string; flags: string }[];
+    executables: boolean;
+    symlinks: boolean;
+  }
+> {
+  return Object.fromEntries(
+    Object.entries(PATH_POLICIES).map(([name, policy]) => [
+      name,
+      {
+        allow: policy.allow.map(rule),
+        deny: policy.deny.map(rule),
+        executables: policy.executables,
+        symlinks: policy.symlinks,
+      },
+    ]),
+  );
+}
+
 export const presetCommand: CommandSpec = {
   name: 'preset',
   summary: 'List use-case presets or write a run prompt',
@@ -49,7 +79,7 @@ export const presetCommand: CommandSpec = {
             defaultBranch: `${DEFAULT_BRANCH_PREFIX}${preset.useCase}`,
           };
         }),
-        pathPolicies: PATH_POLICIES,
+        pathPolicies: serializePathPolicies(),
       };
     }
     if (action !== 'prompt') {

@@ -393,5 +393,28 @@ describe('agent-ci preset', () => {
     expect(data.presets.map((preset) => preset.name)).toEqual([
       ...PRESET_NAMES,
     ]);
+    // The path rules survive JSON (a RegExp alone serializes as `{}`).
+    const json = JSON.parse(JSON.stringify(listed.envelope)) as {
+      data: {
+        pathPolicies: Record<
+          string,
+          { allow: { source: string; flags: string }[]; deny: unknown[] }
+        >;
+      };
+    };
+    for (const [name, policy] of Object.entries(PATH_POLICIES)) {
+      const listedPolicy = json.data.pathPolicies[name];
+      expect(listedPolicy?.allow).toEqual(
+        policy.allow.map((re) => ({ source: re.source, flags: re.flags })),
+      );
+      expect(listedPolicy?.deny).toHaveLength(policy.deny.length);
+      expect(listedPolicy?.allow.length).toBeGreaterThan(0);
+      // Round trip: the listed rule rebuilds the same expression.
+      const first = listedPolicy?.allow[0];
+      if (first !== undefined)
+        expect(new RegExp(first.source, first.flags).source).toBe(
+          policy.allow[0]?.source,
+        );
+    }
   });
 });
