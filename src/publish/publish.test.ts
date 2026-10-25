@@ -164,6 +164,67 @@ describe('publishStaticBranch', () => {
     ).not.toThrow();
   });
 
+  it('records a moved base even when the published tree is identical (gate M1 A/B/C)', async () => {
+    const { remote, clone, seed } = await remoteAndClone();
+    // Base A: README.md = old (seed has "# r\n"; set it explicitly).
+    await writeFile(path.join(seed, 'README.md'), 'old\n');
+    git(seed, 'commit', '-qam', 'A');
+    git(seed, 'push', '-q', 'origin', 'main');
+    const a = git(seed, 'rev-parse', 'HEAD');
+    const runner = createGit(clone, { PATH: process.env.PATH });
+    const options = {
+      git: runner,
+      branch: 'agent-ci/abc',
+      baseBranch: 'main',
+      title: 't',
+      author: ACTIONS_BOT,
+    };
+    const changes = (baseSha: string): ChangeSet => ({
+      version: 1,
+      baseSha,
+      files: [write('README.md', 'agent\n')],
+    });
+    const b = await publishStaticBranch({ ...options, changeSet: changes(a) });
+    expect(b.ok && b.value.action).toBe('created');
+    if (!b.ok) return;
+    // Same base again: idempotent.
+    const same = await publishStaticBranch({
+      ...options,
+      changeSet: changes(a),
+    });
+    expect(same.ok && same.value).toMatchObject({
+      action: 'unchanged',
+      commit: b.value.commit,
+    });
+    // Base C moves README.md; the same final tree (README.md = agent).
+    await writeFile(path.join(seed, 'README.md'), 'new-base\n');
+    git(seed, 'commit', '-qam', 'C');
+    git(seed, 'push', '-q', 'origin', 'main');
+    const c = git(seed, 'rev-parse', 'HEAD');
+    const moved = await publishStaticBranch({
+      ...options,
+      changeSet: changes(c),
+    });
+    expect(moved.ok && moved.value.action).toBe('updated');
+    if (!moved.ok) return;
+    expect(git(remote, 'log', '-1', '--format=%P', moved.value.commit)).toBe(
+      `${b.value.commit} ${c}`,
+    );
+    expect(git(remote, 'rev-parse', `${moved.value.commit}^{tree}`)).toBe(
+      git(remote, 'rev-parse', `${b.value.commit}^{tree}`),
+    );
+    // The three-dot diff against the new base now shows new-base -> agent.
+    expect(
+      git(remote, 'diff', `${c}...${moved.value.commit}`, '--', 'README.md'),
+    ).toContain('-new-base');
+    // And from C again: idempotent.
+    const again = await publishStaticBranch({
+      ...options,
+      changeSet: changes(c),
+    });
+    expect(again.ok && again.value.action).toBe('unchanged');
+  });
+
   it('refuses protected or base branch names and a change set without a base', async () => {
     const { clone } = await remoteAndClone();
     const baseSha = git(clone, 'rev-parse', 'HEAD');

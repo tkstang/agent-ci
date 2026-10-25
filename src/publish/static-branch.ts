@@ -270,14 +270,18 @@ export async function publishStaticBranch(
       const headTree = (
         await git(['rev-parse', `${head}^{tree}`])
       ).stdout.trim();
-      if (headTree === tree) {
-        return success({ branch, commit: head, action: 'unchanged' });
-      }
       const body = (await git(['log', '-1', '--format=%B', head])).stdout;
       const recorded = new RegExp(
         `^${BASE_TRAILER}: ([0-9a-f]{40})$`,
         'mu',
       ).exec(body)?.[1];
+      // Unchanged only when both the tree and the base it was built on are
+      // the same. A moved base gets an ancestry commit (parents: head, new
+      // base) even with an identical tree, so the pull request diff is
+      // against the new base.
+      if (headTree === tree && recorded === base) {
+        return success({ branch, commit: head, action: 'unchanged' });
+      }
       parents.push(head);
       if (recorded !== base) parents.push(base);
     } else {
