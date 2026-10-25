@@ -12,6 +12,12 @@
 # 4. Allow GitHub Actions to create pull requests (Settings > Actions >
 #    General > Workflow permissions) if publish_pr is true.
 #
+# setup_command (optional, for example `pnpm install --frozen-lockfile`) runs
+# in its own job without secrets; only its working tree (without .git) reaches
+# the agent job. It still runs repository code that an edit-mode agent may run
+# again with the model credential in its environment: never point it at
+# untrusted refs such as fork pull requests.
+#
 # Pull requests and pushes made with GITHUB_TOKEN do not trigger this
 # repository's workflows: generated pull requests get no CI until someone
 # pushes to them, or until a GitHub App token is configured.

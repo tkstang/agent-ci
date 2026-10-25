@@ -39,6 +39,7 @@ jobs:
       use_case: selftest
       target_ref: ${{ github.event.pull_request.head.sha || github.sha }}
       skills_oat_packs: core
+      setup_command: echo prepared > agent-ci-prepared.txt
       publish_pr: true
       publish_branch: agent-ci/selftest-${{ github.event.pull_request.number || 'dispatch' }}
       publish_base: ${{ github.head_ref || github.ref_name }}

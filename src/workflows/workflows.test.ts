@@ -69,7 +69,7 @@ describe('run-agent.yml', () => {
   it('is a reusable workflow whose jobs run on the runs_on input', async () => {
     const workflow = await runAgent();
     expect(Object.keys(workflow.on)).toEqual(['workflow_call']);
-    expect(Object.keys(workflow.jobs)).toEqual(['agent', 'publish']);
+    expect(Object.keys(workflow.jobs)).toEqual(['setup', 'agent', 'publish']);
     for (const job of Object.values(workflow.jobs)) {
       expect(job['runs-on']).toBe('${{ inputs.runs_on }}');
     }
@@ -171,10 +171,40 @@ describe('run-agent.yml', () => {
     expect(names.indexOf('Install skills into the per-job home')).toBeLessThan(
       names.indexOf('Run the agent'),
     );
-    // The setup command runs in the target and gets no secret.
+  });
+
+  it('runs the setup command in its own credential-free job and hands over only the working tree', async () => {
+    const { jobs } = await runAgent();
+    const setup = jobs.setup ?? {};
+    const agent = jobs.agent ?? {};
+    expect(setup.if).toBe("inputs.setup_command != ''");
+    expect(setup.permissions).toEqual({ contents: 'read' });
+    expect(secretRefs(setup)).toEqual([]);
     expect(
-      secretRefs(step(agent, 'Run the setup command (no secrets)')),
-    ).toEqual([]);
+      step(setup, 'Check out the target repository').with?.[
+        'persist-credentials'
+      ],
+    ).toBe(false);
+    expect(step(setup, 'Run the setup command').env?.SETUP_COMMAND).toBe(
+      '${{ inputs.setup_command }}',
+    );
+    expect(
+      step(setup, 'Pack the prepared working tree (without .git)').run,
+    ).toContain('--exclude=./.git');
+    // The agent job waits for setup but never runs the command itself.
+    expect(agent.needs).toBe('setup');
+    expect(JSON.stringify(agent)).not.toContain('setup_command }}');
+    expect(JSON.stringify(agent)).not.toContain('SETUP_COMMAND');
+    const restore = step(agent, 'Restore the prepared working tree');
+    expect(restore.run).toContain('--exclude=./.git');
+    expect(restore.run).toContain('-C target');
+    const names = (agent.steps ?? []).map((entry) => entry.name);
+    expect(names.indexOf('Check out the target repository')).toBeLessThan(
+      names.indexOf('Restore the prepared working tree'),
+    );
+    expect(names.indexOf('Restore the prepared working tree')).toBeLessThan(
+      names.indexOf('Run the agent'),
+    );
   });
 
   it('enables the Codex sandbox only on GitHub-hosted Linux runners and checks it before the agent', async () => {

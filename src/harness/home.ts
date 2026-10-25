@@ -255,6 +255,9 @@ export async function createHomeRoot(
     // A kept root (--home-root) may hold a login seeded by an earlier run.
     // Every run starts without one; login routes seed afresh.
     await clearLoginStores(layout);
+    // Nothing an earlier run, a kept root's owner or a pre-run step wrote
+    // may run commands or widen permissions in this run.
+    await clearHarnessConfig(layout);
     return success(layout);
   } catch (err) {
     return failure(
@@ -289,6 +292,54 @@ export function loginStorePaths(layout: HomeRoot): string[] {
     path.join(opencode, 'opencode.db-wal'),
     path.join(opencode, 'opencode.db-shm'),
   ];
+}
+
+/**
+ * User-level harness configuration that can execute commands or widen
+ * permissions: Claude user settings (hooks, permission allows; the Cursor
+ * agent reads them too), Cursor user hooks, OpenCode plugins, agents,
+ * commands and config files other than the `opencode.json` agent-ci writes,
+ * Codex exec-policy rules and hooks. Adapters rewrite what they need (Codex
+ * `config.toml`, OpenCode `opencode.json`) on every run; skills stay.
+ */
+export function harnessConfigPaths(layout: HomeRoot): string[] {
+  const claude =
+    layout.env.CLAUDE_CONFIG_DIR ?? path.join(layout.home, '.claude');
+  const codex = layout.env.CODEX_HOME ?? path.join(layout.home, '.codex');
+  const opencode = path.join(
+    layout.env.XDG_CONFIG_HOME ?? path.join(layout.home, '.config'),
+    'opencode',
+  );
+  const cursor = path.join(layout.home, '.cursor');
+  return [
+    path.join(claude, 'settings.json'),
+    path.join(claude, 'settings.local.json'),
+    path.join(claude, 'hooks'),
+    path.join(claude, 'plugins'),
+    path.join(cursor, 'hooks.json'),
+    path.join(cursor, 'hooks'),
+    path.join(opencode, 'opencode.jsonc'),
+    path.join(opencode, 'config.json'),
+    path.join(opencode, 'plugin'),
+    path.join(opencode, 'plugins'),
+    path.join(opencode, 'agent'),
+    path.join(opencode, 'agents'),
+    path.join(opencode, 'command'),
+    path.join(opencode, 'commands'),
+    path.join(opencode, 'mode'),
+    path.join(opencode, 'modes'),
+    path.join(codex, 'rules'),
+    path.join(codex, 'hooks.json'),
+  ];
+}
+
+/** Remove harness config that could run commands or widen permissions. */
+export async function clearHarnessConfig(layout: HomeRoot): Promise<void> {
+  for (const entry of harnessConfigPaths(layout)) {
+    // A link is removed itself; validateHomeTree already refused links that
+    // leave the root at these locations.
+    await rm(entry, { recursive: true, force: true });
+  }
 }
 
 /** Remove every known login store from the root. */

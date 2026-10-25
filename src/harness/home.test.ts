@@ -24,6 +24,7 @@ import {
   seedLogin,
   writeOwnedFile,
   seedSkills,
+  harnessConfigPaths,
 } from '@agent-ci/harness/home.js';
 import { describe, expect, it } from 'vitest';
 
@@ -437,5 +438,40 @@ describe('kept home root validation', () => {
       await readFile(path.join(workspace, '.codex', 'auth.json'), 'utf8'),
     ).toBe('workspace-owned');
     expect(existsSync(path.join(workspace, '.claude'))).toBe(false);
+  });
+});
+
+describe('harness config reset', () => {
+  it('removes config that runs commands or widens permissions on every run, keeping skills', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-reset-'));
+    const first = await createHomeRoot(root);
+    if (!first.ok) throw new Error(first.message);
+    const planted = harnessConfigPaths(first.value);
+    for (const entry of planted) {
+      await mkdir(path.dirname(entry), { recursive: true });
+      if (entry.endsWith('.json') || entry.endsWith('.jsonc')) {
+        await writeFile(entry, '{"hooks":{}}');
+      } else {
+        await mkdir(entry, { recursive: true });
+        await writeFile(path.join(entry, 'evil.js'), 'x');
+      }
+    }
+    const skill = path.join(first.value.skillsDir, 'kept', 'SKILL.md');
+    await mkdir(path.dirname(skill), { recursive: true });
+    await writeFile(skill, '---\nname: kept\n---\n');
+    const again = await createHomeRoot(root);
+    expect(again.ok).toBe(true);
+    for (const entry of planted) expect(existsSync(entry)).toBe(false);
+    expect(existsSync(skill)).toBe(true);
+    expect(
+      planted.map((entry) => path.relative(first.value.root, entry)),
+    ).toEqual(
+      expect.arrayContaining([
+        'home/.claude/settings.json',
+        'home/.cursor/hooks.json',
+        'home/.config/opencode/plugin',
+        'home/.codex/rules',
+      ]),
+    );
   });
 });

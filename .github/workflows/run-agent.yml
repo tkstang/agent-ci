@@ -63,7 +63,11 @@ on:
         type: number
         default: 2
       setup_command:
-        description: Optional command run in the target checkout before the agent (no secrets).
+        description: >-
+          Optional command (for example dependency installation) run in the target
+          checkout in a separate setup job without secrets. Only its resulting working
+          tree (without .git) reaches the agent job. It runs repository code: an edit-mode
+          agent can later run that code with the model credential in its environment.
         type: string
         default: ''
       skills_oat_packs:
@@ -140,8 +144,53 @@ permissions:
   contents: read
 
 jobs:
+  # The setup command runs repository code, so it gets its own job: no
+  # process, $GITHUB_ENV/$GITHUB_PATH entry, toolcache change or git config it
+  # creates can reach the job that holds the model credential. Only the
+  # prepared working tree (without .git) is handed over.
+  setup:
+    name: Prepare workspace (no secrets)
+    if: inputs.setup_command != ''
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the target repository
+        uses: actions/checkout@v5
+        with:
+          path: target
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Run the setup command
+        working-directory: target
+        env:
+          SETUP_COMMAND: ${{ inputs.setup_command }}
+        run: |
+          corepack enable
+          bash -c "$SETUP_COMMAND"
+
+      - name: Pack the prepared working tree (without .git)
+        run: tar --exclude=./.git -czf "$RUNNER_TEMP/agent-ci-prepared.tgz" -C target .
+
+      - name: Upload the prepared working tree
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name }}-prepared
+          path: ${{ runner.temp }}/agent-ci-prepared.tgz
+          retention-days: 1
+          if-no-files-found: error
+
   agent:
     name: Run agent
+    needs: setup
+    if: ${{ !cancelled() && (needs.setup.result == 'success' || needs.setup.result == 'skipped') }}
     runs-on: ${{ inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
@@ -164,6 +213,19 @@ jobs:
           path: target
           ref: ${{ inputs.target_ref }}
           persist-credentials: false
+
+      - name: Download the prepared working tree
+        if: inputs.setup_command != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact_name }}-prepared
+          path: ${{ runner.temp }}/agent-ci-prepared
+
+      # Over this job's own checkout: .git (config, hooks) never comes from
+      # the setup job. GNU tar refuses members with '..' and delays links.
+      - name: Restore the prepared working tree
+        if: inputs.setup_command != ''
+        run: tar --no-same-owner -xzf "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" -C target --exclude=./.git
 
       - name: Check out the agent-ci helpers
         uses: actions/checkout@v5
@@ -223,13 +285,6 @@ jobs:
         env:
           SOURCE: ${{ inputs.skills_source }}
         run: agent-ci skills install --home-root "$RUNNER_TEMP/agent-ci-home" --workspace target --source "target/$SOURCE" --allow-workspace-source
-
-      - name: Run the setup command (no secrets)
-        if: inputs.setup_command != ''
-        working-directory: target
-        env:
-          SETUP_COMMAND: ${{ inputs.setup_command }}
-        run: bash -c "$SETUP_COMMAND"
 
       - name: Write the prompt
         env:
