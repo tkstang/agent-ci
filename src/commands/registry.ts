@@ -1,7 +1,9 @@
 import { doctorCommand } from '@agent-ci/commands/doctor.js';
+import { harnessCommand } from '@agent-ci/commands/harness.js';
 import { modelsCommand } from '@agent-ci/commands/models.js';
 import { routeCommand } from '@agent-ci/commands/route.js';
 import { runCommand } from '@agent-ci/commands/run.js';
+import { skillsCommand } from '@agent-ci/commands/skills.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { validateCommand } from '@agent-ci/commands/validate.js';
 
@@ -12,4 +14,6 @@ export const COMMANDS: readonly CommandSpec[] = [
   modelsCommand,
   doctorCommand,
   validateCommand,
+  harnessCommand,
+  skillsCommand,
 ];
