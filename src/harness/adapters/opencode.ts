@@ -28,6 +28,13 @@ import type {
  * non-interactive run wrote a file and ran `touch` through its `shell` tool
  * even without `--auto`; with them neither tool was offered. v2 names the tool
  * `shell` but `bash: deny` also removed it, so both keys are denied.
+ *
+ * `question` and `execute` are denied too (live check 2026-10-25, research
+ * `opencode-question-subagent-probe-2026-10-25.md`): `execute` is OpenCode's
+ * code-mode runtime, and in a read-only run it still reached the network
+ * (`fetch` returned HTTP 200) and exposed `tools.opencode.worktree_create`.
+ * With these rules a read-only run offers only glob, grep, read, skill and
+ * subagent, and subagents inherit the same set.
  */
 export const READ_ONLY_PERMISSION = {
   edit: 'deny',
@@ -35,16 +42,27 @@ export const READ_ONLY_PERMISSION = {
   shell: 'deny',
   webfetch: 'deny',
   websearch: 'deny',
+  question: 'deny',
+  execute: 'deny',
+} as const;
+
+/**
+ * Edit runs keep the network tools denied. `question` is denied in both
+ * modes: a run has no one to answer it (stdin is closed), so asking can only
+ * stall until the deadline. Subagents inherit these rules (live check
+ * 2026-10-25, research `opencode-question-subagent-probe-2026-10-25.md`).
+ */
+export const EDIT_PERMISSION = {
+  webfetch: 'deny',
+  websearch: 'deny',
+  question: 'deny',
 } as const;
 
 export function opencodeConfig(mode: RunMode): Record<string, unknown> {
   return {
     $schema: 'https://opencode.ai/config.json',
     autoupdate: false,
-    permission:
-      mode === 'read-only'
-        ? READ_ONLY_PERMISSION
-        : { webfetch: 'deny', websearch: 'deny' },
+    permission: mode === 'read-only' ? READ_ONLY_PERMISSION : EDIT_PERMISSION,
   };
 }
 

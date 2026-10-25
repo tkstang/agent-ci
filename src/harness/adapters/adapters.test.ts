@@ -475,10 +475,12 @@ describe('opencode argv and job config', () => {
       shell: 'deny',
       webfetch: 'deny',
       websearch: 'deny',
+      question: 'deny',
+      execute: 'deny',
     });
   });
 
-  it('adds --auto for edit runs and keeps the network tools denied', async () => {
+  it('adds --auto for edit runs and keeps the network and question tools denied', async () => {
     const request = await makeRequest(route, { mode: 'edit' });
     const { observed } = await replay(opencodeAdapter, request, {
       stdout: await fixture('opencode-success.jsonl'),
@@ -497,6 +499,7 @@ describe('opencode argv and job config', () => {
     expect(config.permission).toEqual({
       webfetch: 'deny',
       websearch: 'deny',
+      question: 'deny',
     });
   });
 
