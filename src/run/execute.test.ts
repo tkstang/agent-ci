@@ -726,6 +726,33 @@ describe('runAgent', () => {
       expect(await readFile(victim, 'utf8')).toBe('untouched');
     });
 
+    it('re-checks the output directory after the agent ran', async () => {
+      const opts = await options({ model: 'fake-echo', mode: 'edit' });
+      const elsewhere = `${opts.cwd}-swapped`;
+      await mkdir(elsewhere);
+      const summary = await runAgent(opts, {
+        harness: {
+          spawn: async () => {
+            // The agent swaps the output directory for a link mid-run.
+            await rm(opts.outDir, { recursive: true, force: true });
+            await symlink(elsewhere, opts.outDir);
+            return okProcess(
+              `${JSON.stringify({
+                type: 'result',
+                is_error: false,
+                result: JSON.stringify({
+                  summary: 's',
+                  report: { title: 'T', markdown: 'M' },
+                }),
+              })}\n`,
+            );
+          },
+        },
+      });
+      expect(summary).toMatchObject({ ok: false, code: 'E_OUTPUT_PATH' });
+      expect(readdirSync(elsewhere)).toEqual([]);
+    });
+
     it('accepts an output directory outside the workspace (control)', async () => {
       const opts = await options({ model: 'fake-echo' });
       const outDir = `${opts.cwd}-out`;

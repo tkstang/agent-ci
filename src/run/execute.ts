@@ -210,6 +210,7 @@ export async function runAgent(
       resolved.value.skipped,
       prompt.value,
       home.value,
+      boundaryRoot,
     );
   } finally {
     // A temp root may hold a seeded login; never leave it behind.
@@ -224,6 +225,7 @@ async function runInHome(
   skipped: readonly SkippedRoute[],
   promptText: string,
   homeRoot: HomeRoot,
+  boundaryRoot: string,
 ): Promise<Result<RunSummary>> {
   const now = deps.now ?? Date.now;
   if (options.skillsDir !== undefined) {
@@ -482,6 +484,14 @@ async function runInHome(
       : { stopReason: supervised.stopReason }),
     ...(error === undefined ? {} : { code: error.code }),
   });
+  // The agent ran inside this workspace: re-check that nothing it did
+  // redirects the output directory before writing through it.
+  const stillSafe = await checkOutputDir(
+    options.cwd,
+    options.outDir,
+    boundaryRoot,
+  );
+  if (!stillSafe.ok) return stillSafe;
   await writeOwnedFile(
     resultPath,
     `${JSON.stringify(result, null, 2)}\n`,

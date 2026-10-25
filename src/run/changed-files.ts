@@ -35,7 +35,15 @@ async function listChanges(
   if (!workspace.value.git) return success({ root, files: [] });
   const excluded: string[] = [];
   for (const dir of excludeDirs) {
-    const real = await resolveRealPath(dir);
+    let real: string;
+    try {
+      real = await resolveRealPath(dir);
+    } catch {
+      return failure(
+        'E_WORKSPACE_STATUS',
+        `could not resolve the excluded directory ${dir}`,
+      );
+    }
     // Only a directory strictly inside the repository can be excluded.
     if (real !== root && isWithin(root, real)) {
       excluded.push(`${path.relative(root, real).split(path.sep).join('/')}/`);
@@ -98,16 +106,28 @@ export async function detectChangedFiles(
 /** Path → content fingerprint for every dirty path at one moment. */
 export type WorkspaceSnapshot = ReadonlyMap<string, string>;
 
-async function fingerprint(file: string): Promise<string> {
+/**
+ * Content fingerprint of one path. A missing path is 'missing'; any other
+ * error (permissions, I/O) is returned as a failure: treating an unreadable
+ * file as 'missing' before and after the run would silently drop its edits.
+ */
+async function fingerprint(file: string): Promise<Result<string>> {
   try {
     const info = await lstat(file);
-    if (info.isSymbolicLink()) return `link:${await readlink(file)}`;
-    if (!info.isFile()) return 'other';
-    return `file:${createHash('sha256')
-      .update(await readFile(file))
-      .digest('hex')}`;
-  } catch {
-    return 'missing';
+    if (info.isSymbolicLink()) return success(`link:${await readlink(file)}`);
+    if (!info.isFile()) return success('other');
+    return success(
+      `file:${createHash('sha256')
+        .update(await readFile(file))
+        .digest('hex')}`,
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT')
+      return success('missing');
+    return failure(
+      'E_WORKSPACE_STATUS',
+      `could not read workspace file ${file} (${(err as NodeJS.ErrnoException).code ?? 'error'})`,
+    );
   }
 }
 
@@ -121,7 +141,9 @@ export async function snapshotWorkspace(
   if (!changes.ok) return changes;
   const entries = new Map<string, string>();
   for (const file of changes.value.files) {
-    entries.set(file, await fingerprint(path.join(changes.value.root, file)));
+    const print = await fingerprint(path.join(changes.value.root, file));
+    if (!print.ok) return print;
+    entries.set(file, print.value);
   }
   return success(entries);
 }

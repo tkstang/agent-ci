@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  rename,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -146,5 +153,26 @@ describe('detectChangedFiles', () => {
       ok: true,
       value: ['work.txt'],
     });
+  });
+
+  it('fails instead of dropping an unreadable dirty file or an unresolvable exclusion', async () => {
+    const repo = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-git-unread-'));
+    git(repo, 'init', '-q');
+    const locked = path.join(repo, 'locked.txt');
+    await writeFile(locked, 'secret-ish');
+    await chmod(locked, 0o000);
+    try {
+      expect(await snapshotWorkspace(repo)).toMatchObject({
+        ok: false,
+        code: 'E_WORKSPACE_STATUS',
+      });
+    } finally {
+      await chmod(locked, 0o600);
+    }
+    await symlink(path.join(repo, 'loop-b'), path.join(repo, 'loop-a'));
+    await symlink(path.join(repo, 'loop-a'), path.join(repo, 'loop-b'));
+    expect(
+      await detectChangedFiles(repo, [path.join(repo, 'loop-a', 'out')]),
+    ).toMatchObject({ ok: false, code: 'E_WORKSPACE_STATUS' });
   });
 });
