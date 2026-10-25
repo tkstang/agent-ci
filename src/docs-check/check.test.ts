@@ -11,6 +11,7 @@ import {
   headingSlugs,
   loadDocsConfig,
   markdownLinks,
+  renderedHeadingText,
 } from './check.js';
 
 const CONFIG: DocsConfig = {
@@ -169,6 +170,38 @@ describe('checkDocs', () => {
     ]);
   });
 
+  it('accepts anchors to formatted and repeated headings as GitHub renders them', async () => {
+    const formatted = page(
+      'Guide',
+      '## _Setup_\n\n## `run_check` tool\n\n## foo\n\n## foo-1\n\n## foo\n\nBack to [home](index.md).\n',
+    );
+    const linking = page(
+      'Leaf',
+      'See [setup](../guide.md#setup), [tool](../guide.md#run_check-tool) and [third](../guide.md#foo-2).\n',
+    );
+    expect(
+      await run(
+        await fixture({
+          'docs/guide.md': formatted,
+          'docs/section/leaf.md': linking,
+        }),
+      ),
+    ).toEqual([]);
+    const stale = await run(
+      await fixture({
+        'docs/guide.md': formatted,
+        'docs/section/leaf.md': page(
+          'Leaf',
+          'See [setup](../guide.md#_setup_) and [dup](../guide.md#foo-1-1).\n',
+        ),
+      }),
+    );
+    expect(stale.map((finding) => finding.message)).toEqual([
+      'anchor #_setup_ is not a heading in docs/guide.md',
+      'anchor #foo-1-1 is not a heading in docs/guide.md',
+    ]);
+  });
+
   it('reports a missing docs root or authored index as configuration errors', async () => {
     const root = await fixture();
     expect(await run(root, { ...CONFIG, root: 'documentation' })).toEqual([
@@ -201,6 +234,27 @@ describe('helpers', () => {
       'pool--ci-1',
       'linked-title',
     ]);
+  });
+
+  it('slugs rendered heading text and keeps every duplicate suffix unique', () => {
+    expect([
+      ...headingSlugs(
+        '## _Setup_\n## **Bold** and *em*\n## `run_check` tool\n## snake_case name\n## __init__ hooks\n## foo\n## foo-1\n## foo\n## foo\n',
+      ),
+    ]).toEqual([
+      'setup',
+      'bold-and-em',
+      'run_check-tool',
+      'snake_case-name',
+      'init-hooks',
+      'foo',
+      'foo-1',
+      'foo-2',
+      'foo-3',
+    ]);
+    expect(renderedHeadingText('A [*linked*](x.md) `a_b` _c_')).toBe(
+      'A linked a_b c',
+    );
   });
 
   it('extracts inline links, angle-bracket targets and reference definitions', () => {

@@ -157,22 +157,54 @@ function frontMatter(text: string): Record<string, unknown> | null {
   }
 }
 
-/** GitHub's heading anchors for a Markdown document, duplicates numbered. */
+/**
+ * A heading's rendered text: code spans keep their content, links and
+ * images keep their text, and emphasis markers (`*`, `_`) are dropped.
+ * Underscores inside words and inside code spans stay, as GitHub keeps them.
+ */
+export function renderedHeadingText(heading: string): string {
+  const linked = heading
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/gu, '$1')
+    .replace(/!?\[([^\]]*)\]\[[^\]]*\]/gu, '$1');
+  return linked
+    .split(/(`+[^`]*?`+)/u)
+    .map((part) => {
+      const code = /^(`+)([^`]*?)\1$/u.exec(part);
+      if (code !== null) return code[2] ?? '';
+      return part
+        .replace(/\*+/gu, '')
+        .replace(/(^|[^\p{L}\p{N}_])_+(?=\S)/gu, '$1')
+        .replace(/(?<=\S)_+(?=$|[^\p{L}\p{N}_])/gu, '');
+    })
+    .join('');
+}
+
+/**
+ * GitHub's heading anchors for a Markdown document. A repeated slug gets the
+ * next `-N` suffix that no earlier heading produced (`foo`, `foo-1`, `foo`
+ * gives `foo`, `foo-1`, `foo-2`), as GitHub's slugger does.
+ */
 export function headingSlugs(text: string): Set<string> {
   const slugs = new Set<string>();
   const counts = new Map<string, number>();
   for (const { text: line } of proseLines(text, true)) {
     const heading = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/u.exec(line)?.[1];
     if (heading === undefined) continue;
-    const base = heading
-      .replace(/!?\[([^\]]*)\]\([^)]*\)/gu, '$1')
+    const base = renderedHeadingText(heading)
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s_-]/gu, '')
       .trim()
       .replace(/\s/gu, '-');
-    const seen = counts.get(base) ?? 0;
-    slugs.add(seen === 0 ? base : `${base}-${seen}`);
-    counts.set(base, seen + 1);
+    let slug = base;
+    if (slugs.has(slug)) {
+      let count = counts.get(base) ?? 0;
+      do {
+        count += 1;
+        slug = `${base}-${count}`;
+      } while (slugs.has(slug));
+      counts.set(base, count);
+    }
+    slugs.add(slug);
   }
   return slugs;
 }
