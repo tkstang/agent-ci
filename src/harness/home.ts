@@ -72,16 +72,61 @@ export interface CreateHomeRootOptions {
 }
 
 /**
- * Walk a kept root WITHOUT following links. Every symlink must resolve inside
- * the root and outside the workspace: a link such as `home/.codex -> <repo>`
- * would otherwise route login copies, clears and harness writes into the
- * checkout, and a link to the operator's real `~/.codex` would hand the run
- * an unnamed login. Provider skill views (links within the root) stay valid.
+ * Directories whose contents decide which account a harness uses or which
+ * instructions it loads: the config homes, the OpenCode data/config dirs, the
+ * Cursor config dir and the skills tree.
+ */
+function credentialLocations(layout: HomeRoot): string[] {
+  const env = layout.env;
+  return [
+    env.CODEX_HOME ?? path.join(layout.home, '.codex'),
+    env.CLAUDE_CONFIG_DIR ?? path.join(layout.home, '.claude'),
+    path.join(
+      env.XDG_DATA_HOME ?? path.join(layout.home, '.local', 'share'),
+      'opencode',
+    ),
+    path.join(
+      env.XDG_CONFIG_HOME ?? path.join(layout.home, '.config'),
+      'opencode',
+    ),
+    path.join(layout.home, '.cursor'),
+    layout.skillsDir,
+  ];
+}
+
+/**
+ * A link is at a protected location when it sits inside one of them, or is
+ * itself an ancestor component of one (`home/.local` can redirect
+ * `XDG_DATA_HOME/opencode`).
+ */
+function isProtectedLocation(
+  link: string,
+  protectedDirs: readonly string[],
+): boolean {
+  return protectedDirs.some(
+    (dir) => isWithin(dir, link) || isWithin(link, dir),
+  );
+}
+
+/**
+ * Walk a home root WITHOUT following links (before seeding a kept root, and
+ * after every run). Two invariants:
+ *
+ * - no link anywhere may resolve into the workspace: it would route login
+ *   copies, clears or harness writes into the checkout;
+ * - a link at or inside a credential location (or on an ancestor of one)
+ *   must stay inside the root: `home/.codex -> ~/.codex` would hand the run
+ *   an unnamed login.
+ *
+ * Other links may point elsewhere: harness caches legitimately do (a Python
+ * virtualenv in Cursor's `uv` cache links its interpreter to the system
+ * Python; live run 2026-10-25). Provider skill views stay valid.
  */
 export async function validateHomeTree(
   realRoot: string,
   workspaceRoot: string | undefined,
 ): Promise<Result<void>> {
+  const protectedDirs = credentialLocations(homeLayout(realRoot));
   const pending = [realRoot];
   let seen = 0;
   while (pending.length > 0) {
@@ -108,22 +153,30 @@ export async function validateHomeTree(
       if (entry.isDirectory()) {
         pending.push(full);
       } else if (entry.isSymbolicLink()) {
+        const guarded = isProtectedLocation(full, protectedDirs);
         let target: string;
         try {
           target = await resolveRealPath(full);
         } catch {
+          // A loop or a '..' below a missing component cannot be written
+          // through; it only matters where credentials live.
+          if (!guarded) continue;
           return failure(
             'E_HOME_ROOT',
-            `unresolvable symlink in home root: ${full}`,
+            `unresolvable symlink at a credential location: ${full}`,
           );
         }
-        if (
-          !isWithin(realRoot, target) ||
-          (workspaceRoot !== undefined && isWithin(workspaceRoot, target))
-        ) {
+        if (workspaceRoot !== undefined && isWithin(workspaceRoot, target)) {
           return failure(
             'E_HOME_ROOT',
-            `symlink ${full} in the home root points outside it or into the workspace`,
+            `symlink ${full} in the home root points into the workspace`,
+            'Remove the link or use a fresh home root.',
+          );
+        }
+        if (guarded && !isWithin(realRoot, target)) {
+          return failure(
+            'E_HOME_ROOT',
+            `symlink ${full} at a credential location points outside the home root`,
             'Remove the link or use a fresh home root.',
           );
         }

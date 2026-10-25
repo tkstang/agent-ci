@@ -280,18 +280,62 @@ describe('kept home root validation', () => {
     );
   });
 
-  it('refuses a link anywhere under the root that leaves it (for example to a real login)', async () => {
-    const { base, root } = await keptRoot();
-    await mkdir(path.join(base, 'operator-codex'));
-    await mkdir(path.join(root, 'home', '.cache', 'deep'), { recursive: true });
+  it('refuses links that leave the root at credential locations', async () => {
+    const cases: ((root: string, base: string) => Promise<void>)[] = [
+      // A login file borrowed from outside the root.
+      async (root, base) => {
+        await writeFile(path.join(base, 'operator-auth.json'), '{}');
+        await mkdir(path.join(root, 'home', '.codex'), { recursive: true });
+        await symlink(
+          path.join(base, 'operator-auth.json'),
+          path.join(root, 'home', '.codex', 'auth.json'),
+        );
+      },
+      // An ancestor of XDG_DATA_HOME/opencode redirected outside the root.
+      async (root, base) => {
+        await mkdir(path.join(base, 'operator-local'));
+        await symlink(
+          path.join(base, 'operator-local'),
+          path.join(root, 'home', '.local'),
+        );
+      },
+      // A skills directory linked outside the root.
+      async (root, base) => {
+        await mkdir(path.join(base, 'operator-skills'));
+        await mkdir(path.join(root, 'home', '.agents'), { recursive: true });
+        await symlink(
+          path.join(base, 'operator-skills'),
+          path.join(root, 'home', '.agents', 'skills'),
+        );
+      },
+    ];
+    for (const plant of cases) {
+      const { base, root } = await keptRoot();
+      await plant(root, base);
+      expect(await createHomeRoot(root)).toMatchObject({
+        ok: false,
+        code: 'E_HOME_ROOT',
+      });
+    }
+  });
+
+  it('accepts cache links that leave the root, but never one into the workspace', async () => {
+    const { base, root, workspace } = await keptRoot();
+    // Like Cursor's uv cache: a virtualenv interpreter linked to a system Python.
+    const venvBin = path.join(root, 'home', '.cache', 'uv', 'env', 'bin');
+    await mkdir(venvBin, { recursive: true });
+    await writeFile(path.join(base, 'system-python'), '');
     await symlink(
-      path.join(base, 'operator-codex'),
-      path.join(root, 'home', '.cache', 'deep', 'escape'),
+      path.join(base, 'system-python'),
+      path.join(venvBin, 'python'),
     );
-    expect(await createHomeRoot(root)).toMatchObject({
-      ok: false,
-      code: 'E_HOME_ROOT',
-    });
+    expect((await createHomeRoot(root, { workspaceRoot: workspace })).ok).toBe(
+      true,
+    );
+    await symlink(workspace, path.join(venvBin, 'into-workspace'));
+    expect(
+      await createHomeRoot(root, { workspaceRoot: workspace }),
+    ).toMatchObject({ ok: false, code: 'E_HOME_ROOT' });
   });
 
   it('accepts links that stay inside the root (provider skill views)', async () => {
