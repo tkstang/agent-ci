@@ -23,6 +23,7 @@ bullet lines over rewriting whole sections, and reference backlog records by ID
 - **BL-261025-fleet-repositories-merged: Fleet repositories: merged target lists and protected artifacts** — two fleets (public `agent-ci-fleet` on GitHub-hosted runners, private `agent-ci-private-fleet` on self-hosted); `targets_json` merged with `targets_file`; optional artifact encryption for public-fleet artifacts.
 - **BL-261025-codex-chatgpt-login-route: Codex ChatGPT-login route for the private fleet** — runner-local `auth.json`, serialized jobs, per OpenAI's trusted-private-automation guidance.
 - **BL-261025-self-hosted-runner-and-proxy: Self-hosted runner and proxy readiness** — per-runner proxy base URL, first live `allow_pool` job, and a release tag for consumer pins.
+- **BL-261025-post-v1-simplification-pass: Post-v1 simplification pass** — verify-isolation trim, review-pass workflow boundary, unused inputs, workflow and rule dedupe, in-place git-dir pinning (from the PR #25 complexity review).
 
 Shipped on `feat/agent-ci-v1` (archived backlog items): BL-261025-reusable-run-agent-workflow (p02), BL-261025-ai-pull-request-review (p03), BL-261025-verify-review-run-check-tool (p04), BL-261025-use-case-wrappers-and-multi (p05).
 

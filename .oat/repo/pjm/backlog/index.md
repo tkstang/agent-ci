@@ -11,6 +11,7 @@
 | --- | --- | --- | --- | --- | --- |
 | BL-261025-fleet-repositories-merged | Fleet repositories: merged target lists and protected artifacts | open | high | feature | L |
 | BL-261025-codex-chatgpt-login-route | Codex ChatGPT-login route for the private fleet | open | medium | task | M |
+| BL-261025-post-v1-simplification-pass | Post-v1 simplification pass | open | medium | feature | L |
 | BL-261025-qualify-the-ci-routes-live | Qualify the CI routes live | open | medium | task | S |
 | BL-261025-self-hosted-runner-and-proxy | Self-hosted runner and proxy readiness | open | medium | task | S |
 | BL-261025-close-remaining-claude-only | Close remaining Claude-only policy name-check gaps | open | low | task | XS |
