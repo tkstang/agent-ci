@@ -1029,7 +1029,15 @@ describe('runVerify', () => {
       expect(byName.get('read')?.output_tail).not.toContain(
         'synthetic-protected',
       );
-      expect(byName.get('rc')?.output_tail).toContain('rc-denied');
+      // Shell rc files: the macOS profile denies the read; Linux mounts
+      // /dev/null over the file, so `cat` succeeds and prints nothing.
+      if (isolation === 'macos-sandbox')
+        expect(byName.get('rc')?.output_tail).toContain('rc-denied');
+      if (isolation === 'linux-namespaces')
+        expect(byName.get('rc')).toMatchObject({
+          exit_code: 0,
+          output_tail: '',
+        });
       // Nothing outside the run directory is writable: a binary planted in
       // the operator's PATH could run later with credentials.
       expect(byName.get('plant')?.output_tail).toContain('plant-denied');
