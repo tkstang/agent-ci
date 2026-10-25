@@ -16,6 +16,8 @@
 | DR-261025-publish-from-a-separate-job | 2026-10-25 | accepted | Publish from a separate job with GITHUB_TOKEN by default | - |
 | DR-261025-route-models-through-a-checked | 2026-10-25 | accepted | Route models through a checked-in models.yaml with an enforced policy | - |
 | DR-261025-run-agents-through-harness | 2026-10-25 | accepted | Run agents through harness CLIs, not SDKs or the AI SDK | - |
+| DR-261025-run-the-pr-review-adjudicator | 2026-10-25 | accepted | Run the PR-review adjudicator only on Claude with every tool removed | - |
+| DR-261025-trigger-pr-reviews-from | 2026-10-25 | accepted | Trigger PR reviews from the default branch with a strict gate | - |
 | DR-261025-use-the-local-proxy-pool | 2026-10-25 | accepted | Use the local proxy pool for Claude only in local runs | - |
 | DR-261025-use-tsrs-instead-of-tsc | 2026-10-25 | accepted | Use tsrs instead of tsc for type checking and emit | - |
 | DR-261025-workflow-steps-call-agent-ci | 2026-10-25 | accepted | Workflow steps call agent-ci subcommands | - |
