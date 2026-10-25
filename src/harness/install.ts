@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   lstat,
   mkdir,
@@ -27,11 +28,19 @@ export type InstallSpec =
       readonly package: string;
       readonly version: string;
       readonly bin: string;
+      /**
+       * Install with `--ignore-scripts`. Only where the harness works
+       * without its install scripts (checked 2026-10-25: codex does; Claude
+       * Code and OpenCode need their postinstall to place the native binary).
+       */
+      readonly ignoreScripts: boolean;
     }
   | {
       readonly kind: 'cursor-tarball';
       readonly version: string;
       readonly bin: string;
+      /** sha256 of the tarball per `<platform>-<arch>`, verified before extraction. */
+      readonly sha256: Readonly<Record<string, string>>;
     };
 
 export const HARNESS_INSTALLS: Readonly<
@@ -44,12 +53,14 @@ export const HARNESS_INSTALLS: Readonly<
     package: '@anthropic-ai/claude-code',
     version: '2.1.310',
     bin: 'claude',
+    ignoreScripts: false,
   },
   codex: {
     kind: 'npm',
     package: '@openai/codex',
     version: '0.163.0',
     bin: 'codex',
+    ignoreScripts: true,
   },
   // OpenCode 2 is published as @opencode/cli; `opencode-ai` is OpenCode 1.
   opencode: {
@@ -57,11 +68,23 @@ export const HARNESS_INSTALLS: Readonly<
     package: '@opencode/cli',
     version: '2.0.27',
     bin: 'opencode',
+    ignoreScripts: false,
   },
   cursor: {
     kind: 'cursor-tarball',
     version: '2026.10.22-27dcf5f',
     bin: 'agent',
+    // Computed from the published tarballs on 2026-10-25.
+    sha256: {
+      'linux-x64':
+        '85296944e4600a83c4b764f578d1502bf9c416db200d33a593e8f3ecabfdc294',
+      'linux-arm64':
+        '22a36df9720830668ccd4d707e5190204ab9c8a0efb2f068cc914895f804d3ec',
+      'darwin-x64':
+        '7a3cfbf0fcfb979b6213feb5f9fd10fbc7cd4e51ab28c3b572bb935e0b114961',
+      'darwin-arm64':
+        '2f5b0a3dd5fb951cecffac813867d8a08d810e59837d59fd5f12d69b922398d7',
+    },
   },
 };
 
@@ -121,6 +144,8 @@ export interface InstallDeps {
   readonly fetch?: typeof fetch;
   readonly platform?: string;
   readonly arch?: string;
+  /** Test seam: replaces the pinned Cursor tarball checksums. */
+  readonly cursorSha256?: Readonly<Record<string, string>>;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -169,6 +194,7 @@ export async function installHarness(
         '--no-audit',
         '--no-fund',
         '--loglevel=error',
+        ...(spec.ignoreScripts ? ['--ignore-scripts'] : []),
         `${spec.package}@${spec.version}`,
       ],
       {
@@ -184,12 +210,17 @@ export async function installHarness(
       );
     }
   } else {
-    const url = cursorTarballUrl(
-      spec.version,
-      deps.platform ?? process.platform,
-      deps.arch ?? process.arch,
-    );
+    const platform = deps.platform ?? process.platform;
+    const arch = deps.arch ?? process.arch;
+    const url = cursorTarballUrl(spec.version, platform, arch);
     if (!url.ok) return url;
+    const expected = (deps.cursorSha256 ?? spec.sha256)[`${platform}-${arch}`];
+    if (expected === undefined) {
+      return failure(
+        'E_HARNESS_NOT_FOUND',
+        `no pinned checksum for the Cursor agent on ${platform}-${arch}`,
+      );
+    }
     const doFetch = deps.fetch ?? fetch;
     let body: ArrayBuffer;
     try {
@@ -205,6 +236,13 @@ export async function installHarness(
       return failure(
         'E_HARNESS_NOT_FOUND',
         `downloading the Cursor agent failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const actual = createHash('sha256').update(Buffer.from(body)).digest('hex');
+    if (actual !== expected) {
+      return failure(
+        'E_HARNESS_NOT_FOUND',
+        `the Cursor agent download does not match its pinned sha256 (got ${actual})`,
       );
     }
     const archive = path.join(prefix, `cursor-agent-${spec.version}.tar.gz`);

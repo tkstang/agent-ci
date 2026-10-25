@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   lstat,
   mkdir,
@@ -13,6 +14,7 @@ import { createHarnessCommand } from '@agent-ci/commands/harness.js';
 import {
   codexSandboxSmoke,
   cursorTarballUrl,
+  HARNESS_INSTALLS,
   installHarness,
   type ProcessRunner,
 } from '@agent-ci/harness/install.js';
@@ -38,6 +40,10 @@ function recorder(
   };
   return { run, calls };
 }
+
+const BODY_SHA256 = createHash('sha256')
+  .update(new Uint8Array([1, 2, 3]))
+  .digest('hex');
 
 const tmp = (prefix: string) => mkdtemp(path.join(os.tmpdir(), prefix));
 
@@ -116,6 +122,7 @@ describe('installHarness', () => {
       fetch: fakeFetch,
       platform: 'linux',
       arch: 'x64',
+      cursorSha256: { 'linux-x64': BODY_SHA256 },
     });
     expect(installed.ok).toBe(true);
     expect(fetched).toEqual([
@@ -132,6 +139,49 @@ describe('installHarness', () => {
     await expect(
       lstat(path.join(prefix, 'cursor-agent-2026.10.22-27dcf5f.tar.gz')),
     ).rejects.toThrow();
+  });
+
+  it('refuses a Cursor download that does not match its pinned sha256, before extracting', async () => {
+    const prefix = await tmp('agent-ci-install-');
+    const fakeFetch = (async () =>
+      new Response(new Uint8Array([9, 9, 9]))) as unknown as typeof fetch;
+    const { run, calls } = recorder(async () => ({ exitCode: 0 }));
+    const tampered = await installHarness('cursor', prefix, {
+      run,
+      fetch: fakeFetch,
+      platform: 'linux',
+      arch: 'x64',
+      cursorSha256: { 'linux-x64': BODY_SHA256 },
+    });
+    expect(tampered.ok ? 'ok' : tampered.code).toBe('E_HARNESS_NOT_FOUND');
+    expect(calls).toEqual([]);
+    await expect(lstat(path.join(prefix, 'bin', 'agent'))).rejects.toThrow();
+    // The real pins cover the platforms Cursor publishes; others are refused.
+    const unpinned = await installHarness('cursor', prefix, {
+      run,
+      fetch: fakeFetch,
+      platform: 'linux',
+      arch: 'x64',
+      cursorSha256: {},
+    });
+    expect(unpinned.ok ? 'ok' : unpinned.code).toBe('E_HARNESS_NOT_FOUND');
+    expect(
+      Object.keys(
+        HARNESS_INSTALLS.cursor.kind === 'cursor-tarball'
+          ? HARNESS_INSTALLS.cursor.sha256
+          : {},
+      ),
+    ).toEqual(['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64']);
+  });
+
+  it('skips install scripts only for harnesses that work without them', async () => {
+    const prefix = await tmp('agent-ci-install-');
+    const { run, calls } = recorder(async () => ({ exitCode: 0, stdout: 'v' }));
+    await installHarness('codex', prefix, { run });
+    await installHarness('claude', prefix, { run });
+    const npm = calls.filter((call) => call.command === 'npm');
+    expect(npm[0]?.args).toContain('--ignore-scripts');
+    expect(npm[1]?.args).not.toContain('--ignore-scripts');
   });
 
   it('refuses platforms without a Cursor build and needs nothing for the fake harness', async () => {
