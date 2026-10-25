@@ -16,7 +16,10 @@ import {
 } from '@agent-ci/contracts/secret-guard.js';
 import { writeOwnedFile } from '@agent-ci/files.js';
 import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
-import { CredentialLeakError } from '@agent-ci/harness/env.js';
+import {
+  CredentialLeakError,
+  UnsafeWorkspaceError,
+} from '@agent-ci/harness/env.js';
 import {
   createHomeRoot,
   clearLoginStores,
@@ -510,7 +513,9 @@ async function runInHome(
                 code:
                   err instanceof CredentialLeakError
                     ? 'E_CREDENTIAL_LEAK'
-                    : 'E_HARNESS_FAILED',
+                    : err instanceof UnsafeWorkspaceError
+                      ? 'E_UNSAFE_WORKSPACE'
+                      : 'E_HARNESS_FAILED',
                 retryable: false,
                 message: maskSecrets(
                   err instanceof Error ? err.message : String(err),

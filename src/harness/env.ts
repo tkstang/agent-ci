@@ -37,6 +37,14 @@ export class CredentialLeakError extends Error {
 }
 
 /**
+ * The workspace carries configuration the harness would execute on its own
+ * (for example Cursor project hooks). Thrown before the harness starts.
+ */
+export class UnsafeWorkspaceError extends Error {
+  override readonly name = 'UnsafeWorkspaceError';
+}
+
+/**
  * Build a child environment from the allowlist. Credential variables come
  * only from the route's `credentials` list; adapter settings may not smuggle
  * in a known credential variable.

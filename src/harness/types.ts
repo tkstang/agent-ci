@@ -63,7 +63,8 @@ export type HarnessFailureCode =
   | 'E_HARNESS_OUTPUT_LIMIT'
   | 'E_CREDENTIAL_LEAK'
   | 'E_SECRET_GUARD'
-  | 'E_WORKSPACE_STATUS';
+  | 'E_WORKSPACE_STATUS'
+  | 'E_UNSAFE_WORKSPACE';
 
 export type HarnessOutcome =
   | {

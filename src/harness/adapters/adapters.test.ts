@@ -1,4 +1,13 @@
-import { lstat, readFile, symlink, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import { KNOWN_CREDENTIAL_ENV } from '@agent-ci/contracts/secret-guard.js';
@@ -6,6 +15,7 @@ import { claudeAdapter } from '@agent-ci/harness/adapters/claude.js';
 import { codexAdapter } from '@agent-ci/harness/adapters/codex.js';
 import { cursorAdapter } from '@agent-ci/harness/adapters/cursor.js';
 import { opencodeAdapter } from '@agent-ci/harness/adapters/opencode.js';
+import { UnsafeWorkspaceError } from '@agent-ci/harness/env.js';
 import {
   alive,
   envNames,
@@ -526,8 +536,47 @@ describe('opencode argv and job config', () => {
   });
 });
 
+async function hookedWorkspace(
+  files: Record<string, string>,
+): Promise<{ root: string; sub: string }> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-cursor-ws-'));
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const sub = path.join(root, 'pkg');
+  await mkdir(sub);
+  for (const [file, content] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+    await writeFile(path.join(root, file), content);
+  }
+  return { root, sub };
+}
+
 describe('cursor argv and posture', () => {
   const route = cases[3]?.route as Route;
+
+  it('refuses a workspace whose hooks Cursor would run, before starting the agent', async () => {
+    const hooked: Record<string, string>[] = [
+      { '.cursor/hooks.json': '{"version":1,"hooks":{}}' },
+      { '.claude/settings.json': '{"hooks":{}}' },
+      { '.claude/settings.local.json': 'not json' },
+    ];
+    for (const files of hooked) {
+      const { root, sub } = await hookedWorkspace(files);
+      for (const cwd of [root, sub]) {
+        const request = await makeRequest(route, { cwd });
+        await expect(cursorAdapter.prepare(request)).rejects.toBeInstanceOf(
+          UnsafeWorkspaceError,
+        );
+      }
+    }
+    // Settings without hooks are fine.
+    const { root } = await hookedWorkspace({
+      '.claude/settings.json': '{"permissions":{}}',
+    });
+    const ok = await cursorAdapter.prepare(
+      await makeRequest(route, { cwd: root }),
+    );
+    expect(ok.command).toBe('agent');
+  });
 
   it('uses ask mode without --force for read-only runs and --force for edits', async () => {
     const readOnly = await replay(cursorAdapter, await makeRequest(route), {
