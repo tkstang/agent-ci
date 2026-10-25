@@ -47,6 +47,11 @@ export const workspaceCommand: CommandSpec = {
     context.log(
       `agent-ci workspace: restored ${restored.value.entries} entries`,
     );
+    if (restored.value.retainedBackup !== undefined) {
+      context.log(
+        `agent-ci workspace: warning: the previous checkout could not be removed and is kept at ${restored.value.retainedBackup}`,
+      );
+    }
     return restored.value;
   },
 };

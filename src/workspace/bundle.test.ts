@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmod,
   link,
   lstat,
   mkdir,
@@ -9,6 +10,7 @@ import {
   readFile,
   readlink,
   realpath,
+  rename,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -362,6 +364,63 @@ describe('chained links that stay in the tree', () => {
     });
     expect(restored.ok).toBe(true);
     expect(await readFile(path.join(target, 'bin', 'tool'), 'utf8')).toBe('x');
+  });
+});
+
+describe('the swap is transactional (gate L1)', () => {
+  const honest: Member[] = [{ name: 'new.txt', content: 'new\n' }];
+
+  for (const failAt of [1, 2, 3]) {
+    it(`a rename failure at step ${failAt} leaves the checkout unchanged`, async () => {
+      const { target, config } = await agentCheckout();
+      const { archive, digest } = await forged(honest);
+      let calls = 0;
+      const restored = await restoreWorkspace({
+        archive,
+        target,
+        sha256: digest,
+        fs: {
+          rename: async (from, to) => {
+            calls += 1;
+            if (calls === failAt) {
+              throw Object.assign(new Error('injected'), { code: 'EIO' });
+            }
+            await rename(from, to);
+          },
+        },
+      });
+      expect(restored.ok ? 'ok' : restored.message).toContain(
+        'the checkout was left unchanged',
+      );
+      await untouched(target, config);
+    });
+  }
+
+  it('reports a retained backup (not a failure) when only cleanup fails', async () => {
+    const { target, config } = await agentCheckout();
+    // A directory whose entries cannot be removed (permission control).
+    await mkdir(path.join(target, 'protected'));
+    await writeFile(path.join(target, 'protected', 'keep.txt'), 'keep\n');
+    await chmod(path.join(target, 'protected'), 0o555);
+    const { archive, digest } = await forged(honest);
+    const restored = await restoreWorkspace({
+      archive,
+      target,
+      sha256: digest,
+    });
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    const backup = restored.value.retainedBackup;
+    expect(backup).toBeDefined();
+    // The replacement committed: new tree plus this job's own .git.
+    expect(await readFile(path.join(target, 'new.txt'), 'utf8')).toBe('new\n');
+    expect(await readFile(path.join(target, '.git', 'config'), 'utf8')).toBe(
+      config,
+    );
+    expect(
+      await readFile(path.join(backup ?? '', 'protected', 'keep.txt'), 'utf8'),
+    ).toBe('keep\n');
+    await chmod(path.join(backup ?? '', 'protected'), 0o755);
   });
 });
 

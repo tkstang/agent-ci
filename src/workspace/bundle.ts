@@ -409,11 +409,100 @@ export interface RestoreOptions {
   /** Expected sha256 of the archive file (lowercase hex). */
   readonly sha256: string;
   readonly limits?: ArchiveLimits;
+  /** Test seam for the swap's filesystem operations. */
+  readonly fs?: {
+    readonly rename?: typeof rename;
+    readonly rm?: typeof rm;
+  };
 }
 
 export interface RestoreReport {
   readonly entries: number;
   readonly sha256: string;
+  /**
+   * Set when the new tree is in place but the previous checkout could not be
+   * removed: it is kept at this path.
+   */
+  readonly retainedBackup?: string;
+}
+
+const code = (err: unknown) => (err as NodeJS.ErrnoException).code ?? 'error';
+
+/**
+ * Swap the staging tree into place, transactionally:
+ *
+ * 1. `target/.git` → `staging/.git` (the agent job's own checkout);
+ * 2. `target` → `old` (backup);
+ * 3. `staging` → `target`: the replacement commits here.
+ *
+ * A failure in steps 1–3 is rolled back in reverse, so the checkout is as it
+ * was, and reported as a failure. After step 3 the restore has succeeded; if
+ * the backup cannot be removed, it is kept and reported (`retainedBackup`).
+ */
+async function swapIntoPlace(
+  target: string,
+  staging: string,
+  old: string,
+  ops: RestoreOptions['fs'],
+  report: { entries: number; sha256: string },
+): Promise<Result<RestoreReport>> {
+  const doRename = ops?.rename ?? rename;
+  const doRm = ops?.rm ?? rm;
+  const fail = (step: string, err: unknown, rolledBack: boolean, state = '') =>
+    failure(
+      'E_WORKSPACE_BUNDLE',
+      `could not swap the restored workspace into place (${step}: ${code(err)}); ${
+        rolledBack
+          ? 'the checkout was left unchanged'
+          : `rollback failed, current state: ${state}`
+      }`,
+    );
+  try {
+    await doRename(path.join(target, '.git'), path.join(staging, '.git'));
+  } catch (err) {
+    await rm(staging, { recursive: true, force: true });
+    return fail('moving .git', err, true);
+  }
+  try {
+    await doRename(target, old);
+  } catch (err) {
+    try {
+      await doRename(path.join(staging, '.git'), path.join(target, '.git'));
+    } catch {
+      return fail(
+        'backing up the checkout',
+        err,
+        false,
+        `.git is at ${staging}/.git`,
+      );
+    }
+    await rm(staging, { recursive: true, force: true });
+    return fail('backing up the checkout', err, true);
+  }
+  try {
+    await doRename(staging, target);
+  } catch (err) {
+    try {
+      await doRename(old, target);
+      await doRename(path.join(staging, '.git'), path.join(target, '.git'));
+    } catch {
+      return fail(
+        'replacing the checkout',
+        err,
+        false,
+        `previous checkout at ${old}, its .git at ${staging}/.git`,
+      );
+    }
+    await rm(staging, { recursive: true, force: true });
+    return fail('replacing the checkout', err, true);
+  }
+  // Committed: the new tree (with this job's .git) is in place.
+  try {
+    await doRm(old, { recursive: true, force: true });
+  } catch {
+    return success({ ...report, retainedBackup: old });
+  }
+  return success(report);
 }
 
 export async function restoreWorkspace(
@@ -474,18 +563,8 @@ export async function restoreWorkspace(
       `refusing the prepared workspace: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  try {
-    // The staging tree holds no .git (refused at any depth); the agent job's
-    // own checkout supplies it.
-    await rename(path.join(target, '.git'), path.join(staging, '.git'));
-    await rename(target, old);
-    await rename(staging, target);
-    await rm(old, { recursive: true, force: true });
-  } catch (err) {
-    return failure(
-      'E_WORKSPACE_BUNDLE',
-      `could not swap the restored workspace into place (${(err as NodeJS.ErrnoException).code ?? 'error'})`,
-    );
-  }
-  return success({ entries, sha256: actual });
+  return swapIntoPlace(target, staging, old, options.fs, {
+    entries,
+    sha256: actual,
+  });
 }
