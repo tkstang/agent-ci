@@ -14,12 +14,17 @@
 #
 # Why `pull_request_target` and `issue_comment`: GitHub runs both from the
 # DEFAULT branch, so a pull request cannot change this file, the allowed
-# models, the review policy or the agent-ci pin it runs under. The workflow
-# never runs pull-request code next to a credential: the reviewer reads the PR
-# head read-only with no setup command and no repository skills, the gate,
-# findings and publish jobs never check it out, and verify-review (when
-# enabled) runs it only in a job without secrets. Changes to this file take effect once they
-# are merged.
+# models, the review policy or the agent-ci pin it runs under (a manual
+# dispatch runs this file at the ref you select: dispatch from a trusted ref).
+# agent-ci itself runs no pull-request code in a job that holds a model
+# credential: the reviewer reads the PR head read-only with no setup command
+# and no repository skills, the gate, findings and publish jobs never check
+# it out, and verify-review (when enabled) runs it only in a job without
+# model or helper secrets. A Codex or Cursor reviewer's own shell can still
+# run files from the checkout while the credential is in its environment
+# (see docs/security-model.md in agent-ci); Claude, and OpenCode for
+# grok-4.7, have no shell. Changes to this file take effect once they are
+# merged.
 #
 # Setup (once per repository):
 # 1. Pin the agent-ci ref (tag or SHA) in `uses:`; the helpers are checked
