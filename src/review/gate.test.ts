@@ -322,7 +322,7 @@ describe('gate: validation', () => {
     const gated = run();
     expect(validateGatedReview(gated, IDENTITY)).toBe(gated);
     expect(gated.review_status).toBe('complete');
-    expect(gated.findings).toHaveLength(1);
+    expect(gated.findings).toHaveLength(2);
     expect(gated.findings[0]).toMatchObject({
       passes: ['primary'],
       candidate_ids: ['primary-a1-F1'],
