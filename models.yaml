@@ -127,6 +127,42 @@ routes:
     structuredOutput: prompt
     qualified: '2026-10-25'
     notes: OpenCode Console (Go) login seeded with --seed-login; local only.
+  - id: glm-5.3-flash-opencode
+    model: glm-5.3-flash
+    harness: opencode
+    family: zhipu
+    providerModel: opencode-go/glm-5.3-flash
+    credentials: [OPENCODE_API_KEY]
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: null
+    notes: OpenCode Go key from the environment; the CI route.
+  - id: deepseek-v4.1-flash-opencode-login
+    model: deepseek-v4.1-flash
+    harness: opencode
+    family: deepseek
+    providerModel: opencode-go/deepseek-v4.1-flash
+    login: true
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-26'
+    notes: OpenCode Console (Go) login seeded with --seed-login; local only.
+  - id: deepseek-v4.1-flash-opencode
+    model: deepseek-v4.1-flash
+    harness: opencode
+    family: deepseek
+    providerModel: opencode-go/deepseek-v4.1-flash
+    credentials: [OPENCODE_API_KEY]
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: null
+    notes: >-
+      OpenCode Go key from the environment; the CI route. Go bills peak hours
+      (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday) at twice the
+      off-peak rate.
 
   # --- Cursor ----------------------------------------------------------------
   - id: grok-4.7-cursor
