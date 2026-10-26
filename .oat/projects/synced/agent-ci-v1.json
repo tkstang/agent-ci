@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "slug": "agent-ci-v1",
+  "scope": "synced",
+  "ref": "refs/oat/projects/agent-ci-v1",
+  "remote": "origin",
+  "status": "active",
+  "createdAt": "2026-10-25T04:45:10.028Z",
+  "completedAt": null
+}

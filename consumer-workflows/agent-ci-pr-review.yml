@@ -1,0 +1,106 @@
+# Copy into .github/workflows/ of a repository that should get AI pull
+# request reviews from agent-ci.
+#
+# Requesting a review (only people with write, maintain or admin access):
+# - add the `agent-ci:review` label to a pull request (the label is removed
+#   again, so adding it once more starts a new review);
+# - comment `/agent-ci-review [key=value ...] [--] [instruction]` on it
+#   (options: reviewer_model, second_reviewer, second_reviewer_model,
+#   adjudicator, adjudicator_model; each model must be in allowed_models);
+# - or dispatch this workflow with pr_number (and an optional command).
+# Only same-repository, open, non-draft pull requests by an author with write
+# access (or a bot listed in allowed_pr_authors) are reviewed. Fork pull
+# requests are never reviewed and never reach the model credential.
+#
+# Why `pull_request_target` and `issue_comment`: GitHub runs both from the
+# DEFAULT branch, so a pull request cannot change this file, the allowed
+# models, the review policy or the agent-ci pin it runs under (a manual
+# dispatch runs this file at the ref you select: dispatch from a trusted ref).
+# agent-ci itself runs no pull-request code in a job that holds a model
+# credential: the reviewer reads the PR head read-only with no setup command
+# and no repository skills, the gate, findings and publish jobs never check
+# it out, and verify-review (when enabled) runs it only in a job without
+# model or helper secrets. A Codex or Cursor reviewer's own shell can still
+# run files from the checkout while the credential is in its environment
+# (see docs/security-model.md in agent-ci); Claude, and OpenCode for
+# grok-4.7, have no shell. Changes to this file take effect once they are
+# merged.
+#
+# Setup (once per repository):
+# 1. Pin the agent-ci ref (tag or SHA) in `uses:`; the helpers are checked
+#    out at that same commit. agent-ci is private, so its Actions access
+#    setting must allow workflows from repositories owned by the same user.
+# 2. Add the AGENT_CI_SOURCE_TOKEN secret (contents: read on tkstang/agent-ci).
+# 3. Add the model credential the chosen routes name (see `agent-ci models`),
+#    for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 or
+#    OPENCODE_API_KEY for grok-4.7. Only the reviewer and adjudicator steps
+#    receive it.
+# 4. Create the `agent-ci:review` label.
+#
+# verify-review (off by default): set `verify: true` below and add
+# .github/agent-ci/checks.yaml (an optional setup command and up to 10 named
+# checks) on the default branch (agent-ci reads it from the default branch
+# head, never from the PR or its base). `/agent-ci-verify-review` or the
+# `agent-ci:verify-review` label then runs those checks on the PR head in a
+# separate job that holds NO secret (not even AGENT_CI_SOURCE_TOKEN), and
+# Claude or Codex reviewers read the results through the run_check tool and
+# cite them. That job runs pull-request code: enable it only where pull
+# request authors (who need write access) may run code in your Actions.
+# The verify job refuses self-hosted runners: on a reused runner that code
+# could persist into later jobs holding model secrets. `verify_on_self_hosted:
+# true` allows ephemeral self-hosted runners only, and verify-review is
+# refused with `allow_pool: true` (the proxy host must never run PR code).
+# The verify job also runs PR code in your default branch's Actions scope:
+# it can obtain that job's ACTIONS_RUNTIME_TOKEN (artifact upload, cache
+# writes other default-branch workflows may restore) and its read-only
+# GITHUB_TOKEN. Check results and the reported isolation come from that
+# job, so they describe the PR's code, not a proof about it.
+#
+# Accepted residual risk: the reviewer reads untrusted pull-request text
+# while holding the model credential. Its tools are read-only, but a prompt
+# injection could still try to put encoded data into a finding, which is
+# published to the pull request. Exact credential values are refused by the
+# output guard; requester and author write access is the trust boundary.
+name: agent-ci PR review
+
+on:
+  pull_request_target:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to review.
+        required: true
+      command:
+        description: Optional command text, for example `/agent-ci-review second_reviewer=on`.
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    # Cheap filters only; the reusable workflow's gate is the authority.
+    if: >-
+      (github.event_name == 'pull_request_target' && (github.event.label.name == 'agent-ci:review' || github.event.label.name == 'agent-ci:verify-review')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/agent-ci-review') || startsWith(github.event.comment.body, '/agent-ci-verify-review'))) ||
+      github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: tkstang/agent-ci/.github/workflows/pr-review.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
+    with:
+      pr_number: ${{ inputs.pr_number || '' }}
+      command: ${{ inputs.command || '' }}
+      reviewer_model: claude-haiku-4-5
+      verify: false # true allows verify-review (see above)
+      allowed_models: |
+        claude-haiku-4-5
+        grok-4.7
+    secrets:
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}

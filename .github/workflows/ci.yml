@@ -18,9 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -34,6 +36,9 @@ jobs:
       - name: Agent docs guard (no CLAUDE.md)
         run: pnpm run check:agents
 
+      - name: Docs check (indexes, metadata, links)
+        run: pnpm run docs:check
+
       - name: Lint
         run: pnpm run lint
 
@@ -43,8 +48,33 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # verify-review's Linux isolation tests need unprivileged user
+      # namespaces, which the hosted image restricts through AppArmor.
+      - name: Allow unprivileged user namespaces
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
       - name: Test
         run: pnpm run test
 
       - name: Build
         run: pnpm run build
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Lint workflows (actionlint with shellcheck)
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+      - name: Lint the consumer workflow templates
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color consumer-workflows/agent-ci-run.yml consumer-workflows/agent-ci-pr-review.yml consumer-workflows/agent-ci-docs-update.yml consumer-workflows/agent-ci-tools-update.yml consumer-workflows/agent-ci-fleet.yml

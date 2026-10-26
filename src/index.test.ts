@@ -1,59 +1,45 @@
-import { isCliError } from '@agent-ci/errors.js';
-import { parseConfig } from '@agent-ci/index.js';
-import { isSuccess } from '@agent-ci/result.js';
+import {
+  CliError,
+  ERROR_CODES,
+  exitCodeFor,
+  failure,
+  isCliError,
+  isSuccess,
+  success,
+} from '@agent-ci/index.js';
 import { describe, expect, it } from 'vitest';
 
-describe('parseConfig', () => {
-  it('parses a valid config and applies defaults', () => {
-    const result = parseConfig('{"name":"my-app"}');
-    expect(result.ok).toBe(true);
-    if (isSuccess(result)) {
-      expect(result.value.name).toBe('my-app');
-      // defaults from the zod schema
-      expect(result.value.retries).toBe(3);
-      expect(result.value.verbose).toBe(false);
-    }
+describe('result envelope', () => {
+  it('narrows success and failure', () => {
+    expect(isSuccess(success(1))).toBe(true);
+    const failed = failure('E_INVALID_INPUT', 'bad', 'fix it');
+    expect(isSuccess(failed)).toBe(false);
+    expect(failed).toEqual({
+      ok: false,
+      code: 'E_INVALID_INPUT',
+      message: 'bad',
+      hint: 'fix it',
+    });
   });
 
-  it('honors explicit values over defaults', () => {
-    const result = parseConfig('{"name":"x","retries":7,"verbose":true}');
-    expect(isSuccess(result)).toBe(true);
-    if (isSuccess(result)) {
-      expect(result.value.retries).toBe(7);
-      expect(result.value.verbose).toBe(true);
-    }
-  });
-
-  it('fails with E_EMPTY_INPUT on blank input', () => {
-    const result = parseConfig('   ');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe('E_EMPTY_INPUT');
-      expect(result.hint).toBeTypeOf('string');
-    }
-  });
-
-  it('fails with E_INVALID_INPUT on malformed JSON', () => {
-    const result = parseConfig('{not json}');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe('E_INVALID_INPUT');
-    }
-  });
-
-  it('fails with E_INVALID_INPUT when schema validation fails', () => {
-    const result = parseConfig('{"name":""}');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe('E_INVALID_INPUT');
-      expect(result.message).toContain('name');
-    }
+  it('keeps every error code in the E_* namespace', () => {
+    for (const code of ERROR_CODES) expect(code).toMatch(/^E_[A-Z_]+$/u);
   });
 });
 
-describe('isCliError', () => {
-  it('returns false for non-errors', () => {
+describe('CliError', () => {
+  it('maps harness faults to exit 2 and caller errors to exit 1', () => {
+    expect(exitCodeFor('E_HARNESS_FAILED')).toBe(2);
+    expect(exitCodeFor('E_UNEXPECTED')).toBe(2);
+    expect(exitCodeFor('E_POLICY_POOL')).toBe(1);
+    expect(new CliError('E_HARNESS_TIMEOUT', 't').exitCode).toBe(2);
+  });
+
+  it('lifts a domain failure', () => {
+    const err = CliError.fromFailure(failure('E_ROUTE_NOT_FOUND', 'x', 'h'));
+    expect(err.code).toBe('E_ROUTE_NOT_FOUND');
+    expect(err.hint).toBe('h');
+    expect(isCliError(err)).toBe(true);
     expect(isCliError(new Error('plain'))).toBe(false);
-    expect(isCliError('nope')).toBe(false);
   });
 });

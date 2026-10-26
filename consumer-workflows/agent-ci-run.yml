@@ -1,0 +1,60 @@
+# Copy into .github/workflows/ of a repository that should run agent-ci.
+#
+# Setup (once per consumer repository):
+# 1. Pin the agent-ci ref (tag or SHA) in `uses:`. The workflow checks out its
+#    helpers at that same commit (job.workflow_sha), so there is no second pin.
+#    agent-ci is private, so its Actions access setting must allow workflows
+#    from repositories owned by the same user.
+# 2. Add the AGENT_CI_SOURCE_TOKEN secret: a fine-grained token with
+#    contents: read on tkstang/agent-ci (the helpers are checked out with it).
+# 3. Add the ONE model credential the chosen route names (see `agent-ci models`
+#    in agent-ci), for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 or
+#    OPENCODE_API_KEY for grok-4.7. Only the agent step ever receives it.
+# 4. Allow GitHub Actions to create pull requests (Settings > Actions >
+#    General > Workflow permissions) if publish_pr is true.
+#
+# setup_command (optional, for example `pnpm install --frozen-lockfile`) runs
+# in its own job without secrets; only its working tree (without .git) reaches
+# the agent job. It still runs repository code that an edit-mode agent may run
+# again with the model credential in its environment: never point it at
+# untrusted refs such as fork pull requests.
+#
+# The change set is built on the dispatched branch, and the pull request
+# targets that same branch (publish_base defaults to it). Set publish_base
+# together with target_ref if the run should start elsewhere.
+#
+# Pushes made with GITHUB_TOKEN start no workflow runs, and pull_request runs
+# for the generated pull request wait for approval ("Approve workflows to
+# run" by a user with write access). agent-ci publishes to this repository
+# only with GITHUB_TOKEN, so CI on its pull requests here starts on approval.
+name: agent-ci
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: What the agent should do.
+        required: true
+      model:
+        description: Qualified model (see agent-ci models).
+        default: claude-haiku-4-5
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: tkstang/agent-ci/.github/workflows/run-agent.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
+    with:
+      model: ${{ inputs.model }}
+      prompt: ${{ inputs.prompt }}
+      mode: edit
+      output_contract: changes
+      use_case: agent-ci-run
+      publish_pr: true
+    secrets:
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -16,6 +16,8 @@ export default defineConfig({
     globals: false,
     include: ['src/**/*.test.ts'],
     environment: 'node',
+    // One private temp root per test run, removed at the end.
+    globalSetup: ['./src/testing/global-setup.ts'],
   },
   resolve: {
     alias: [

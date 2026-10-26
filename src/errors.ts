@@ -1,4 +1,19 @@
-import type { ErrorCode } from '@agent-ci/result.js';
+import type { ErrorCode, Failure } from '@agent-ci/result.js';
+
+/** Codes that describe a system or harness fault rather than a caller error. */
+const SYSTEM_CODES: ReadonlySet<string> = new Set([
+  'E_UNEXPECTED',
+  'E_HARNESS_FAILED',
+  'E_HARNESS_TIMEOUT',
+  'E_HARNESS_OUTPUT_LIMIT',
+  'E_CREDENTIAL_LEAK',
+  'E_SECRET_GUARD',
+]);
+
+/** Exit code for a code: 1 = user-actionable, 2 = system/unexpected. */
+export function exitCodeFor(code: ErrorCode | 'E_UNEXPECTED'): number {
+  return SYSTEM_CODES.has(code) ? 2 : 1;
+}
 
 /**
  * The boundary error model: a single typed class thrown at CLI/service edges
@@ -27,9 +42,17 @@ export class CliError extends Error {
       options?.cause === undefined ? undefined : { cause: options.cause },
     );
     this.code = code;
-    // House baseline: 1 = user-actionable, 2 = system/unexpected.
-    this.exitCode = options?.exitCode ?? (code === 'E_UNEXPECTED' ? 2 : 1);
+    this.exitCode = options?.exitCode ?? exitCodeFor(code);
     this.hint = options?.hint;
+  }
+
+  /** Lift a domain `Failure` to the boundary error. */
+  static fromFailure(result: Failure): CliError {
+    return new CliError(
+      result.code,
+      result.message,
+      result.hint === undefined ? undefined : { hint: result.hint },
+    );
   }
 }
 

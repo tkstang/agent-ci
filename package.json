@@ -10,6 +10,7 @@
   },
   "files": [
     "dist",
+    "models.yaml",
     "tools/install-hooks.mjs"
   ],
   "type": "module",
@@ -23,19 +24,21 @@
   },
   "scripts": {
     "dev": "tsx watch src/cli.ts",
-    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "build": "tsrs -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
     "lint": "oxlint",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "test": "vitest run",
     "test:watch": "vitest",
     "check:agents": "node tools/check-no-claude-md.mjs",
+    "docs:check": "tsx src/docs-check/main.ts",
     "prepare": "node tools/install-hooks.mjs",
     "worktree:init": "bash scripts/worktree/init.sh",
     "worktree:validate": "bash scripts/worktree/validate.sh"
   },
   "dependencies": {
+    "yaml": "^2.9.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -46,6 +49,7 @@
     "oxfmt": "0.55.0",
     "oxlint": "^1.70.0",
     "tsc-alias": "^1.8.17",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
     "tsx": "^4.22.4",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-7": "npm:typescript@^7.0.2",

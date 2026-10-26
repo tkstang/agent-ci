@@ -1,13 +1,17 @@
 # AGENTS.md
 
 Single-package TypeScript library + agent-first CLI. ESM-only, Node 24, pnpm 11,
-extra-strict TypeScript, Oxc (oxlint + oxfmt), Vitest, Zod at boundaries. The
+extra-strict TypeScript checked and emitted by `tsrs`, Oxc (oxlint + oxfmt),
+Vitest, Zod at boundaries. The
 domain layer returns a result-envelope (`Success | Failure` with closed `E_*`
 codes); boundaries throw a typed `CliError` caught by one central handler.
 
 ## Headline defaults
 
-Oxc toolchain - TypeScript 7 / ESM-only / Node 24 / pnpm 11.x (double-pinned) -
+Oxc toolchain - `tsrs` (oxc-project's Rust port of the TypeScript 7 compiler,
+exact-pinned pre-release; replaces `tsc` for `typecheck` and `build`, with
+`tsc-alias` kept for alias rewriting; TypeScript 7 `tsc` stays installed as the
+fallback) / ESM-only / Node 24 / pnpm 11.x (double-pinned) -
 Vitest 4 with co-located `*.test.ts` siblings (globals off) - Zod 4 at
 boundaries - Conventional Commits - custom git hooks in `tools/git-hooks/` (no
 husky/lefthook) - `private: true` + MIT LICENSE.
@@ -33,6 +37,9 @@ Run the narrowest sufficient checks - do not over-gate:
 - focused test (the suite touching the change)
 - format (`pnpm run format:check`) before a commit/PR is ready
 - build only when wiring changes (entrypoints, exports, path aliases)
+- `actionlint` when workflows, the setup action or `consumer-workflows/` change
+  (CI runs it from the pinned `rhysd/actionlint` image); workflow structure
+  tests live in `src/workflows/`
 
 There is never a CI coverage gate.
 
@@ -82,3 +89,37 @@ hand-assemble the OAT layer.
 - When executing an OAT project implementation or OAT project review workflow, do not stop at task boundaries, phase boundaries, or other clean checkpoints unless the configured HiLL checkpoint has been reached, a real blocker exists, or explicit user input is required.
 - Status summaries, completed bookkeeping, and "clean boundary" pauses are not valid stop reasons. After updating tracking artifacts, continue execution until an allowed stop condition applies.
 <!-- END OAT tools -->
+
+<!-- OAT project-management -->
+### Project Management
+
+- Installed project-management tools provide capability; they do not prove that this repository adopted PJM.
+- Run `oat pjm doctor --json` and inspect `adoption.state` before any PJM write.
+- Repository planning and durable context live under `.oat/repo/`.
+- Consult it when prioritizing or planning work, checking the backlog, starting or closing tracked work, or looking for established repository context.
+- Start with `.oat/repo/AGENTS.md`; it routes to `pjm/` for active state and `reference/` for durable records.
+- If adoption is absent or partial, stop and initialize it with `oat pjm init`.
+<!-- END OAT project-management -->
+
+<!-- OAT decisions -->
+### Decision Records
+
+- Durable repository decisions live under `.oat/repo/reference/decisions/`; read `.oat/repo/reference/decisions/AGENTS.md` before working with them.
+- Before finalizing a durable repository decision, review `.oat/repo/reference/decisions/index.md` and any relevant records.
+- When the user asks to record a durable decision or confirms a proposed capture, use `oat-pjm-decision` when that skill is installed; otherwise use `oat decision new`.
+- Do not hand-edit the generated decision index; run `oat decision regenerate-index` after record changes or to resolve index conflicts.
+- Run `oat pjm doctor --json` and inspect `adoption.state` before any decision write.
+- If the decision surface is missing, repository adoption is absent or partial; stop and initialize it with `oat pjm init`.
+<!-- END OAT decisions -->
+
+<!-- OAT docs -->
+## Documentation
+
+- **Docs root:** `docs`
+- **Tooling:** Markdown
+- **Authored index:** `docs/index.md`
+- **Contributing:** `docs/contributing.md`
+
+Keep authored context, title/description metadata, and Contents maps with relative Markdown links current. Preserve local instructions; asset-only directories are exempt from indexes.
+Use `oat-docs-analyze` to audit gaps and `oat-docs-apply` for approved repairs. Optional generated inventories belong outside the content tree and do not replace the authored index.
+<!-- END OAT docs -->

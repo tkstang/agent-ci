@@ -10,7 +10,65 @@
  * Closed set of domain error codes. Add codes here deliberately; the union is
  * the contract. Keep them machine-readable (`E_*`), never free-form strings.
  */
-export const ERROR_CODES = ['E_INVALID_INPUT', 'E_EMPTY_INPUT'] as const;
+export const ERROR_CODES = [
+  // Input and configuration
+  'E_INVALID_INPUT',
+  'E_OUTPUT_PATH',
+  'E_ROUTE_CONFIG',
+  'E_ROUTE_NOT_FOUND',
+  // Routing policy
+  'E_POLICY_HARNESS',
+  'E_POLICY_FALLBACK',
+  'E_POLICY_ACCOUNT_FALLBACK',
+  'E_POLICY_POOL',
+  'E_POLICY_POOL_CI',
+  'E_POLICY_CREDENTIAL',
+  'E_POLICY_LOGIN_CI',
+  'E_CREDENTIAL_MISSING',
+  // Isolated home root
+  'E_HOME_ROOT',
+  'E_SEED_REFUSED',
+  'E_SEED_UNSUPPORTED',
+  // Harness execution
+  'E_HARNESS_NOT_FOUND',
+  'E_HARNESS_AUTH',
+  'E_HARNESS_FAILED',
+  'E_HARNESS_TIMEOUT',
+  'E_HARNESS_OUTPUT_LIMIT',
+  'E_CREDENTIAL_LEAK',
+  'E_WORKSPACE_STATUS',
+  'E_UNSAFE_WORKSPACE',
+  'E_WORKSPACE_BUNDLE',
+  // Results
+  'E_INVALID_RUN_RESULT',
+  'E_SECRET_COPY',
+  'E_SECRET_GUARD',
+  // Change sets and publishing
+  'E_CHANGE_SET',
+  'E_PATH_POLICY',
+  'E_PUBLISH',
+  'E_PUBLISH_STALE_BASE',
+  // Fan-out targets and use-case wrappers
+  'E_TARGETS_CONFIG',
+  'E_TARGET_NOT_FOUND',
+  'E_TARGETS_LIMIT',
+  'E_TARGETS_RESET_ALL',
+  'E_TARGET_TOKEN',
+  'E_TOOLS_UPDATE',
+  // PR review
+  'E_REVIEW_REQUEST',
+  'E_REVIEW_INPUT',
+  'E_REVIEW_FAILED',
+  'E_REVIEW_GUIDANCE',
+  'E_REVIEW_STALE_HEAD',
+  'E_DIFF_TOO_LARGE',
+  'E_INVALID_DIFF',
+  'E_GITHUB_API',
+  // verify-review checks
+  'E_VERIFY_CONFIG',
+  'E_VERIFY_EVIDENCE',
+  'E_VERIFY_RUN',
+] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

@@ -1,0 +1,1 @@
+{"type": "result", "subtype": "success", "is_error": false, "duration_ms": 2591, "duration_api_ms": 2591, "result": "agent-ci-probe-ok", "session_id": "<redacted-id>", "request_id": "<redacted-id>", "usage": {"inputTokens": 12236, "outputTokens": 39, "cacheReadTokens": 5376, "cacheWriteTokens": 0}}

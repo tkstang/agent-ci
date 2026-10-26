@@ -1,126 +1,68 @@
-# @tkstang/agent-ci — single-package TypeScript library + CLI starter
+# agent-ci
 
-A minimal, opinionated starting point for a **single-package** TypeScript project
-that ships both a **library** (importable barrel) and an **agent-first CLI**. It
-embodies the house "bleeding-edge" profile from the `foundations` conventions.
+Run a chosen model through Claude Code, Codex, OpenCode or Cursor against a
+repository, from GitHub Actions or the command line, and publish the result
+as a pull request, a comment or a pull-request review.
 
-> [!IMPORTANT]
-> **Versions were revalidated in August 2026 — revalidate before relying on
-> them.** Tooling here uses stable TypeScript 7 with fast-moving Oxc and pnpm 11.
-> Re-check each pin before adopting, especially the pre-1.0 `oxfmt`.
+agent-ci is a TypeScript CLI (`agent-ci`) and a set of reusable GitHub
+Actions workflows that call it. A checked-in routing table (`models.yaml`)
+decides which harness, credential and account each model uses, and enforces
+the routing policy: Claude models run only in Claude Code, and no run falls
+back from a subscription to paid API billing.
 
-## Stack
+## Quick start
 
-| Concern           | Choice                                                                                                             |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Language          | TypeScript 7 (extra-strict superset), ESM-only                                                                     |
-| Module/resolution | `NodeNext` / `NodeNext`, target `ES2024`                                                                           |
-| Runtime           | Node 24 (`.nvmrc`, `engines.node >=24`)                                                                            |
-| Package manager   | pnpm 11.x (double-pinned: `packageManager` + `engines.pnpm`)                                                       |
-| Lint / format     | Oxc — `oxlint` + `oxfmt` (`arrowParens: always`)                                                                   |
-| Tests             | Vitest 4, globals OFF, **co-located `*.test.ts` siblings**                                                         |
-| Validation        | Zod 4 at boundaries                                                                                                |
-| Errors            | Result-envelope (`Success \| Failure`, closed `E_*` codes) in domain code; typed `CliError` thrown at the boundary |
-| Build             | `tsc` + `tsc-alias` → `dist/`                                                                                      |
-| Dev runner        | `tsx`                                                                                                              |
-| Commits           | Conventional Commits via commitlint                                                                                |
-| Git hooks         | custom `tools/git-hooks/` (no husky/lefthook), wired by `prepare`                                                  |
-| CI                | GitHub Actions: lint → format:check → typecheck → test → build                                                     |
-| License           | `private: true` + committed MIT `LICENSE`                                                                          |
+Requires Node.js 24 and pnpm 11. This run needs no credential and calls no
+model:
 
-## What's inside
-
-```
-src/
-  index.ts        library barrel (parseConfig + Result + CliError)
-  config.ts       parseConfig(): Result<Config> via a zod schema (boundary)
-  result.ts       Success | Failure envelope, closed E_* error-code tuple
-  errors.ts       CliError (typed boundary error) + isCliError guard
-  cli.ts          agent-first CLI: one JSON envelope on stdout, E_* exit codes
-  *.test.ts       co-located Vitest suites
+```bash
+pnpm install
+pnpm build
+cd /path/to/a/git/repository
+node /path/to/agent-ci/dist/cli.js run --model fake-echo --prompt "Summarize this repository."
 ```
 
-## Getting started
+It writes `.agent-ci/run-result.json`, `run-log.jsonl` and `prompt.md`.
+[Getting started](docs/getting-started.md) continues with a real model.
 
-1. **Rename the placeholder scope.** This scaffold uses `@agent-ci/*` for both the
-   package name and the path alias. Replace `@app` with `@<project>` across:
-   - `package.json` `name`
-   - `tsconfig.json` `paths` (`@agent-ci/*`)
-   - `vitest.config.ts` `resolve.alias`
-   - `src/**` import specifiers
-   - this README
+## What it does
 
-2. **Install** (uses the pinned pnpm via Corepack):
+| Capability                                                                                                 | Entry point                                                                     |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Run one prompt with a model, locally or in Actions                                                         | `agent-ci run`, `run-agent.yml`                                                 |
+| AI pull-request review on request, with an optional verify-review mode that cites repository check results | `agent-ci review run`, `pr-review.yml`                                          |
+| OAT docs, agent-instructions and tools updates for one repository or a fleet                               | `docs-update.yml`, `instructions-update.yml`, `tools-update.yml`, `fan-out.yml` |
+| Inspect harnesses, credentials and routes                                                                  | `agent-ci doctor`, `agent-ci models`, `agent-ci route`                          |
 
-   ```sh
-   pnpm install
-   ```
+Run `agent-ci --help` for every command.
 
-3. **Run the checks** (the Definition of Done):
+## Documentation
 
-   ```sh
-   pnpm run typecheck
-   pnpm run lint
-   pnpm run format:check
-   pnpm run test
-   pnpm run build
-   ```
+Start at the [documentation index](docs/index.md):
 
-4. **Try the CLI** (after `pnpm run build`, or via `pnpm run dev`):
+- [Getting started](docs/getting-started.md)
+- [Harnesses and routing](docs/harnesses-and-routing.md)
+- [Workflows](docs/workflows.md)
+- [PR review](docs/pr-review.md)
+- [Configuration and credentials](docs/configuration.md)
+- [Using agent-ci from another repository](docs/fleet-repo.md)
+- [Security model](docs/security-model.md)
 
-   ```sh
-   node dist/cli.js --config '{"name":"my-app"}'
-   # {"ok":true,"command":"parse-config","data":{"name":"my-app","retries":3,"verbose":false}}
+## Development
 
-   echo '{"name":"x"}' | node dist/cli.js --stdin
-   ```
+| Command                             | Does                                     |
+| ----------------------------------- | ---------------------------------------- |
+| `pnpm typecheck`                    | Type check with `tsrs`                   |
+| `pnpm lint`                         | `oxlint`                                 |
+| `pnpm format:check` / `pnpm format` | `oxfmt` check / rewrite                  |
+| `pnpm test`                         | Vitest (co-located `*.test.ts`)          |
+| `pnpm build`                        | Emit `dist/` with `tsrs` and `tsc-alias` |
+| `pnpm docs:check`                   | Docs indexes, metadata and links         |
+| `pnpm check:agents`                 | Fail if any `CLAUDE.md` exists           |
 
-5. **Set up the agent/OAT layer.** This scaffold ships only a minimal agent layer
-   (`AGENTS.md` + a starter `.claude/settings.json`; no `CLAUDE.md`, since
-   Claude Code reads `AGENTS.md` directly; `pnpm run check:agents` in pre-commit and CI
-   fails if any `CLAUDE.md` or `CLAUDE.local.md` exists, including gitignored ones).
-   With the latest OAT installed, run:
+Conventions for agents and contributors are in [AGENTS.md](AGENTS.md);
+documentation conventions are in [docs/contributing.md](docs/contributing.md).
 
-   ```sh
-   oat init
-   ```
+## License
 
-   It owns the guided per-project setup (canonical `.agents/`, provider sync,
-   project lifecycle). The scaffold deliberately does **not** pre-bake `.agents/`,
-   provider mirrors, or `.oat/`.
-
-## Scripts
-
-| Script                       | Does                                                         |
-| ---------------------------- | ------------------------------------------------------------ |
-| `pnpm run dev`               | `tsx watch src/cli.ts`                                       |
-| `pnpm run build`             | emit to `dist/` via `tsc` + `tsc-alias`                      |
-| `pnpm run typecheck`         | `tsc --noEmit`                                               |
-| `pnpm run lint`              | `oxlint`                                                     |
-| `pnpm run format`            | `oxfmt --write .` (rewrite)                                  |
-| `pnpm run format:check`      | `oxfmt --check .`                                            |
-| `pnpm run test`              | `vitest run`                                                 |
-| `pnpm run prepare`           | wire this repo's Git hooks through `tools/install-hooks.mjs` |
-| `pnpm run worktree:init`     | bootstrap a new git worktree with local-only state           |
-| `pnpm run worktree:validate` | clean-tree local validation gate before handoff              |
-
-After `git worktree add`, run `pnpm run worktree:init` inside the new worktree.
-Run `pnpm run worktree:validate` before handoff or push. If the repo has run
-`oat init`, init also syncs OAT local paths, provider views, and archived project
-docs from S3 where configured.
-
-## NOTES / Deviations
-
-- **TypeScript 7 is primary.** `typescript-7@npm:typescript` supplies the stable
-  `tsc` binary for typecheck and emit. `typescript@npm:@typescript/typescript6`
-  remains beside it for compiler-API ecosystem compatibility and exposes `tsc6`;
-  use that binary only for differential diagnosis or a demonstrated TS7 blocker.
-  A truly minimal repo with no compiler-API consumers may simplify to pure
-  `typescript@^7`.
-- **Module resolution is `NodeNext`** (not the conventions' usual
-  `ESNext`/`bundler`). This is the deliberate bleeding-edge choice for this
-  scaffold: native Node ESM semantics, no bundler. `tsc-alias` still rewrites the
-  `@agent-ci/*` path alias and appends runtime `.js` extensions at build.
-- **`@types/node` is pinned to `^24`** to match the Node 24 runtime target even
-  though `@types/node@26` exists.
-- No `.editorconfig` (dropped by house decision; oxfmt is the single formatter).
+MIT; see [LICENSE](LICENSE). The repository is private.

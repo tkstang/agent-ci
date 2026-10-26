@@ -17,6 +17,7 @@
     "node_modules",
     "pnpm-lock.yaml",
     ".oat/**",
-    "**/AGENTS.md"
+    "**/AGENTS.md",
+    "src/harness/fixtures/**"
   ]
 }
