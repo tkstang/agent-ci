@@ -40,9 +40,7 @@ configured content tree and keep the authored entrypoint unchanged.
 ## Information architecture
 
 The structure is recorded in the repository decision record
-DR-261025-organize-the-docs-as-one-flat, status `proposed`: the operator's
-sign-off is pending, and the approved project brief's section list stood in
-for it when the tree was written. It describes one flat `docs/` directory and one `index.md` whose `## Contents` map groups
+DR-261025-organize-the-docs-as-one-flat (accepted). It describes one flat `docs/` directory and one `index.md` whose `## Contents` map groups
 the reader pages under `###` headings (Start, Use, Set up, Concepts,
 Contributing).
 

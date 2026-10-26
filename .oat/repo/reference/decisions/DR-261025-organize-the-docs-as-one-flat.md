@@ -2,7 +2,7 @@
 id: DR-261025-organize-the-docs-as-one-flat
 title: Organize the docs as one flat grouped index of reader pages
 date: 2026-10-25
-status: proposed
+status: accepted
 legacy_id: null
 ---
 
@@ -23,3 +23,7 @@ Graduate to folders when the tree passes about 15 reader pages, when one ### gro
 ## Status note 2026-10-25
 
 This record is `proposed`, not `accepted`. The operator's documentation convention requires the operator to accept an IA proposal before scaffolding. In this autonomous run, the approved project brief's section list stood in for that approval. The tree was scaffolded and written to this structure, and the operator confirms or changes it at delivery.
+
+## Status note 2026-10-26
+
+Accepted. The operator signed off on the flat structure after delivery ("Flat structure for docs is fine").
