@@ -186,7 +186,7 @@ As of this commit (`agent-ci models` prints the live table):
 | `claude-haiku-5-5`    | `claude-haiku-5-5-pool`              | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | 2026-10-25 |
 | `gpt-5.6-luna`        | `gpt-5.6-luna-pool`                  | codex    | pool     | subscription | `AGENT_CI_PROXY_API_KEY`  | 2026-10-25 |
 | `grok-4.7`            | `grok-4.7-opencode-login`            | opencode | personal | subscription | seeded login              | 2026-10-25 |
-| `grok-4.7`            | `grok-4.7-opencode`                  | opencode | personal | subscription | `OPENCODE_API_KEY`        | not yet    |
+| `grok-4.7`            | `grok-4.7-opencode`                  | opencode | personal | subscription | `OPENCODE_API_KEY`        | 2026-10-26 |
 | `glm-5.3-flash`       | `glm-5.3-flash-opencode-login`       | opencode | personal | subscription | seeded login              | 2026-10-25 |
 | `glm-5.3-flash`       | `glm-5.3-flash-opencode`             | opencode | personal | subscription | `OPENCODE_API_KEY`        | not yet    |
 | `deepseek-v4.1-flash` | `deepseek-v4.1-flash-opencode-login` | opencode | personal | subscription | seeded login              | 2026-10-26 |
@@ -196,8 +196,9 @@ As of this commit (`agent-ci models` prints the live table):
 The routes a hosted Actions runner can use are `claude-haiku-4-5-personal`,
 `claude-haiku-4-5-api` (by `route` only), the three `OPENCODE_API_KEY`
 routes (`grok-4.7-opencode`, `glm-5.3-flash-opencode`,
-`deepseek-v4.1-flash-opencode`) and `grok-4.7-cursor` (pinned). None of the
-key routes has been qualified live in Actions yet. OpenCode Go bills
+`deepseek-v4.1-flash-opencode`) and `grok-4.7-cursor` (pinned). Of the key
+routes, only `grok-4.7-opencode` has run live in Actions (2026-10-26, a fleet
+docs update). OpenCode Go bills
 DeepSeek V4.1 Flash at twice its off-peak rate during peak hours (01:00-04:00
 and 06:00-10:00 UTC, Monday to Friday), so schedule it outside them.
 

@@ -114,7 +114,7 @@ routes:
     billing: subscription
     account: personal
     structuredOutput: prompt
-    qualified: null
+    qualified: '2026-10-26'
     notes: OpenCode Go key from the environment; the CI route.
   - id: glm-5.3-flash-opencode-login
     model: glm-5.3-flash
