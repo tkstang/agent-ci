@@ -34,6 +34,17 @@ routes:
     account: personal
     structuredOutput: output-schema
     qualified: null
+  - id: codex-pool
+    model: codex-pool
+    harness: codex
+    family: openai
+    providerModel: synthetic-openai
+    credentials: [AGENT_CI_PROXY_API_KEY]
+    baseUrl: http://127.0.0.1:8317/v1
+    billing: subscription
+    account: pool
+    structuredOutput: output-schema
+    qualified: null
   - id: fake-echo-keyed
     model: fake-echo-keyed
     harness: fake
@@ -1111,6 +1122,61 @@ describe('runAgent', () => {
         ok: true,
         changedFiles: [],
       });
+    });
+  });
+
+  describe('proxy origin override (AGENT_CI_PROXY_BASE_URL)', () => {
+    const ORIGIN = 'https://proxy.example.com';
+
+    async function poolOptions(): Promise<RunOptions> {
+      return {
+        ...(await options({ model: 'codex-pool', allowPool: true })),
+        env: {
+          PATH: process.env.PATH,
+          AGENT_CI_PROXY_API_KEY: 'synthetic-proxy-key-0042',
+          AGENT_CI_PROXY_BASE_URL: ORIGIN,
+        },
+      };
+    }
+
+    /** A codex stand-in that records its config.toml, then answers. */
+    function poolSpawn(answer: string, seen: { config?: string }) {
+      return async (
+        spec: Parameters<NonNullable<RunHarnessDeps['spawn']>>[0],
+      ) => {
+        seen.config = await readFile(
+          path.join(spec.env.CODEX_HOME ?? '', 'config.toml'),
+          'utf8',
+        );
+        await writeFile(
+          spec.args[spec.args.indexOf('-o') + 1] ?? '',
+          JSON.stringify({
+            summary: answer,
+            report: { title: 'T', markdown: answer },
+          }),
+        );
+        return okProcess(
+          `${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`,
+        );
+      };
+    }
+
+    it('hands the override origin to the harness and writes it nowhere', async () => {
+      const seen: { config?: string } = {};
+      const summary = await runAgent(await poolOptions(), {
+        harness: { spawn: poolSpawn('A clean report.', seen) },
+      });
+      expect(summary.ok && summary.value.result.ok).toBe(true);
+      expect(seen.config).toContain(`base_url = "${ORIGIN}/v1"`);
+      expect(await writtenOutputs(summary)).not.toContain('proxy.example.com');
+    });
+
+    it('refuses an answer that echoes the private origin', async () => {
+      const summary = await runAgent(await poolOptions(), {
+        harness: { spawn: poolSpawn(`The proxy is ${ORIGIN}/v1.`, {}) },
+      });
+      expect(summary.ok && summary.value.error?.code).toBe('E_SECRET_COPY');
+      expect(await writtenOutputs(summary)).not.toContain('proxy.example.com');
     });
   });
 });

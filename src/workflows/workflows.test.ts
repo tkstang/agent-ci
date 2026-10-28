@@ -13,6 +13,7 @@ import {
   load,
   MODEL_SECRETS,
   modelChain,
+  poolOriginFor,
   READ_SCOPED,
   runAgent,
   secretRefs,
@@ -98,11 +99,16 @@ describe('run-agent.yml', () => {
     }
     expect([...WORKFLOW_MODEL_SECRETS]).toEqual(MODEL_SECRETS);
 
-    // The call passes the selected credential and two read-only tokens only.
+    // The call passes the selected credential, two read-only tokens and,
+    // for a pool route only, the private proxy origin.
     expect(jobs.agent?.secrets).toEqual({
       AGENT_CI_CREDENTIAL: modelChain('needs.resolve.outputs.credential'),
       AGENT_CI_SOURCE_TOKEN: '${{ secrets.AGENT_CI_SOURCE_TOKEN }}',
       AGENT_CI_TARGET_READ_TOKEN: '${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}',
+      AGENT_CI_PROXY_BASE_URL: poolOriginFor('needs.resolve.outputs.account'),
+    });
+    expect(jobs.resolve?.outputs).toMatchObject({
+      account: '${{ steps.route.outputs.account }}',
     });
     const inner = await agentJobWorkflow();
     expect(
@@ -114,6 +120,7 @@ describe('run-agent.yml', () => {
       'AGENT_CI_CREDENTIAL',
       'AGENT_CI_SOURCE_TOKEN',
       'AGENT_CI_TARGET_READ_TOKEN',
+      'AGENT_CI_PROXY_BASE_URL',
     ]);
     const agent = await agentJob();
     const runStep = step(agent, 'Run the agent');
@@ -121,10 +128,18 @@ describe('run-agent.yml', () => {
       '${{ secrets.AGENT_CI_CREDENTIAL }}',
     );
     expect(runStep.run).toContain('--credential-from-env');
+    // The agent step gets the proxy origin only when its own re-resolved
+    // route is a pool route.
+    expect(runStep.env?.AGENT_CI_PROXY_BASE_URL).toBe(
+      poolOriginFor('steps.route.outputs.account'),
+    );
     for (const entry of agent.steps ?? []) {
       if (entry === runStep) continue;
       expect(secretRefs(entry), entry.name).not.toContain(
         'AGENT_CI_CREDENTIAL',
+      );
+      expect(secretRefs(entry), entry.name).not.toContain(
+        'AGENT_CI_PROXY_BASE_URL',
       );
     }
 
@@ -133,6 +148,7 @@ describe('run-agent.yml', () => {
       for (const entry of job.steps ?? []) {
         const refs = secretRefs(entry);
         for (const ref of refs) expect(MODEL_SECRETS).not.toContain(ref);
+        expect(refs).not.toContain('AGENT_CI_PROXY_BASE_URL');
         if (refs.includes('AGENT_CI_NOTIFY_WEBHOOK')) {
           expect([jobName, entry.name]).toEqual(['publish', 'Notify']);
         }

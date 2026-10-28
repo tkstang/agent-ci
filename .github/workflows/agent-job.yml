@@ -2,7 +2,8 @@
 # workflow_call boundary so the runner that executes the agent can only ever
 # hold the secrets declared here: the one model credential run-agent.yml
 # selected for the resolved route (AGENT_CI_CREDENTIAL), the read-only helper
-# token and the read-only target token. The write-capable target token and
+# token, the read-only target token and, for a pool route only, the private
+# proxy origin (AGENT_CI_PROXY_BASE_URL). The write-capable target token and
 # every other model credential stay with run-agent.yml. Do not call this
 # workflow directly; call run-agent.yml.
 name: agent-ci agent job
@@ -93,6 +94,9 @@ on:
       AGENT_CI_SOURCE_TOKEN:
         required: false
       AGENT_CI_TARGET_READ_TOKEN:
+        required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: The private proxy origin, passed by run-agent.yml only for a pool route.
         required: false
     outputs:
       result_artifact_id:
@@ -232,6 +236,8 @@ jobs:
           # The only model credential this workflow receives: the one the
           # caller selected for this route (empty for the fake harness).
           AGENT_CI_CREDENTIAL: ${{ secrets.AGENT_CI_CREDENTIAL }}
+          # Overrides the pool route's loopback origin; empty for other routes.
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           TARGET_REPOSITORY: ${{ inputs.repository }}
           MODE: ${{ inputs.mode }}

@@ -176,6 +176,12 @@ on:
       AGENT_CI_PROXY_API_KEY:
         description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
         required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: >-
+          Optional private proxy origin (https) that replaces the loopback origin of
+          pool routes. A secret so Actions masks it; passed to the reviewer and adjudicator
+          steps only for a pool route.
+        required: false
 
 permissions:
   contents: read
@@ -473,6 +479,7 @@ jobs:
           # job's runner still holds every model secret the caller passes:
           # pass only the one your route uses (Deferred Findings, p05).
           AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
@@ -589,6 +596,7 @@ jobs:
       - name: Run the second reviewer
         env:
           AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           TIMEOUT: ${{ inputs.timeout_minutes }}
@@ -711,6 +719,7 @@ jobs:
       - name: Run the adjudicator
         env:
           AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}
           SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
           PRIMARY_DIR: ${{ needs.review-primary.outputs.artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}

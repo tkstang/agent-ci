@@ -18,6 +18,10 @@
 #   decision DR-261025-keep-claude-pool-routes).
 #   Workflows pass only AGENT_CI_PROXY_API_KEY for pool routes, never
 #   ANTHROPIC_AUTH_TOKEN.
+#   The baseUrl below is the loopback default. When the optional
+#   AGENT_CI_PROXY_BASE_URL environment variable (an Actions secret in the
+#   workflows) is set to an https origin, every pool route uses that origin
+#   with its own path instead; the policy above does not change.
 # - `login: true` routes use a harness login seeded into the isolated home with
 #   --seed-login; local only.
 #

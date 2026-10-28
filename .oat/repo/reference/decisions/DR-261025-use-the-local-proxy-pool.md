@@ -44,3 +44,7 @@ Enabling them needs every one of these:
 The other way is a Claude pool route that names a credential already in that list. No behavior changes here; the decision stays with the operator, including whether to key the rule to billing instead of model family.
 
 > Note (2026-10-25, later): the pending Claude-in-CI question was decided in DR-261025-keep-claude-pool-routes — Claude pool routes stay refused in CI.
+
+## Status note 2026-10-28
+
+The pool origin can now be overridden with the optional `AGENT_CI_PROXY_BASE_URL` secret (an environment variable locally). When it is set to an `https` origin, every `account: pool` route uses that origin and keeps its own path (for example `/v1`), so a self-hosted runner that cannot reach the host's loopback, such as the Dev Mini CI VM, can use the operator's private HTTPS proxy endpoint. agent-ci treats the value as a secret, and the workflows pass it only to the agent and review steps of a pool route. The policy is unchanged: pool routes still need the opt-in and, under CI, a self-hosted runner, and Claude pool routes stay refused in CI.

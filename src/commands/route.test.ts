@@ -185,6 +185,34 @@ describe('agent-ci route', () => {
       code: 'E_INVALID_INPUT',
     });
   });
+
+  it('never prints or writes the proxy origin override', async () => {
+    const { dir, models, output } = await setup();
+    const { envelope, exitCode } = await run(
+      [
+        'route',
+        '--route',
+        'codex-pool',
+        '--allow-pool',
+        '--models',
+        models,
+        '--github-output',
+      ],
+      ctx(dir, {
+        GITHUB_OUTPUT: output,
+        AGENT_CI_PROXY_BASE_URL: 'https://proxy.example.com',
+      }),
+    );
+    expect(exitCode).toBe(0);
+    expect(envelope).toMatchObject({
+      ok: true,
+      data: { route: { id: 'codex-pool', account: 'pool' } },
+    });
+    expect(JSON.stringify(envelope)).not.toContain('proxy.example.com');
+    const written = await readFile(output, 'utf8');
+    expect(written).toContain('account=pool\n');
+    expect(written).not.toContain('proxy.example.com');
+  });
 });
 
 describe('route pool opt-in in workflows', () => {

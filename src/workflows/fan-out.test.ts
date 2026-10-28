@@ -106,6 +106,7 @@ describe('tools-update.yml', () => {
     );
     delete resolve.outputs?.route_id;
     delete resolve.outputs?.credential;
+    delete resolve.outputs?.account;
     expect(normalize(tools.jobs.resolve)).toBe(normalize(resolve));
     expect(targetTokenUses(tools.jobs)).toEqual({
       'resolve/Resolve the target repository, commit and base': [
@@ -304,6 +305,40 @@ describe('agent-ci-fanout-selftest.yml', () => {
   });
 });
 
+describe('proxy origin secret chain', () => {
+  it('declares AGENT_CI_PROXY_BASE_URL wherever the proxy key is declared and passes it to run-agent.yml', async () => {
+    const callers = [
+      '.github/workflows/fan-out.yml',
+      '.github/workflows/docs-update.yml',
+      '.github/workflows/instructions-update.yml',
+    ];
+    for (const file of [
+      ...callers,
+      '.github/workflows/run-agent.yml',
+      '.github/workflows/pr-review.yml',
+    ]) {
+      const workflow = await load(file);
+      const declared = (
+        workflow.on.workflow_call as { secrets: Record<string, unknown> }
+      ).secrets;
+      expect(declared, file).toHaveProperty('AGENT_CI_PROXY_API_KEY');
+      expect(declared.AGENT_CI_PROXY_BASE_URL, file).toMatchObject({
+        required: false,
+      });
+    }
+    for (const file of callers) {
+      const workflow = await load(file);
+      const calls = Object.values(workflow.jobs).filter(
+        (job) => job.uses === './.github/workflows/run-agent.yml',
+      );
+      expect(calls.length, file).toBe(1);
+      expect(calls[0]?.secrets?.AGENT_CI_PROXY_BASE_URL, file).toBe(
+        '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+      );
+    }
+  });
+});
+
 describe('fleet and consumer templates', () => {
   it('pin the reusable workflows, grant the publish scopes and pass explicit secrets', async () => {
     const cases: [string, string, string[]][] = [
@@ -315,6 +350,7 @@ describe('fleet and consumer templates', () => {
           'AGENT_CI_TARGET_TOKEN',
           'AGENT_CI_TARGET_READ_TOKEN',
           'CLAUDE_CODE_OAUTH_TOKEN',
+          'AGENT_CI_PROXY_BASE_URL',
         ],
       ],
       [

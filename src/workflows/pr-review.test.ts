@@ -138,6 +138,22 @@ describe('pr-review.yml', () => {
     }
   });
 
+  it('declares the proxy origin and gives it only to the reviewer and adjudicator steps of a pool route', async () => {
+    const workflow = await review();
+    const declared = (
+      workflow.on.workflow_call as { secrets: Record<string, unknown> }
+    ).secrets;
+    expect(declared.AGENT_CI_PROXY_BASE_URL).toMatchObject({ required: false });
+    const gated =
+      "${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}";
+    for (const [, step] of steps(workflow)) {
+      const text = JSON.stringify(step);
+      const holds = text.includes('AGENT_CI_PROXY_BASE_URL');
+      expect(holds, step.name).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
+      if (holds) expect(step.env?.AGENT_CI_PROXY_BASE_URL).toBe(gated);
+    }
+  });
+
   it('passes a GitHub token only to the gate, spec, sources, findings and publish steps', async () => {
     for (const [, step] of steps(await review())) {
       const holds = step.env?.GITHUB_TOKEN !== undefined;
@@ -362,7 +378,12 @@ describe('consumer PR review template', () => {
     );
     expect(job.secrets).not.toBe('inherit');
     expect(Object.keys((job.secrets as Record<string, unknown>) ?? {})).toEqual(
-      ['AGENT_CI_SOURCE_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENCODE_API_KEY'],
+      [
+        'AGENT_CI_SOURCE_TOKEN',
+        'CLAUDE_CODE_OAUTH_TOKEN',
+        'OPENCODE_API_KEY',
+        'AGENT_CI_PROXY_BASE_URL',
+      ],
     );
     // The template itself has no steps: nothing runs outside the gate.
     expect(job.steps).toBeUndefined();

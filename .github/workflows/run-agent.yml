@@ -218,6 +218,12 @@ on:
       AGENT_CI_PROXY_API_KEY:
         description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
         required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: >-
+          Optional private proxy origin (https) that replaces the loopback origin of
+          pool routes. A secret so Actions masks it; passed to the agent step only for
+          a pool route.
+        required: false
       AGENT_CI_NOTIFY_WEBHOOK:
         description: Optional https webhook (Slack-compatible) for a run notification.
         required: false
@@ -251,6 +257,7 @@ jobs:
       comment_pr: ${{ steps.target.outputs.comment_pr }}
       route_id: ${{ steps.route.outputs.route_id }}
       credential: ${{ steps.route.outputs.credential }}
+      account: ${{ steps.route.outputs.account }}
     steps:
       # job.workflow_* name the reusable workflow's own repository and commit
       # (verified live 2026-10-25; github.workflow_sha is the caller's commit).
@@ -405,6 +412,8 @@ jobs:
       AGENT_CI_CREDENTIAL: ${{ (needs.resolve.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (needs.resolve.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (needs.resolve.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (needs.resolve.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (needs.resolve.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
       AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
       AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+      # The private proxy origin, only for a pool route (empty otherwise).
+      AGENT_CI_PROXY_BASE_URL: ${{ needs.resolve.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
 
   publish:
     name: Publish

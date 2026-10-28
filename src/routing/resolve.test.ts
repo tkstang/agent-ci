@@ -438,3 +438,164 @@ describe('pool policy under CI (operator change 2026-10-25)', () => {
     });
   });
 });
+
+describe('proxy origin override (AGENT_CI_PROXY_BASE_URL)', () => {
+  const ORIGIN = 'https://proxy.example.com';
+  const routes = file([
+    route({
+      id: 'codex-pool',
+      model: 'gpt-x',
+      harness: 'codex',
+      family: 'openai',
+      providerModel: 'gpt-x',
+      credentials: ['AGENT_CI_PROXY_API_KEY'],
+      baseUrl: 'http://127.0.0.1:8317/v1',
+      account: 'pool',
+      structuredOutput: 'output-schema',
+    }),
+    route({
+      id: 'claude-pool',
+      model: 'claude-x',
+      credentials: ['ANTHROPIC_AUTH_TOKEN'],
+      baseUrl: 'http://127.0.0.1:8317',
+      account: 'pool',
+    }),
+    route({
+      id: 'codex-personal',
+      model: 'gpt-y',
+      harness: 'codex',
+      family: 'openai',
+      providerModel: 'gpt-y',
+      credentials: ['SYNTHETIC_GATEWAY_KEY'],
+      baseUrl: 'https://gateway.example.org/v1',
+      account: 'personal',
+      structuredOutput: 'output-schema',
+    }),
+  ]);
+  const local = (override: string | undefined) => ({
+    AGENT_CI_PROXY_API_KEY: PRESENT,
+    ANTHROPIC_AUTH_TOKEN: PRESENT,
+    SYNTHETIC_GATEWAY_KEY: PRESENT,
+    ...(override === undefined ? {} : { AGENT_CI_PROXY_BASE_URL: override }),
+  });
+  const baseUrl = (routeId: string, env: Record<string, string>) => {
+    const resolved = resolveRoute(
+      routes,
+      request({ routeId, allowPool: true, env }),
+    );
+    if (!resolved.ok) throw new Error(`${resolved.code}: ${resolved.message}`);
+    return resolved.value.route.baseUrl;
+  };
+
+  it('serves pool routes from the override origin, keeping the route path', () => {
+    expect(baseUrl('codex-pool', local(ORIGIN))).toBe(
+      'https://proxy.example.com/v1',
+    );
+    expect(baseUrl('claude-pool', local(ORIGIN))).toBe(
+      'https://proxy.example.com',
+    );
+    // A trailing slash is still an origin; a port is part of it.
+    expect(baseUrl('codex-pool', local(`${ORIGIN}/`))).toBe(
+      'https://proxy.example.com/v1',
+    );
+    expect(baseUrl('codex-pool', local('https://proxy.example.com:8443'))).toBe(
+      'https://proxy.example.com:8443/v1',
+    );
+    // Selection by model takes the same path as --route.
+    const byModel = resolveRoute(
+      routes,
+      request({ model: 'gpt-x', allowPool: true, env: local(ORIGIN) }),
+    );
+    expect(byModel.ok && byModel.value.route.baseUrl).toBe(
+      'https://proxy.example.com/v1',
+    );
+  });
+
+  it('never touches a non-pool route, even when the override is invalid', () => {
+    expect(baseUrl('codex-personal', local(ORIGIN))).toBe(
+      'https://gateway.example.org/v1',
+    );
+    expect(baseUrl('codex-personal', local('not a url'))).toBe(
+      'https://gateway.example.org/v1',
+    );
+  });
+
+  it('keeps the loopback default when the variable is unset, empty or blank', () => {
+    for (const override of [undefined, '', '   ']) {
+      expect(baseUrl('codex-pool', local(override))).toBe(
+        'http://127.0.0.1:8317/v1',
+      );
+      expect(baseUrl('claude-pool', local(override))).toBe(
+        'http://127.0.0.1:8317',
+      );
+    }
+  });
+
+  it('accepts plain http only for a loopback host', () => {
+    expect(baseUrl('codex-pool', local('http://127.0.0.1:9000'))).toBe(
+      'http://127.0.0.1:9000/v1',
+    );
+    expect(baseUrl('codex-pool', local('http://localhost:9000'))).toBe(
+      'http://localhost:9000/v1',
+    );
+    expect(baseUrl('codex-pool', local('http://[::1]:9000'))).toBe(
+      'http://[::1]:9000/v1',
+    );
+  });
+
+  it('rejects anything but an https origin with E_ROUTE_CONFIG, never echoing the value', () => {
+    // Each value carries a marker the error must not repeat.
+    const cases: [string, RegExp][] = [
+      ['http://private-marker.example.com', /https/u],
+      ['ftp://private-marker.example.com', /https/u],
+      ['https://user-marker:pw-marker@proxy.example.com', /username/u],
+      ['https://token-marker@proxy.example.com', /username/u],
+      ['https://proxy.example.com/?k=query-marker', /query/u],
+      ['https://proxy.example.com?', /query/u],
+      ['https://proxy.example.com/#frag-marker', /fragment/u],
+      ['https://proxy.example.com/path-marker', /path/u],
+      ['https://proxy.example.com/v1', /path/u],
+      ['private-marker.example.com', /absolute URL/u],
+    ];
+    for (const [value, rule] of cases) {
+      const resolved = resolveRoute(
+        routes,
+        request({ routeId: 'codex-pool', allowPool: true, env: local(value) }),
+      );
+      expect(resolved.ok, value).toBe(false);
+      if (resolved.ok) continue;
+      expect(resolved.code, value).toBe('E_ROUTE_CONFIG');
+      expect(resolved.message, value).toContain('AGENT_CI_PROXY_BASE_URL');
+      expect(resolved.message, value).toMatch(rule);
+      const shown = `${resolved.message} ${resolved.hint ?? ''}`;
+      expect(shown, value).not.toContain(value);
+      expect(shown, value).not.toMatch(/marker/u);
+    }
+  });
+
+  it('leaves the pool policy unchanged when the override is set', () => {
+    const ci = (runner: string) => ({
+      ...local(ORIGIN),
+      CI: 'true',
+      RUNNER_ENVIRONMENT: runner,
+    });
+    const resolve = (routeId: string, allowPool: boolean, runner: string) =>
+      resolveRoute(routes, request({ routeId, allowPool, env: ci(runner) }));
+    expect(resolve('codex-pool', true, 'github-hosted')).toMatchObject({
+      code: 'E_POLICY_POOL_CI',
+    });
+    expect(resolve('codex-pool', false, 'self-hosted')).toMatchObject({
+      code: 'E_POLICY_POOL',
+    });
+    for (const runner of ['self-hosted', 'github-hosted']) {
+      expect(resolve('claude-pool', true, runner)).toMatchObject({
+        code: 'E_POLICY_POOL_CI',
+      });
+    }
+    // The one CI shape the policy allows still resolves, with the override.
+    const allowed = resolve('codex-pool', true, 'self-hosted');
+    expect(allowed.ok && allowed.value.route.baseUrl).toBe(
+      'https://proxy.example.com/v1',
+    );
+  });
+});

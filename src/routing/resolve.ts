@@ -7,6 +7,7 @@ import {
   type EligibilityRequest,
   isClaudeModel,
 } from '@agent-ci/routing/policy.js';
+import { applyProxyOrigin } from '@agent-ci/routing/proxy-origin.js';
 import {
   type HarnessId,
   type ModelsFile,
@@ -114,8 +115,23 @@ function resolveById(
  * falls back from a subscription route to a paid-api route, and never falls
  * back into a work account. An explicit `--route` is the only way to pick
  * such a route.
+ *
+ * After selection, a pool route's `baseUrl` takes the origin from
+ * `AGENT_CI_PROXY_BASE_URL` when it is set (see `applyProxyOrigin`); the
+ * policy checks above never depend on it.
  */
 export function resolveRoute(
+  file: ModelsFile,
+  request: ResolveRequest,
+): Result<ResolvedRoute> {
+  const selected = selectRoute(file, request);
+  if (!selected.ok) return selected;
+  const route = applyProxyOrigin(selected.value.route, request.env);
+  if (!route.ok) return route;
+  return success({ ...selected.value, route: route.value });
+}
+
+function selectRoute(
   file: ModelsFile,
   request: ResolveRequest,
 ): Result<ResolvedRoute> {

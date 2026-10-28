@@ -174,6 +174,16 @@ decided to keep Claude pool routes refused in CI
 (DR-261025-keep-claude-pool-routes). Runner setup is in
 [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy).
 
+When `AGENT_CI_PROXY_BASE_URL` is set, every pool route takes its origin
+from it and keeps its own path, so the Codex pool route uses
+`https://proxy.example.com/v1` for an origin of `https://proxy.example.com`.
+The value must be a bare `https` origin (`http` only for a loopback host)
+and is otherwise refused with `E_ROUTE_CONFIG`. It changes where the pool is
+reached, not who may use it: the policy above applies unchanged. agent-ci
+treats the value as a secret, never prints it, and refuses agent output
+that contains it; the workflows pass it only to the agent, review and
+adjudicator steps of a pool route.
+
 ## Current routes
 
 As of this commit (`agent-ci models` prints the live table):

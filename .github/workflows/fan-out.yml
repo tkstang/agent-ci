@@ -121,6 +121,12 @@ on:
       AGENT_CI_PROXY_API_KEY:
         description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
         required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: >-
+          Optional private proxy origin (https) that replaces the loopback origin of
+          pool routes. A secret so Actions masks it; passed to the agent step only for
+          a pool route.
+        required: false
       AGENT_CI_NOTIFY_WEBHOOK:
         required: false
 
@@ -232,6 +238,7 @@ jobs:
       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+      AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
       AGENT_CI_NOTIFY_WEBHOOK: ${{ secrets.AGENT_CI_NOTIFY_WEBHOOK }}
 
   tools:

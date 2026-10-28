@@ -10,6 +10,9 @@ import { failure, success, type Result } from '@agent-ci/result.js';
  * Credential environment variables agent-ci knows about. Every one of them is
  * dropped from a child environment unless the resolved route names it, and
  * every present value is treated as a secret for output guarding.
+ * `AGENT_CI_PROXY_BASE_URL` is not a credential but a private endpoint: it
+ * reaches a harness only as the pool route's `baseUrl`, and an output that
+ * echoes it is refused like a credential.
  */
 export const KNOWN_CREDENTIAL_ENV = [
   'ANTHROPIC_API_KEY',
@@ -21,6 +24,7 @@ export const KNOWN_CREDENTIAL_ENV = [
   'OPENCODE_API_KEY',
   'CURSOR_API_KEY',
   'AGENT_CI_PROXY_API_KEY',
+  'AGENT_CI_PROXY_BASE_URL',
   'AWS_ACCESS_KEY_ID',
   'AWS_SECRET_ACCESS_KEY',
   'AWS_SESSION_TOKEN',

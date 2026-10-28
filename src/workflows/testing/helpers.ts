@@ -27,6 +27,7 @@ export interface Job {
   uses?: string;
   with?: Record<string, unknown>;
   secrets?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
   steps?: Step[];
 }
 export interface Workflow {
@@ -51,6 +52,11 @@ export function modelChain(source: string): string {
   return `\${{ ${MODEL_SECRETS.map(
     (secret) => `(${source} == '${secret}' && secrets.${secret})`,
   ).join(' || ')} || '' }}`;
+}
+
+/** The private proxy origin, passed only when `source` says the route is a pool route. */
+export function poolOriginFor(source: string): string {
+  return `\${{ ${source} == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}`;
 }
 
 export function step(job: Job, name: string): Step {
