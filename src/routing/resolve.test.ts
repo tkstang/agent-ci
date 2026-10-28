@@ -1,3 +1,4 @@
+import { maskSecrets } from '@agent-ci/contracts/secret-guard.js';
 import { DEFAULT_MODELS_PATH } from '@agent-ci/paths.js';
 import { CI_POOL_ALLOWS_CLAUDE } from '@agent-ci/routing/policy.js';
 import {
@@ -494,10 +495,7 @@ describe('proxy origin override (AGENT_CI_PROXY_BASE_URL)', () => {
     expect(baseUrl('claude-pool', local(ORIGIN))).toBe(
       'https://proxy.example.com',
     );
-    // A trailing slash is still an origin; a port is part of it.
-    expect(baseUrl('codex-pool', local(`${ORIGIN}/`))).toBe(
-      'https://proxy.example.com/v1',
-    );
+    // A non-default port is part of the origin.
     expect(baseUrl('codex-pool', local('https://proxy.example.com:8443'))).toBe(
       'https://proxy.example.com:8443/v1',
     );
@@ -556,6 +554,18 @@ describe('proxy origin override (AGENT_CI_PROXY_BASE_URL)', () => {
       ['https://proxy.example.com/path-marker', /path/u],
       ['https://proxy.example.com/v1', /path/u],
       ['private-marker.example.com', /absolute URL/u],
+      // Forms WHATWG parsing would normalize into a bare origin.
+      ['https://proxy.example.com/marker/..', /path/u],
+      ['https://proxy.example.com/%2e%2e', /path/u],
+      ['https://proxy.example.com\\marker', /path/u],
+      ['https://@marker-proxy.example.com', /username/u],
+      ['https://marker-proxy.example.com/', /trailing slash/u],
+      // Values the secret guard would not match after normalization.
+      ['HTTPS://MARKER-PROXY.EXAMPLE.COM', /canonical/u],
+      ['https://marker-proxy.example.com:443', /canonical/u],
+      ['https://märker-proxy.example.com', /canonical/u],
+      ['https://marker-proxy.example.com\n', /whitespace/u],
+      [' https://marker-proxy.example.com', /whitespace/u],
     ];
     for (const [value, rule] of cases) {
       const resolved = resolveRoute(
@@ -570,6 +580,24 @@ describe('proxy origin override (AGENT_CI_PROXY_BASE_URL)', () => {
       const shown = `${resolved.message} ${resolved.hint ?? ''}`;
       expect(shown, value).not.toContain(value);
       expect(shown, value).not.toMatch(/marker/u);
+    }
+  });
+
+  it('accepts only values the secret guard masks wherever the effective URL appears', () => {
+    // The guard matches the raw variable as a substring; every accepted
+    // value must therefore be a prefix of each effective base URL.
+    for (const value of [
+      ORIGIN,
+      'https://proxy.example.com:8443',
+      'http://[::1]:9000',
+    ]) {
+      for (const routeId of ['codex-pool', 'claude-pool']) {
+        const effective = baseUrl(routeId, local(value));
+        expect(effective?.startsWith(value), `${routeId} ${value}`).toBe(true);
+        expect(
+          maskSecrets(`connect ${effective}/responses failed`, [value]),
+        ).not.toContain(effective);
+      }
     }
   });
 
