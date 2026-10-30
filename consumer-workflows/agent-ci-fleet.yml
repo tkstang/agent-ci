@@ -21,8 +21,14 @@
 #   working on one target could read every private target the token can
 #   read; give fleets with different trust their own fleet repository and
 #   tokens (a secret cannot be chosen per target without a dynamic lookup).
-# - One model credential for the routes your targets use (for example
-#   CLAUDE_CODE_OAUTH_TOKEN). tools-update needs none.
+# - The model credential of every route your targets use, one `secrets:` line
+#   each (for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 and
+#   OPENCODE_API_KEY for grok-4.7). targets validate does not check this; a
+#   target whose credential is missing fails at run time. tools-update needs
+#   none.
+# - Optional, pool routes only: AGENT_CI_PROXY_BASE_URL replaces the loopback
+#   proxy origin with an https endpoint. A pool route also needs
+#   allow_pool: true, a self-hosted runs_on and AGENT_CI_PROXY_API_KEY.
 #
 # Targets in this repository are published with GITHUB_TOKEN: their
 # pull_request runs wait for approval and their pushes start no runs. Other
@@ -75,5 +81,9 @@ jobs:
       AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
       AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      # Optional: private https proxy origin for pool routes (see docs/configuration.md).
+      # Add the credential of every other route your targets use, for example:
+      # OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      # Optional, pool routes only (see docs/configuration.md): takes effect
+      # only with allow_pool: true, a self-hosted runs_on and the pool key.
+      # AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
       AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}

@@ -8,8 +8,6 @@
     "root": "docs",
     "tooling": "markdown",
     "index": "docs/index.md",
-    "nonReaderPaths": [
-      "contributing/templates/**"
-    ]
+    "nonReaderPaths": []
   }
 }

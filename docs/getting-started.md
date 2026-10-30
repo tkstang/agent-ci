@@ -112,8 +112,8 @@ agent-ci route --model claude-haiku-4-5
   `--seed-login` evaluate routes as if those flags were passed.
 - `models` lists every route in `models.yaml`; `--model <name>` narrows it.
 - `route` resolves the route a run would use under the current policy,
-  without needing the credential, and lists the routes it skipped with the
-  reason. For `claude-haiku-4-5` without flags it picks
+  without needing the credential (login routes are always skipped; `route`
+  has no `--seed-login`), and lists the routes it skipped with the reason. For `claude-haiku-4-5` without flags it picks
   `claude-haiku-4-5-personal` and skips the pool route with `E_POLICY_POOL`.
 
 [Harnesses and routing](harnesses-and-routing.md) explains how a model name

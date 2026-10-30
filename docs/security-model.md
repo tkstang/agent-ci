@@ -9,8 +9,9 @@ agent-ci runs a model, with a credential, against repository content that
 may be untrusted, and then writes to GitHub. Its design keeps three things
 apart: the model credential, write access to GitHub, and code from the
 repository or pull request. This page explains where those boundaries are
-and what is still exposed. Every residual risk below is recorded with its
-rationale in the project's deferred findings.
+and what is still exposed. The reasoning behind these choices is in the
+[decision records](../.oat/repo/reference/decisions/index.md), and open
+gaps are tracked in the [backlog](../.oat/repo/pjm/backlog/index.md).
 
 ## Principles
 
@@ -41,14 +42,15 @@ rationale in the project's deferred findings.
 | ------------------------- | --------------------- | ------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `resolve`                 | none                  | none                                        | none                        | `GITHUB_TOKEN`, `AGENT_CI_SOURCE_TOKEN`; for another repository `AGENT_CI_TARGET_TOKEN` and the read-only target token (checked here) |
 | `setup`                   | runs `setup_command`  | none                                        | none                        | read-only target token for a private other repository                                                                                 |
-| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)     | `AGENT_CI_SOURCE_TOKEN`, read-only target token                                                                                       |
-| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests` | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`                                                                                             |
+| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)     | `AGENT_CI_SOURCE_TOKEN`, read-only target token; `AGENT_CI_PROXY_BASE_URL` for a pool route only                                      |
+| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests` | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`, `AGENT_CI_SOURCE_TOKEN`; optional `AGENT_CI_NOTIFY_WEBHOOK`                                |
 
 The agent job sits behind its own `workflow_call` boundary
-(`agent-job.yml`), which declares only three secrets: the selected model
-credential, the helper token and the read-only target token. So even the
-runner that executes the agent holds no other model secret and no write
-token.
+(`agent-job.yml`), which declares only four secrets: the selected model
+credential, the helper token, the read-only target token and, for a pool
+route only, the private proxy origin (`AGENT_CI_PROXY_BASE_URL`). So even
+the runner that executes the agent holds no other model secret and no
+write token.
 
 The setup job's output is untrusted: the agent job downloads the archive by
 artifact ID, checks its digest, and parses it itself (`agent-ci workspace
@@ -59,14 +61,14 @@ digest matches the one the agent job recorded.
 
 ### pr-review.yml
 
-| Job                               | Pull-request code                                                       | Model credential                                                                               | GitHub write                  |
-| --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------- |
-| `gate`                            | no checkout                                                             | none                                                                                           | label, reaction and one reply |
-| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none, and no helper token; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain | none (`contents: read`)       |
-| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | every model secret the caller passes is on the runner; only the route's reaches the pass step  | none                          |
-| `adjudicate`                      | no checkout; sources come from the git database API                     | the route's credential, tool-free Claude run                                                   | none                          |
-| `findings`                        | no checkout                                                             | none                                                                                           | none (read-only token)        |
-| `publish`                         | no checkout                                                             | none                                                                                           | review and summary comment    |
+| Job                               | Pull-request code                                                       | Model credential                                                                                                                               | GitHub write                  |
+| --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `gate`                            | no checkout                                                             | none                                                                                                                                           | label, reaction and one reply |
+| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none, and no helper token; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain                                                 | none (`contents: read`)       |
+| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | every model secret the caller passes is on the runner; only the route's reaches the pass step, plus `AGENT_CI_PROXY_BASE_URL` for a pool route | none                          |
+| `adjudicate`                      | no checkout; sources come from the git database API                     | the route's credential, tool-free Claude run                                                                                                   | none                          |
+| `findings`                        | no checkout                                                             | none                                                                                                                                           | none (read-only token)        |
+| `publish`                         | no checkout                                                             | none                                                                                                                                           | review and summary comment    |
 
 Every job except `verify` also checks out the agent-ci helpers with
 `AGENT_CI_SOURCE_TOKEN`.
@@ -104,6 +106,18 @@ write token. Its resolve and publish jobs match `run-agent.yml`'s.
 - **Pool routes** need an explicit opt-in, run in CI only on a self-hosted
   runner, and never for a Claude model (see
   [Harnesses and routing](harnesses-and-routing.md#policy)).
+- **Private proxy origin.** The optional `AGENT_CI_PROXY_BASE_URL` secret
+  replaces the loopback origin of pool routes. It is a secret, not a
+  variable, so Actions masks the exact value in logs. It must be a bare
+  origin in canonical form (`https://host[:port]`; plain `http` only for a
+  loopback host), so every URL built from it contains the masked value. A
+  message that shows only the host name, such as a DNS or connection
+  error, is neither masked nor refused by the secret guard, so treat the
+  host name as discoverable from logs and run artifacts. Workflows pass it only to the agent step, the reviewer
+  passes and the adjudicator, and only for a pool route. With it set, the
+  pool key travels to that host (over https unless it is a loopback
+  host). The pool policy does not
+  change.
 
 ## Isolated home and environment
 
@@ -137,9 +151,12 @@ A seeded login (`--seed-login`) is local only and refused in CI.
 ## Secret guard
 
 Before writing results, agent-ci refuses (`E_SECRET_COPY`) a run whose
-`run-result.json`, run log or changed files contain the exact value of a
-credential the run can see, including token-like values from a seeded
-login. This catches accidental copies. It does not catch an encoded,
+`run-result.json`, run log or changed files contain the exact value of any
+known credential variable present in its environment (not only the
+route's), including token-like values from a seeded login and
+`AGENT_CI_PROXY_BASE_URL`: an output that echoes the private proxy origin
+is refused like a credential. Values shorter than 8 characters are not
+guarded. This catches accidental copies. It does not catch an encoded,
 split or transformed value, and it cannot stop an agent that sends its
 credential over the network.
 
@@ -169,18 +186,22 @@ credential over the network.
   Fork pull requests never reach a credential.
 - Consumers trigger from the default branch (`pull_request_target`,
   `issue_comment`), so a pull request cannot change its own review
-  workflow, models or pin.
+  workflow, models or pin. A manual `workflow_dispatch` runs the caller at
+  the ref the dispatcher selects; dispatch only from trusted refs.
 - Commenter text travels only inside the digest-bound request and spec
   files, never through a step output or a shell script.
 - The findings gate treats every reviewer artifact as untrusted and
   re-reads cited source itself. The adjudicator runs with every tool
-  removed.
+  removed and may only drop or downgrade findings: it cannot add any or
+  change protected ones (`high`, `critical`, or at or above
+  `fail_on_severity`), and the findings gate enforces these limits again.
 
 ## Verify-review
 
 - In Actions, checks run only in the verify job: no model credential and no
   helper token, a GitHub-hosted runner unless `verify_on_self_hosted`
-  (ephemeral runners only), and never with `allow_pool`. The job's read-only
+  (meant only for ephemeral runners; agent-ci cannot check that), and never
+  with `allow_pool`. The job's read-only
   `GITHUB_TOKEN` and Actions runtime token remain (see
   [Residual risk](#residual-risk)).
 - The checks list comes from the default branch head or the caller's
@@ -191,7 +212,8 @@ credential over the network.
 - The optional `setup` command runs pull-request-controlled code (install
   scripts, lockfile resolution) with the network open. Only the checks lose
   the network, and only where isolation is available (a loopback-only
-  network namespace on Linux).
+  network namespace on Linux, or the macOS sandbox, which allows only
+  localhost).
 - Each check runs with an environment allowlist that strips tokens, a
   `PATH` without checkout entries, a fresh copy of the tree, a deadline and
   a process-group kill, plus Linux namespaces where available.
@@ -221,8 +243,8 @@ These risks are accepted, with the conditions that would change that.
   request with links out of the checkout is refused. Requester and author
   write access is the trust boundary; prefer a Claude reviewer for
   repositories that accept outside contributions.
-- **Cursor offers account connector tools.** Headless Cursor runs on the
-  work account were offered the account's cloud connector tools (mail- and
+- **Cursor offers account connector tools.** Headless Cursor runs on a
+  team-managed account were offered the account's cloud connector tools (mail- and
   calendar-style actions) whatever the isolated home contains. This affects
   every Cursor run and review route. Do not run Cursor on untrusted content
   until the account can disable connectors for API keys.
@@ -236,7 +258,10 @@ These risks are accepted, with the conditions that would change that.
   and adjudicator steps select one credential, but each of those runners
   receives every model secret the caller passes to `pr-review.yml`. The
   shipped caller template passes two (`CLAUDE_CODE_OAUTH_TOKEN` and
-  `OPENCODE_API_KEY`). Pass only the secrets your review models use.
+  `OPENCODE_API_KEY`). Pass only the secrets your review models use. The
+  same holds for `AGENT_CI_PROXY_BASE_URL`, which the template also passes:
+  every review and adjudicator runner holds it whatever the route, so pass
+  it only if a review model uses a pool route.
 - **One read token per fleet.** An agent on one target could read every
   private target the fleet's read token can read. The token's permissions
   beyond writing contents cannot be checked through the API, so a token with
@@ -287,8 +312,9 @@ These risks are accepted, with the conditions that would change that.
   `--ignore-scripts`; the Cursor tarball is sha256-pinned. Read-only
   guarantees were probed against the pinned versions and must be re-probed
   when a pin changes.
-- **Not exercised live yet:** a model-backed Actions run (no model secret
-  is stored in `tkstang/agent-ci`), the default-branch review triggers,
+- **Not exercised live yet:** a model-backed Actions run of `pr-review.yml`
+  (a model-backed `fan-out.yml` docs-update run has passed), the
+  default-branch review triggers,
   cross-repository fan-out with real target tokens, and a pool route on a
   self-hosted runner, including the Codex sandbox prerequisite on a
   self-hosted Linux host (see

@@ -22,9 +22,10 @@ where each topic belongs.
 
 ## Review and verification
 
-Use `oat-docs-analyze` to identify content, metadata, and navigation gaps, then
-`oat-docs-apply` for approved repairs. Adoption establishes entrypoints and
-configuration; review the existing tree before treating it as complete.
+`pnpm docs:check` is the required check. Maintainers may also use the
+optional OAT docs skills (`oat-docs-analyze` to find content, metadata and
+navigation gaps, `oat-docs-apply` for approved repairs); contributors do not
+need them.
 
 Check relative links, Contents maps, metadata, and context after edits with
 `pnpm docs:check`. It fails when a reader directory has no `index.md` with a
@@ -33,14 +34,14 @@ Check relative links, Contents maps, metadata, and context after edits with
 `README.md` or `AGENTS.md` does not resolve. CI runs it. `pnpm format` formats
 Markdown with oxfmt; there is no Markdown linter and no site build.
 
-The authored index is not a generated manifest. If an optional inventory is
-needed, run `oat docs generate-index` with an explicit output outside the
-configured content tree and keep the authored entrypoint unchanged.
+The authored index is not a generated manifest. Do not replace it with a
+generated inventory.
 
 ## Information architecture
 
 The structure is recorded in the repository decision record
-DR-261025-organize-the-docs-as-one-flat (accepted). It describes one flat `docs/` directory and one `index.md` whose `## Contents` map groups
+[DR-261025-organize-the-docs-as-one-flat](../.oat/repo/reference/decisions/DR-261025-organize-the-docs-as-one-flat.md)
+(accepted). It describes one flat `docs/` directory and one `index.md` whose `## Contents` map groups
 the reader pages under `###` headings (Start, Use, Set up, Concepts,
 Contributing).
 
@@ -60,18 +61,3 @@ Contributing).
 - **Out of scope for `docs/`:** project history, plans, backlog and review
   records, which stay in the repository's OAT project-management area, and
   agent runtime rules, which stay in `AGENTS.md`.
-
-## Preset selection
-
-Selection supplied to init: flat-small; anticipated reader pages: 7. Reader structure is collapsed into grouped root headings. Contributor, template and toolchain pages are outside this reader-page estimate.
-
-| Location                   | Reader group | Entry principle                                                    |
-| -------------------------- | ------------ | ------------------------------------------------------------------ |
-| index.md (group: Start)    | Start        | First safe result: build, a credential-free run, a cheap-model run |
-| index.md (group: Use)      | Use          | One page per capability: routing, workflows, PR review             |
-| index.md (group: Set up)   | Set up       | Credentials, settings and other repositories                       |
-| index.md (group: Concepts) | Concepts     | Trust boundaries and residual risk                                 |
-
-Readers enter by their immediate goal, using one grouped index instead of navigating a hierarchy before choosing a task.
-
-Use contributing/templates/ as non-reader drafting assets. Screen specs are conditional on several journeys sharing a screen; no screen page or per-track AGENTS file is created automatically. Preserve canonical facts and paired links.

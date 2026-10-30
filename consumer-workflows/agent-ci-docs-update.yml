@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       base:
-        description: Branch to update and target with the pull request (empty = default branch).
+        description: Branch to update and target with the pull request (empty = the dispatched branch; the default branch on schedule).
         type: string
         default: ''
 

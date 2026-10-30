@@ -37,6 +37,8 @@ Run the narrowest sufficient checks - do not over-gate:
 - focused test (the suite touching the change)
 - format (`pnpm run format:check`) before a commit/PR is ready
 - build only when wiring changes (entrypoints, exports, path aliases)
+- docs (`pnpm run docs:check`) when `docs/`, `README.md` or `AGENTS.md` change
+- `pnpm run check:agents` (no `CLAUDE.md` anywhere); pre-commit and CI run it
 - `actionlint` when workflows, the setup action or `consumer-workflows/` change
   (CI runs it from the pinned `rhysd/actionlint` image); workflow structure
   tests live in `src/workflows/`
@@ -45,15 +47,19 @@ There is never a CI coverage gate.
 
 ## Agent setup
 
-This scaffold deliberately ships only a MINIMAL agent layer (this `AGENTS.md`
-and a starter `.claude/settings.json`; there is no `CLAUDE.md`, because Claude
-Code reads `AGENTS.md` directly; `pnpm run check:agents` in pre-commit and CI fails if
-any `CLAUDE.md` exists). It does
-**not** pre-bake `.agents/`, provider mirrors (`.cursor/`, `.codex/`), or `.oat/`.
+The agent layer is this `AGENTS.md` and a starter `.claude/settings.json`.
+There is no `CLAUDE.md`, because Claude Code reads `AGENTS.md` directly;
+`pnpm run check:agents` in pre-commit and CI fails if any `CLAUDE.md` exists.
+There is no `.agents/` directory and no provider mirror (`.cursor/`,
+`.codex/`).
 
-Run **`oat init`** with the latest OAT installed for the full guided agent/OAT
-setup (canonical `.agents/`, provider sync, project lifecycle). Do not
-hand-assemble the OAT layer.
+OAT is initialized: `.oat/` holds project-management state and decision
+records (start at `.oat/repo/AGENTS.md`). Do not hand-assemble the OAT layer.
+
+The OAT tool packs and skills named in the sections below are optional
+maintainer tooling, installed at user scope on the maintainer's machines.
+Contributors do not need them; the `pnpm` checks above are the required
+gate.
 
 ## Worktrees
 
