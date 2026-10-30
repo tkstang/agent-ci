@@ -1,0 +1,274 @@
+# Internal reusable workflow: the agent job of run-agent.yml, behind its own
+# workflow_call boundary so the runner that executes the agent can only ever
+# hold the secrets declared here: the one model credential run-agent.yml
+# selected for the resolved route (AGENT_CI_CREDENTIAL), the read-only helper
+# token, the read-only target token and, for a pool route only, the private
+# proxy origin (AGENT_CI_PROXY_BASE_URL). The write-capable target token and
+# every other model credential stay with run-agent.yml. Do not call this
+# workflow directly; call run-agent.yml.
+name: agent-ci agent job
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        type: string
+        required: true
+      job_timeout_minutes:
+        type: number
+        required: true
+      repository:
+        description: Resolved target repository (owner/name).
+        type: string
+        required: true
+      cross:
+        description: "'true' when the target is not the calling repository."
+        type: string
+        required: true
+      sha:
+        description: Resolved target commit.
+        type: string
+        required: true
+      base:
+        description: Resolved publish base branch (named in preset prompts).
+        type: string
+        required: true
+      route_id:
+        description: Route resolved by run-agent.yml; re-resolved here under the CI policy.
+        type: string
+        required: true
+      allow_pool:
+        description: The caller's pool opt-in (see run-agent.yml).
+        type: boolean
+        default: false
+      mode:
+        type: string
+        required: true
+      output_contract:
+        type: string
+        required: true
+      use_case:
+        type: string
+        required: true
+      prompt:
+        type: string
+        default: ''
+      preset:
+        type: string
+        default: ''
+      publish_branch:
+        type: string
+        default: ''
+      timeout_minutes:
+        type: number
+        required: true
+      max_attempts:
+        type: number
+        required: true
+      skills_oat_packs:
+        type: string
+        default: ''
+      skills_source:
+        type: string
+        default: ''
+      prepared_artifact_id:
+        description: The setup job's archive artifact ID, empty without a setup command.
+        type: string
+        default: ''
+      prepared_sha256:
+        type: string
+        default: ''
+      artifact_name:
+        type: string
+        required: true
+      agent_ci_repository:
+        type: string
+        default: ''
+      agent_ci_ref:
+        type: string
+        default: ''
+    secrets:
+      AGENT_CI_CREDENTIAL:
+        description: The resolved route's model credential, selected by run-agent.yml.
+        required: false
+      AGENT_CI_SOURCE_TOKEN:
+        required: false
+      AGENT_CI_TARGET_READ_TOKEN:
+        required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: The private proxy origin, passed by run-agent.yml only for a pool route.
+        required: false
+    outputs:
+      result_artifact_id:
+        description: Set only when the upload succeeded.
+        value: ${{ jobs.agent.outputs.result_artifact_id }}
+      result_digest:
+        value: ${{ jobs.agent.outputs.result_digest }}
+
+permissions:
+  contents: read
+
+jobs:
+  agent:
+    name: Run agent
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      # Set only when the upload succeeded; the publish job takes exactly
+      # this artifact and verifies this digest.
+      result_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      result_digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      # job.workflow_* name the reusable workflow's own repository and commit
+      # (verified live 2026-10-25; github.workflow_sha is the caller's commit).
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the target repository
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.repository }}
+          token: ${{ inputs.cross == 'true' && secrets.AGENT_CI_TARGET_READ_TOKEN || github.token }}
+          path: target
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      # The setup job's archive is hostile input: downloaded by the exact
+      # artifact ID that job uploaded, then parsed by agent-ci itself (no tar
+      # process) with an entry allowlist, into a staging directory that gets
+      # this job's own .git. .git from the archive is refused at any depth.
+      - name: Download the prepared working tree
+        if: inputs.prepared_artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ inputs.prepared_artifact_id }}
+          path: ${{ runner.temp }}/agent-ci-prepared
+          merge-multiple: true
+
+      - name: Restore the prepared working tree
+        if: inputs.prepared_artifact_id != ''
+        env:
+          PREPARED_SHA256: ${{ inputs.prepared_sha256 }}
+        run: agent-ci workspace restore --archive "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" --target target --sha256 "$PREPARED_SHA256"
+
+      # The route the resolve job selected the credential for, re-resolved
+      # under this environment's policy (a pool route only with allow_pool on a
+      # self-hosted runner and never for a Claude model; login routes refused).
+      - name: Resolve the route
+        id: route
+        env:
+          ROUTE: ${{ inputs.route_id }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Install the harness
+        env:
+          HARNESS: ${{ steps.route.outputs.harness }}
+        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
+
+      # Ubuntu 24.04 blocks the user namespaces bubblewrap (Codex's Linux
+      # sandbox) needs; lifting it is safe on a GitHub-hosted VM, which is
+      # discarded after the job. Self-hosted runners are never reconfigured.
+      - name: Enable the Codex sandbox (GitHub-hosted Linux)
+        if: steps.route.outputs.harness == 'codex' && runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Check the Codex sandbox
+        if: steps.route.outputs.harness == 'codex'
+        run: agent-ci harness smoke --harness codex
+
+      - name: Trust the target checkout for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
+
+      - name: Install skills into the per-job home
+        if: inputs.skills_oat_packs != ''
+        env:
+          PACKS: ${{ inputs.skills_oat_packs }}
+        run: agent-ci skills install --home-root "$RUNNER_TEMP/agent-ci-home" --workspace target --oat-pack "$PACKS"
+
+      # Repository skills are repository content: installed at user scope they
+      # become trusted instructions, so only edit runs (whose agent can already
+      # act on the repository) get them; read-only runs never do.
+      - name: Install repository skills (edit runs only)
+        if: inputs.skills_source != '' && inputs.mode == 'edit'
+        env:
+          SOURCE: ${{ inputs.skills_source }}
+        run: agent-ci skills install --home-root "$RUNNER_TEMP/agent-ci-home" --workspace target --source "target/$SOURCE" --allow-workspace-source
+
+      # Either the preset's own prompt (owned by the helpers) or the caller's.
+      - name: Write the prompt
+        env:
+          PROMPT: ${{ inputs.prompt }}
+          PRESET: ${{ inputs.preset }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          BASE: ${{ inputs.base }}
+          BRANCH: ${{ inputs.publish_branch }}
+          USE_CASE: ${{ inputs.use_case }}
+        run: >-
+          agent-ci preset prompt --preset "$PRESET" --prompt-env PROMPT
+          --target-repo "$TARGET_REPOSITORY" --base "$BASE" --branch "$BRANCH"
+          --use-case "$USE_CASE" --out "$RUNNER_TEMP/agent-ci-prompt.md"
+
+      - name: Run the agent
+        env:
+          # The only model credential this workflow receives: the one the
+          # caller selected for this route (empty for the fake harness).
+          AGENT_CI_CREDENTIAL: ${{ secrets.AGENT_CI_CREDENTIAL }}
+          # Overrides the pool route's loopback origin; empty for other routes.
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
+          ROUTE_ID: ${{ steps.route.outputs.route_id }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          MODE: ${{ inputs.mode }}
+          CONTRACT: ${{ inputs.output_contract }}
+          USE_CASE: ${{ inputs.use_case }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          ATTEMPTS: ${{ inputs.max_attempts }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: >-
+          agent-ci run --route "$ROUTE_ID" --credential-from-env --allow-pool-value "$ALLOW_POOL"
+          --cwd target --out "$RUNNER_TEMP/agent-ci-out" --home-root "$RUNNER_TEMP/agent-ci-home"
+          --prompt-file "$RUNNER_TEMP/agent-ci-prompt.md" --mode "$MODE" --contract "$CONTRACT"
+          --use-case "$USE_CASE" --target-repo "$TARGET_REPOSITORY"
+          --timeout-minutes "$TIMEOUT" --max-attempts "$ATTEMPTS"
+
+      - name: Check for a run result
+        id: result
+        if: always()
+        run: test -f "$RUNNER_TEMP/agent-ci-out/run-result.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
+
+      - name: Digest the run result
+        id: digest
+        if: always() && steps.result.outputs.present == 'true'
+        run: agent-ci digest --dir "$RUNNER_TEMP/agent-ci-out" --github-output
+
+      - name: Upload the run result
+        id: upload
+        if: always() && steps.digest.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/agent-ci-out
+          retention-days: 7
+          if-no-files-found: error

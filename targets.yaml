@@ -1,0 +1,11 @@
+# Fan-out targets for this repository's own fleet runs (fan-out.yml).
+# Validate with: agent-ci targets validate
+# See targets.example.yaml for every field.
+version: 1
+allowedOwners: [tkstang]
+defaults:
+  base: main
+  model: claude-haiku-4-5
+targets:
+  - id: agent-ci
+    repository: tkstang/agent-ci

@@ -1,0 +1,918 @@
+# Reusable workflow: AI pull-request review on request (label, comment
+# command or dispatch), published as one inline review plus one summary
+# comment that later runs update in place.
+#
+# Jobs and their authority (each holds only what its step needs):
+# - gate:        GitHub token (issues/pull-requests write for the label, the
+#                eyes reaction and one reply). No model credential, no PR
+#                checkout. Authorizes the request (requester write/maintain/
+#                admin; same-repository open, non-draft PR; PR author with
+#                write or an allowlisted bot; forks never), checks the models
+#                and binds the request and the digest-bound review spec.
+# - verify:      verify-review only (the verify input). contents: read, NO
+#                secret of any kind: no model credential and no helper
+#                token (agent-ci arrives as the gate's helper bundle, checked
+#                against its sha256). Runs the checks in
+#                .github/agent-ci/checks.yaml (read from the default branch head) on
+#                the PR head in a controlled environment and uploads
+#                checks.json. This job runs pull-request code; its output
+#                is untrusted and the reviewer passes validate it.
+# - review-*:    contents: read. The PR head checkout (no persisted token)
+#                and ONLY the route's model credential, in the pass step
+#                only. The harness runs read-only: no setup command, no
+#                skills, no repository code. In verify-review it reads the
+#                recorded checks through the run_check MCP bridge.
+# - adjudicate:  contents: read. Sources come from the git database API (trees and blobs) in a
+#                step without the model credential; the adjudicator runs
+#                tool-free (Claude only) in an empty scratch directory. No
+#                PR checkout.
+# - findings:    contents/pull-requests: read. Deterministic gate over the
+#                digest-bound artifacts with sources from the git database API (trees and blobs).
+#                No model credential, no PR checkout.
+# - publish:     issues/pull-requests: write. No model credential, no PR
+#                checkout. Rechecks the PR head, posts, and fails the run
+#                when the review is incomplete or fail_on_severity triggers.
+#
+# Commenter text (the command and its instruction) travels only inside the
+# request and spec files, never through a step output or a `run:` script.
+# Every step with real logic is an `agent-ci review` subcommand.
+name: agent-ci PR review
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: workflow_dispatch only. The pull request to review; ignored for label and comment events.
+        type: string
+        default: ''
+      command:
+        description: workflow_dispatch only. The same text as a comment command; blank means /agent-ci-review.
+        type: string
+        default: ''
+      reviewer_model:
+        description: Primary reviewer model (a models.yaml model name).
+        type: string
+        default: claude-haiku-4-5
+      second_reviewer:
+        description: Run the independent second reviewer on every request.
+        type: boolean
+        default: false
+      second_reviewer_model:
+        description: Default second reviewer model; setting it does not turn the pass on.
+        type: string
+        default: grok-4.7
+      adjudicator:
+        description: Run the tool-free adjudicator (Claude routes only) on every request.
+        type: boolean
+        default: false
+      adjudicator_model:
+        description: Default adjudicator model; setting it does not turn the pass on.
+        type: string
+        default: claude-haiku-4-5
+      allowed_models:
+        description: Newline- or comma-separated model names a request may select (defaults included).
+        type: string
+        default: |
+          claude-haiku-4-5
+          grok-4.7
+      allowed_pr_authors:
+        description: Bot PR authors trusted for review (exact logins). Never bypasses the requester or same-repository checks.
+        type: string
+        default: ''
+      repo_guidance:
+        description: Inline review guidance appended to agent-ci's baseline.
+        type: string
+        default: ''
+      repo_guidance_path:
+        description: Repository-relative guidance file, read from the PR head.
+        type: string
+        default: ''
+      context_paths:
+        description: Newline- or comma-separated paths the reviewer reads first.
+        type: string
+        default: ''
+      fail_on_severity:
+        description: Blank for advisory reviews, or critical, high, medium or low to fail the run after publishing.
+        type: string
+        default: ''
+      max_inline_comments:
+        description: Inline comment budget per run, shared by every pass (0-100).
+        type: number
+        default: 10
+      min_inline_severity:
+        description: Lowest severity posted inline; lower findings appear in the summary only.
+        type: string
+        default: medium
+      artifact_scope:
+        description: Artifact-safe review scope; also scopes the comment markers.
+        type: string
+        default: default
+      publisher_login:
+        description: >-
+          Login the publishing token acts as. Empty means github-actions[bot] (GITHUB_TOKEN).
+        type: string
+        default: ''
+      verify:
+        description: >-
+          Allow verify-review requests (/agent-ci-verify-review, the agent-ci:verify-review
+          label). A verify job without any secret runs the checks in
+          .github/agent-ci/checks.yaml (read from the default branch head) on the PR head, and
+          Claude or Codex reviewers read the results through run_check. This runs
+          pull-request code in that job.
+        type: boolean
+        default: false
+      verify_config_ref:
+        description: >-
+          Branch whose head holds .github/agent-ci/checks.yaml for verify-review. Empty means
+          the repository's default branch. Never the PR's base, which its author can retarget.
+        type: string
+        default: ''
+      verify_on_self_hosted:
+        description: >-
+          Let the verify job run on a self-hosted runner. Only for ephemeral runners that
+          are discarded after the job: on a reused runner the pull-request code the job runs
+          can persist into later jobs that hold model secrets. Never the proxy (pool) host.
+        type: boolean
+        default: false
+      allow_pool:
+        description: >-
+          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
+          on a self-hosted runner whose host serves the loopback proxy, and never
+          for a Claude model; set true there to opt in.
+        type: boolean
+        default: false
+      runs_on:
+        description: Runner label for every job.
+        type: string
+        default: ubuntu-latest
+      timeout_minutes:
+        description: Deadline for each reviewer pass and the adjudicator.
+        type: number
+        default: 30
+      job_timeout_minutes:
+        description: Timeout for each job.
+        type: number
+        default: 60
+      agent_ci_repository:
+        description: Repository that provides the agent-ci helpers. Empty means this workflow's own repository.
+        type: string
+        default: ''
+      agent_ci_ref:
+        description: Helper ref. Empty means this workflow's own commit (job.workflow_sha).
+        type: string
+        default: ''
+    secrets:
+      AGENT_CI_SOURCE_TOKEN:
+        description: Contents read on the agent-ci repository (consumer repositories; it is private).
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENCODE_API_KEY:
+        required: false
+      CURSOR_API_KEY:
+        required: false
+      AGENT_CI_PROXY_API_KEY:
+        description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
+        required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: >-
+          Optional private proxy origin (https) that replaces the loopback origin of
+          pool routes. A secret so Actions masks it; passed to the reviewer and adjudicator
+          steps only for a pool route.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Authorize the request and bind the review spec
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run == 'true' && 'true' || 'false' }}
+      pr_number: ${{ steps.gate.outputs.pr_number }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+      reviewer_model: ${{ steps.gate.outputs.reviewer_model }}
+      second_enabled: ${{ steps.gate.outputs.second_enabled }}
+      second_reviewer_model: ${{ steps.gate.outputs.second_reviewer_model }}
+      adjudicator_enabled: ${{ steps.gate.outputs.adjudicator_enabled }}
+      adjudicator_model: ${{ steps.gate.outputs.adjudicator_model }}
+      mode: ${{ steps.gate.outputs.mode }}
+      spec_artifact_id: ${{ steps.spec-upload.outputs.artifact-id }}
+      spec_sha256: ${{ steps.prepare.outputs.spec_sha256 }}
+      prepare_error: ${{ steps.prepare.outputs.error_code }}
+      helpers_artifact_id: ${{ steps.helpers-upload.outputs.artifact-id }}
+      helpers_sha256: ${{ steps.helpers.outputs.sha256 }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      # Authorization first: nothing is replied to, reacted to or bound
+      # before the requester and the PR author are authorized.
+      - name: Authorize the request
+        id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DISPATCH_PR: ${{ inputs.pr_number }}
+          DISPATCH_COMMAND: ${{ inputs.command }}
+          ALLOWED_PR_AUTHORS: ${{ inputs.allowed_pr_authors }}
+          REVIEWER_MODEL: ${{ inputs.reviewer_model }}
+          SECOND_REVIEWER: ${{ inputs.second_reviewer }}
+          SECOND_REVIEWER_MODEL: ${{ inputs.second_reviewer_model }}
+          ADJUDICATOR: ${{ inputs.adjudicator }}
+          ADJUDICATOR_MODEL: ${{ inputs.adjudicator_model }}
+          ALLOWED_MODELS: ${{ inputs.allowed_models }}
+          FAIL_ON: ${{ inputs.fail_on_severity }}
+          MIN_INLINE: ${{ inputs.min_inline_severity }}
+          MAX_INLINE: ${{ inputs.max_inline_comments }}
+          PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+          VERIFY: ${{ inputs.verify }}
+        run: >-
+          agent-ci review gate --out "$RUNNER_TEMP/review-gate"
+          --dispatch-pr "$DISPATCH_PR" --dispatch-command "$DISPATCH_COMMAND"
+          --allowed-pr-authors "$ALLOWED_PR_AUTHORS"
+          --reviewer-model "$REVIEWER_MODEL" --second-reviewer "$SECOND_REVIEWER" --second-reviewer-model "$SECOND_REVIEWER_MODEL"
+          --adjudicator "$ADJUDICATOR" --adjudicator-model "$ADJUDICATOR_MODEL" --allowed-models "$ALLOWED_MODELS"
+          --fail-on-severity "$FAIL_ON" --min-inline-severity "$MIN_INLINE" --max-inline-comments "$MAX_INLINE"
+          --publisher-login "$PUBLISHER_LOGIN" --allow-pool-value "$ALLOW_POOL" --verify "$VERIFY" --github-output
+
+      # A spec failure (stale head, too-large diff, bad guidance) is reported
+      # by the publish job as a failure summary from its trusted error code.
+      - name: Bind the review spec and diff
+        id: prepare
+        if: steps.gate.outputs.should_run == 'true'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUEST_SHA256: ${{ steps.gate.outputs.request_sha256 }}
+          REPO_GUIDANCE: ${{ inputs.repo_guidance }}
+          REPO_GUIDANCE_PATH: ${{ inputs.repo_guidance_path }}
+          CONTEXT_PATHS: ${{ inputs.context_paths }}
+          VERIFY_CONFIG_REF: ${{ inputs.verify_config_ref }}
+        run: >-
+          agent-ci review prepare --request "$RUNNER_TEMP/review-gate/request.json" --request-sha256 "$REQUEST_SHA256"
+          --out "$RUNNER_TEMP/review-spec" --repo-guidance "$REPO_GUIDANCE"
+          --repo-guidance-path "$REPO_GUIDANCE_PATH" --context-paths "$CONTEXT_PATHS"
+          --verify-config-ref "$VERIFY_CONFIG_REF" --github-output
+
+      - name: Upload the review spec
+        id: spec-upload
+        if: steps.prepare.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-spec
+          path: ${{ runner.temp }}/review-spec
+          retention-days: 7
+          if-no-files-found: error
+
+      # verify-review: the built CLI for the verify job, which must not hold
+      # AGENT_CI_SOURCE_TOKEN (it runs pull-request code).
+      - name: Pack the agent-ci helpers for the verify job
+        id: helpers
+        if: steps.spec-upload.outcome == 'success' && steps.gate.outputs.mode == 'verify-review'
+        run: agent-ci helpers bundle --out "$RUNNER_TEMP/agent-ci-helpers/agent-ci-helpers.tgz" --github-output
+
+      - name: Upload the helper bundle
+        id: helpers-upload
+        if: steps.helpers.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-helpers
+          path: ${{ runner.temp }}/agent-ci-helpers
+          retention-days: 1
+          if-no-files-found: error
+
+  verify:
+    name: Run the configured checks (no credentials)
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.mode == 'verify-review'
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.verify.outputs.digest }}
+    steps:
+      # Before anything else: the job boundary is only a boundary on a
+      # runner that is discarded after the job.
+      - name: Require a GitHub-hosted runner (or the explicit self-hosted opt-in)
+        if: runner.environment != 'github-hosted' && !inputs.verify_on_self_hosted
+        run: |
+          echo "::error::verify-review runs pull-request code. On a reused self-hosted runner it can persist into later jobs that hold model credentials. Use a GitHub-hosted runner, or set verify_on_self_hosted for ephemeral runners only."
+          exit 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download the helper bundle
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.helpers_artifact_id }}
+          path: ${{ runner.temp }}/helpers-bundle
+          merge-multiple: true
+
+      - name: Unpack the helpers (checked against the gate's sha256)
+        env:
+          BUNDLE_SHA256: ${{ needs.gate.outputs.helpers_sha256 }}
+        run: |
+          echo "$BUNDLE_SHA256  $RUNNER_TEMP/helpers-bundle/agent-ci-helpers.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/agent-ci-helpers"
+          tar -xzf "$RUNNER_TEMP/helpers-bundle/agent-ci-helpers.tgz" -C "$RUNNER_TEMP/agent-ci-helpers"
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Check out the pull request head
+        uses: actions/checkout@v5
+        with:
+          path: target
+          ref: ${{ needs.gate.outputs.head_sha }}
+          persist-credentials: false
+
+      # Linux isolation for the checks (user, pid and loopback-only network
+      # namespaces) needs unprivileged user namespaces.
+      - name: Allow unprivileged user namespaces (GitHub-hosted Linux)
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Trust the target checkout for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
+
+      - name: Run the configured checks
+        id: verify
+        env:
+          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
+        run: >-
+          node "$RUNNER_TEMP/agent-ci-helpers/dist/cli.js" review verify
+          --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --cwd target --out "$RUNNER_TEMP/review-checks" --github-output
+
+      - name: Upload the check results
+        id: upload
+        if: steps.verify.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-checks
+          path: ${{ runner.temp }}/review-checks
+          retention-days: 7
+          if-no-files-found: error
+
+  review-primary:
+    name: Primary reviewer (read-only)
+    needs: [gate, verify]
+    if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the pull request head
+        uses: actions/checkout@v5
+        with:
+          path: target
+          ref: ${{ needs.gate.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Download the check results (verify-review)
+        if: needs.verify.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-checks
+          merge-multiple: true
+
+      - name: Resolve the route
+        id: route
+        env:
+          MODEL: ${{ needs.gate.outputs.reviewer_model }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Install the harness
+        env:
+          HARNESS: ${{ steps.route.outputs.harness }}
+        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
+
+      - name: Enable the Codex sandbox (GitHub-hosted Linux)
+        if: steps.route.outputs.harness == 'codex' && runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Check the Codex sandbox
+        if: steps.route.outputs.harness == 'codex'
+        run: agent-ci harness smoke --harness codex
+
+      - name: Trust the target checkout for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
+
+      - name: Run the primary reviewer
+        env:
+          # The resolved route's credential (empty for fake), picked by a
+          # static chain. Step expressions are evaluated on the runner, so this
+          # job's runner still holds every model secret the caller passes:
+          # pass only the one your route uses (Deferred Findings, p05).
+          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
+          ROUTE_ID: ${{ steps.route.outputs.route_id }}
+          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+          CHECKS_DIR: ${{ needs.verify.outputs.artifact_id != '' && format('{0}/review-checks', runner.temp) || '' }}
+          CHECKS_DIGEST: ${{ needs.verify.outputs.digest }}
+        run: >-
+          agent-ci review pass --pass primary --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
+          --checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"
+          --allow-pool-value "$ALLOW_POOL"
+          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
+
+      - name: Check for pass outputs
+        id: present
+        if: always()
+        run: test -f "$RUNNER_TEMP/review-pass/pass.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
+
+      - name: Digest the pass outputs
+        id: digest
+        if: always() && steps.present.outputs.present == 'true'
+        run: agent-ci digest --dir "$RUNNER_TEMP/review-pass" --github-output
+
+      - name: Upload the pass outputs
+        id: upload
+        if: always() && steps.digest.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-primary
+          path: ${{ runner.temp }}/review-pass
+          retention-days: 7
+          if-no-files-found: error
+
+  review-second:
+    name: Second reviewer (read-only)
+    needs: [gate, verify]
+    if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.second_enabled == 'true' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the pull request head
+        uses: actions/checkout@v5
+        with:
+          path: target
+          ref: ${{ needs.gate.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Download the check results (verify-review)
+        if: needs.verify.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-checks
+          merge-multiple: true
+
+      - name: Resolve the route
+        id: route
+        env:
+          MODEL: ${{ needs.gate.outputs.second_reviewer_model }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Install the harness
+        env:
+          HARNESS: ${{ steps.route.outputs.harness }}
+        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
+
+      - name: Enable the Codex sandbox (GitHub-hosted Linux)
+        if: steps.route.outputs.harness == 'codex' && runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Check the Codex sandbox
+        if: steps.route.outputs.harness == 'codex'
+        run: agent-ci harness smoke --harness codex
+
+      - name: Trust the target checkout for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
+
+      - name: Run the second reviewer
+        env:
+          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
+          ROUTE_ID: ${{ steps.route.outputs.route_id }}
+          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+          CHECKS_DIR: ${{ needs.verify.outputs.artifact_id != '' && format('{0}/review-checks', runner.temp) || '' }}
+          CHECKS_DIGEST: ${{ needs.verify.outputs.digest }}
+        run: >-
+          agent-ci review pass --pass second --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
+          --checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"
+          --allow-pool-value "$ALLOW_POOL"
+          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
+
+      - name: Check for pass outputs
+        id: present
+        if: always()
+        run: test -f "$RUNNER_TEMP/review-pass/pass.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
+
+      - name: Digest the pass outputs
+        id: digest
+        if: always() && steps.present.outputs.present == 'true'
+        run: agent-ci digest --dir "$RUNNER_TEMP/review-pass" --github-output
+
+      - name: Upload the pass outputs
+        id: upload
+        if: always() && steps.digest.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-second
+          path: ${{ runner.temp }}/review-pass
+          retention-days: 7
+          if-no-files-found: error
+
+  adjudicate:
+    name: Adjudicate (tool-free)
+    needs: [gate, review-primary, review-second]
+    if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.adjudicator_enabled == 'true' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Download the primary review
+        if: needs.review-primary.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.review-primary.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-primary
+          merge-multiple: true
+
+      - name: Download the second review
+        if: needs.review-second.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.review-second.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-second
+          merge-multiple: true
+
+      # GitHub token, no model credential: the cited source at the captured
+      # SHAs from the git database API (trees and blobs).
+      - name: Fetch the cited source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
+          PRIMARY_DIR: ${{ needs.review-primary.outputs.artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
+          PRIMARY_DIGEST: ${{ needs.review-primary.outputs.digest }}
+          SECOND_DIR: ${{ needs.review-second.outputs.artifact_id != '' && format('{0}/review-second', runner.temp) || '' }}
+          SECOND_DIGEST: ${{ needs.review-second.outputs.digest }}
+          FAIL_ON: ${{ inputs.fail_on_severity }}
+        run: >-
+          agent-ci review sources --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
+          --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
+          --fail-on-severity "$FAIL_ON" --out "$RUNNER_TEMP/review-sources"
+
+      - name: Resolve the route
+        id: route
+        env:
+          MODEL: ${{ needs.gate.outputs.adjudicator_model }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Install the harness
+        env:
+          HARNESS: ${{ steps.route.outputs.harness }}
+        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
+
+      # Model secrets only (every one the caller passes reaches this runner;
+      # the step gets the route's); no GitHub token.
+      - name: Run the adjudicator
+        env:
+          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
+          ROUTE_ID: ${{ steps.route.outputs.route_id }}
+          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
+          PRIMARY_DIR: ${{ needs.review-primary.outputs.artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
+          PRIMARY_DIGEST: ${{ needs.review-primary.outputs.digest }}
+          SECOND_DIR: ${{ needs.review-second.outputs.artifact_id != '' && format('{0}/review-second', runner.temp) || '' }}
+          SECOND_DIGEST: ${{ needs.review-second.outputs.digest }}
+          FAIL_ON: ${{ inputs.fail_on_severity }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: >-
+          agent-ci review adjudicate --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
+          --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
+          --sources-dir "$RUNNER_TEMP/review-sources" --fail-on-severity "$FAIL_ON"
+          --out "$RUNNER_TEMP/review-adjudication" --route "$ROUTE_ID" --credential-from-env
+          --allow-pool-value "$ALLOW_POOL"
+          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
+
+      - name: Check for adjudication outputs
+        id: present
+        if: always()
+        run: test -f "$RUNNER_TEMP/review-adjudication/adjudication.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
+
+      - name: Digest the adjudication
+        id: digest
+        if: always() && steps.present.outputs.present == 'true'
+        run: agent-ci digest --dir "$RUNNER_TEMP/review-adjudication" --github-output
+
+      - name: Upload the adjudication
+        id: upload
+        if: always() && steps.digest.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-adjudication
+          path: ${{ runner.temp }}/review-adjudication
+          retention-days: 7
+          if-no-files-found: error
+
+  findings:
+    name: Gate the findings (deterministic)
+    needs: [gate, review-primary, review-second, adjudicate]
+    if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      gated_digest: ${{ steps.findings.outputs.gated_digest }}
+      gate_error: ${{ steps.findings.outputs.gate_error }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Download the primary review
+        if: needs.review-primary.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.review-primary.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-primary
+          merge-multiple: true
+
+      - name: Download the second review
+        if: needs.review-second.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.review-second.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-second
+          merge-multiple: true
+
+      - name: Download the adjudication
+        if: needs.adjudicate.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.adjudicate.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-adjudication
+          merge-multiple: true
+
+      - name: Gate the findings
+        id: findings
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
+          PRIMARY_DIR: ${{ needs.review-primary.outputs.artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
+          PRIMARY_DIGEST: ${{ needs.review-primary.outputs.digest }}
+          SECOND_DIR: ${{ needs.review-second.outputs.artifact_id != '' && format('{0}/review-second', runner.temp) || '' }}
+          SECOND_DIGEST: ${{ needs.review-second.outputs.digest }}
+          ADJUDICATION_DIR: ${{ needs.adjudicate.outputs.artifact_id != '' && format('{0}/review-adjudication', runner.temp) || '' }}
+          ADJUDICATION_DIGEST: ${{ needs.adjudicate.outputs.digest }}
+          SCOPE: ${{ inputs.artifact_scope }}
+          PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
+          FAIL_ON: ${{ inputs.fail_on_severity }}
+          MIN_INLINE: ${{ inputs.min_inline_severity }}
+          MAX_INLINE: ${{ inputs.max_inline_comments }}
+        run: >-
+          agent-ci review findings --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
+          --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
+          --adjudication-dir "$ADJUDICATION_DIR" --adjudication-digest "$ADJUDICATION_DIGEST"
+          --scope "$SCOPE" --publisher-login "$PUBLISHER_LOGIN"
+          --fail-on-severity "$FAIL_ON" --min-inline-severity "$MIN_INLINE" --max-inline-comments "$MAX_INLINE"
+          --out "$RUNNER_TEMP/review-gated" --github-output
+
+      - name: Upload the gated review
+        id: upload
+        if: always() && steps.findings.outputs.gated_digest != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-gated
+          path: ${{ runner.temp }}/review-gated
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: Publish the review
+    needs: [gate, findings]
+    if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    concurrency:
+      group: agent-ci-pr-review-${{ github.repository }}-${{ needs.gate.outputs.pr_number }}-${{ inputs.artifact_scope }}
+      cancel-in-progress: false
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Download the gated review
+        if: needs.findings.outputs.artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.findings.outputs.artifact_id }}
+          path: ${{ runner.temp }}/review-gated
+          merge-multiple: true
+
+      - name: Publish the review and summary
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+          GATED_DIR: ${{ needs.findings.outputs.artifact_id != '' && format('{0}/review-gated', runner.temp) || '' }}
+          GATED_DIGEST: ${{ needs.findings.outputs.gated_digest }}
+          SCOPE: ${{ inputs.artifact_scope }}
+          PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
+          PREPARE_ERROR: ${{ needs.gate.outputs.prepare_error }}
+          GATE_ERROR: ${{ needs.findings.outputs.gate_error }}
+        run: >-
+          agent-ci review publish --gated-dir "$GATED_DIR" --gated-digest "$GATED_DIGEST"
+          --pr "$PR_NUMBER" --head-sha "$HEAD_SHA" --scope "$SCOPE" --publisher-login "$PUBLISHER_LOGIN"
+          --error-code "$PREPARE_ERROR" --error-code "$GATE_ERROR"

@@ -1,0 +1,79 @@
+# Fleet template: copy into the repository that owns your targets.yaml (see
+# targets.example.yaml in agent-ci) to run the OAT maintenance presets across
+# every target on a schedule or on demand.
+#
+# Secrets:
+# - AGENT_CI_SOURCE_TOKEN: contents read on tkstang/agent-ci (it is private),
+#   and the repository's Actions access setting must allow reuse.
+# - AGENT_CI_TARGET_TOKEN: contents and pull-requests write on every target
+#   that is not this repository (a fine-grained token or GitHub App token).
+#   Only the resolve and publish jobs reference it; no job that runs
+#   repository code or the agent does. Targets in this repository use
+#   GITHUB_TOKEN instead.
+# - AGENT_CI_TARGET_READ_TOKEN: contents read on private targets, for the
+#   checkouts in the jobs that run repository code or the agent. Public
+#   targets need none. Grant it contents: read and nothing else (a
+#   fine-grained or GitHub App token). Each run refuses it when it is the
+#   write token, a classic token with any scope, or able to write repository
+#   contents (dry-run check); other write permissions (pull requests,
+#   Actions, secrets, administration) cannot be checked, so do not grant
+#   them. One read token covers the whole fleet, so an agent
+#   working on one target could read every private target the token can
+#   read; give fleets with different trust their own fleet repository and
+#   tokens (a secret cannot be chosen per target without a dynamic lookup).
+# - One model credential for the routes your targets use (for example
+#   CLAUDE_CODE_OAUTH_TOKEN). tools-update needs none.
+#
+# Targets in this repository are published with GITHUB_TOKEN: their
+# pull_request runs wait for approval and their pushes start no runs. Other
+# targets are published with AGENT_CI_TARGET_TOKEN, whose events start
+# workflows normally (for example a GitHub App token).
+name: agent-ci fleet
+
+on:
+  schedule:
+    - cron: '17 9 * * 1' # docs-update, Mondays
+    - cron: '47 9 * * 3' # instructions-update, Wednesdays
+    - cron: '37 9 * * 2' # tools-update, Tuesdays
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: Use case to run.
+        type: choice
+        default: docs-update
+        options: [docs-update, instructions-update, tools-update]
+      target:
+        description: all, or one target id or owner/name from targets.yaml.
+        type: string
+        default: all
+      reset:
+        description: Replace the selected target's static branch content (one target only).
+        type: boolean
+        default: false
+
+# GitHub validates nested reusable-workflow job permissions against this
+# caller, so it must grant the publish scopes even when every target is
+# another repository (those are published with AGENT_CI_TARGET_TOKEN).
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  fan-out:
+    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
+    with:
+      preset: >-
+        ${{ inputs.preset
+        || (github.event.schedule == '17 9 * * 1' && 'docs-update')
+        || (github.event.schedule == '47 9 * * 3' && 'instructions-update')
+        || 'tools-update' }}
+      target: ${{ inputs.target || 'all' }}
+      reset: ${{ inputs.reset || false }}
+      targets_file: targets.yaml
+    secrets:
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
+      AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
+      AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # Optional: private https proxy origin for pool routes (see docs/configuration.md).
+      AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}

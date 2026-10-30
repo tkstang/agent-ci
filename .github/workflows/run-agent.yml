@@ -1,0 +1,492 @@
+# Reusable workflow: run one prompt through the routed harness, then publish.
+#
+# Jobs with separate authority:
+# - resolve: no repository code. Resolves the target repository, the one
+#            commit every job checks out, the publish base and the PR to
+#            comment on (agent-ci targets resolve).
+# - setup:   optional, credential-free: runs setup_command in the target.
+# - agent:   contents: read, behind its own workflow_call boundary
+#            (agent-job.yml). Checks out the target (no persisted token), runs
+#            the agent with ONLY the route's credential, in the agent step only,
+#            and uploads run-result.json, run-log.jsonl and changes.json.
+# - publish: contents/pull-requests: write, no model credential. Reads the
+#            downloaded artifact (the canonical result directory) and creates
+#            or updates the static-branch pull request and the PR comment.
+#
+# Target repository: empty means the calling repository, reached only with
+# GITHUB_TOKEN. Another repository (target_repository) is resolved and
+# published to only with the caller's AGENT_CI_TARGET_TOKEN secret (without
+# it the resolve job stops the run); that write token is referenced only in
+# the resolve and publish jobs, which run no repository code and no agent,
+# because any step on a GitHub-hosted runner can read every secret its job
+# references. The setup and agent jobs check another repository out with the
+# optional read-only AGENT_CI_TARGET_READ_TOKEN (else GITHUB_TOKEN, which
+# reads public repositories only; resolve refuses a private target without
+# it, and a read token that equals the write token, is a scoped classic
+# token or can write repository contents; grant it contents: read only,
+# since its other permissions cannot be checked). The token
+# boundary depends on static secret references only: no job may use a
+# dynamic secrets[...] lookup, because the runner would then receive every
+# secret the workflow holds. GitHub validates the publish job's
+# permissions against the original caller, so the caller must grant
+# contents: write and pull-requests: write even when every target is another
+# repository.
+#
+# Every step with real logic is an `agent-ci` subcommand (src/commands/).
+name: agent-ci run
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: Qualified model from models.yaml (for example claude-haiku-4-5, grok-4.7, fake-edit). Set model or route.
+        type: string
+        default: ''
+      harness:
+        description: Pin a harness (claude, codex, opencode, cursor, fake). Empty resolves from the model.
+        type: string
+        default: ''
+      route:
+        description: Pick an exact route id from models.yaml. Empty resolves from the model.
+        type: string
+        default: ''
+      prompt:
+        description: The configured prompt. Set prompt or preset, not both.
+        type: string
+        default: ''
+      preset:
+        description: >-
+          Use-case preset whose prompt agent-ci owns (docs-update or
+          instructions-update). Its path policy also applies at publish
+          unless path_policy is set.
+        type: string
+        default: ''
+      mode:
+        description: read-only or edit.
+        type: string
+        default: read-only
+      output_contract:
+        description: report, changes, issues or verdict.
+        type: string
+        default: report
+      use_case:
+        description: Run identity; also names the default static branch (agent-ci/<use_case>).
+        type: string
+        default: generic-prompt
+      target_repository:
+        description: >-
+          Repository (owner/name) to run on and publish to. Empty means the calling
+          repository. Another repository needs the AGENT_CI_TARGET_TOKEN secret.
+        type: string
+        default: ''
+      target_ref:
+        description: >-
+          Commit or branch of the target repository to run on. Empty means the pull
+          request head for pull-request events, else the triggering commit; for another
+          repository, the publish base. Resolved once to a commit SHA that every job
+          checks out.
+        type: string
+        default: ''
+      allow_pool:
+        description: >-
+          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
+          on a self-hosted runner whose host serves the loopback proxy, and never
+          for a Claude model; set true there to opt in.
+        type: boolean
+        default: false
+      runs_on:
+        description: Runner label for every job.
+        type: string
+        default: ubuntu-latest
+      job_timeout_minutes:
+        description: Timeout for each job.
+        type: number
+        default: 60
+      timeout_minutes:
+        description: Deadline for all agent attempts.
+        type: number
+        default: 30
+      max_attempts:
+        description: Attempts for transient failures (edit runs retry in isolated copies).
+        type: number
+        default: 2
+      setup_command:
+        description: >-
+          Optional command (for example dependency installation) run in the target
+          checkout in a separate setup job without secrets. Only its resulting working
+          tree reaches the agent job, as an archive agent-ci parses itself (files,
+          directories and in-tree links only; never .git). It runs repository code: an edit-mode
+          agent can later run that code with the model credential in its environment.
+        type: string
+        default: ''
+      skills_oat_packs:
+        description: Comma-separated OAT packs installed into the per-job home (for example core,docs).
+        type: string
+        default: ''
+      skills_source:
+        description: >-
+          Skills directory in the target checkout to copy into the per-job home.
+          Edit runs only: repository content never becomes a user skill in a read-only run.
+        type: string
+        default: ''
+      publish_pr:
+        description: Publish an edit run's changes as a static-branch pull request.
+        type: boolean
+        default: false
+      publish_branch:
+        description: >-
+          Static branch name under agent-ci/. Empty means agent-ci/<use_case>.
+          An existing branch is updated only while its head is agent-ci's own commit.
+        type: string
+        default: ''
+      publish_base:
+        description: >-
+          Base branch of the published pull request. Empty means the pull request's head
+          branch, else the triggering branch, else the default branch (for another
+          repository: its default branch). Set it whenever target_ref points somewhere
+          else, so the change set's base matches.
+        type: string
+        default: ''
+      path_policy:
+        description: >-
+          Refuse to publish changes outside this use-case path policy (docs-update,
+          instructions-update, tools-update, tools-update-lockfile). Empty means the
+          preset's policy, or none.
+        type: string
+        default: ''
+      adopt_branch:
+        description: >-
+          Reset: replace the static branch content even when agent-ci did not make its
+          head commit (history is kept; never a force push).
+        type: boolean
+        default: false
+      pr_title:
+        description: Title of the published pull request.
+        type: string
+        default: ''
+      comment_pr:
+        description: >-
+          Pull request number (in the target repository) to comment on. Empty means the
+          triggering pull request, if any, and never one for another repository.
+        type: string
+        default: ''
+      publisher_login:
+        description: >-
+          Login the publish token acts as. Empty means github-actions[bot] (GITHUB_TOKEN);
+          set it (for example my-app[bot]) when publishing with a GitHub App token.
+        type: string
+        default: ''
+      artifact_name:
+        description: Name of the run artifact (unique per workflow run).
+        type: string
+        default: agent-ci-run
+      agent_ci_repository:
+        description: >-
+          Repository that provides the agent-ci helpers. Empty means this reusable
+          workflow's own repository (job.workflow_repository).
+        type: string
+        default: ''
+      agent_ci_ref:
+        description: >-
+          Helper ref (tag or SHA). Empty means this reusable workflow's own commit
+          (job.workflow_sha), so the helpers always match the ref pinned in uses:.
+        type: string
+        default: ''
+    secrets:
+      AGENT_CI_SOURCE_TOKEN:
+        description: Contents read on the agent-ci repository (consumer repositories; it is private).
+        required: false
+      AGENT_CI_TARGET_TOKEN:
+        description: >-
+          Contents and pull-requests write on target_repository when it is another
+          repository. Used only to resolve, check out and publish; never given to the agent.
+        required: false
+      AGENT_CI_TARGET_READ_TOKEN:
+        description: >-
+          Optional read-only token (contents: read) for checking out a private
+          target_repository in the jobs that run repository code or the agent. The write
+          token never reaches those jobs; without this one, another repository must be public.
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENCODE_API_KEY:
+        required: false
+      CURSOR_API_KEY:
+        required: false
+      AGENT_CI_PROXY_API_KEY:
+        description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
+        required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: >-
+          Optional private proxy origin (https) that replaces the loopback origin of
+          pool routes. A secret so Actions masks it; passed to the agent step only for
+          a pool route.
+        required: false
+      AGENT_CI_NOTIFY_WEBHOOK:
+        description: Optional https webhook (Slack-compatible) for a run notification.
+        required: false
+    outputs:
+      status:
+        description: changed, no-op or failed.
+        value: ${{ jobs.publish.outputs.status }}
+      pr_url:
+        value: ${{ jobs.publish.outputs.pr_url }}
+      comment_url:
+        value: ${{ jobs.publish.outputs.comment_url }}
+
+permissions:
+  contents: read
+
+jobs:
+  # One immutable commit for every job, resolved by a trusted job (no
+  # checkout, no repository code): a branch that moves mid-run cannot pair an
+  # older prepared tree with a newer checkout.
+  resolve:
+    name: Resolve the target
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+      repository: ${{ steps.target.outputs.repository }}
+      cross: ${{ steps.target.outputs.cross }}
+      base: ${{ steps.target.outputs.base }}
+      comment_pr: ${{ steps.target.outputs.comment_pr }}
+      route_id: ${{ steps.route.outputs.route_id }}
+      credential: ${{ steps.route.outputs.credential }}
+      account: ${{ steps.route.outputs.account }}
+    steps:
+      # job.workflow_* name the reusable workflow's own repository and commit
+      # (verified live 2026-10-25; github.workflow_sha is the caller's commit).
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      # GITHUB_TOKEN for the calling repository, AGENT_CI_TARGET_TOKEN for any
+      # other; agent-ci picks one after validating the target and refuses
+      # another repository without its token. Event values describe the
+      # calling repository and are never applied to another one.
+      - name: Resolve the target repository, commit and base
+        id: target
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
+          AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+          REPOSITORY: ${{ inputs.target_repository }}
+          REF: ${{ inputs.target_ref }}
+          BASE: ${{ inputs.publish_base }}
+          COMMENT_PR: ${{ inputs.comment_pr }}
+          EVENT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_BASE: ${{ github.head_ref || (github.ref_type == 'branch' && github.ref_name) || '' }}
+          EVENT_PR: ${{ github.event.pull_request.number || '' }}
+        run: >-
+          agent-ci targets resolve --repository "$REPOSITORY" --ref "$REF" --base "$BASE"
+          --comment-pr "$COMMENT_PR" --event-ref "$EVENT_REF" --event-base "$EVENT_BASE"
+          --event-pr "$EVENT_PR" --github-output
+
+      # The route decides which one model credential the agent job receives
+      # (credential: one of the five model secret names, or empty).
+      - name: Resolve the route
+        id: route
+        env:
+          MODEL: ${{ inputs.model }}
+          HARNESS: ${{ inputs.harness }}
+          ROUTE: ${{ inputs.route }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --harness "$HARNESS" --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
+
+  # The setup command runs repository code, so it gets its own job: no
+  # process, $GITHUB_ENV/$GITHUB_PATH entry, toolcache change or git config it
+  # creates can reach the job that holds the model credential. Only the
+  # prepared working tree (without .git) is handed over.
+  setup:
+    name: Prepare workspace (no secrets)
+    needs: resolve
+    if: inputs.setup_command != ''
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    # Claims from untrusted code: the agent job re-checks the digest and
+    # parses the archive itself (agent-ci workspace restore).
+    outputs:
+      prepared_artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      prepared_sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - name: Check out the target repository
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ needs.resolve.outputs.repository }}
+          token: ${{ needs.resolve.outputs.cross == 'true' && secrets.AGENT_CI_TARGET_READ_TOKEN || github.token }}
+          path: target
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Run the setup command
+        working-directory: target
+        env:
+          SETUP_COMMAND: ${{ inputs.setup_command }}
+        run: |
+          corepack enable
+          bash -c "$SETUP_COMMAND"
+
+      # Best effort only: the setup command ran in this job and may have
+      # changed anything here. The agent job is the trust boundary.
+      - name: Pack the prepared working tree (without .git)
+        id: pack
+        run: |
+          env -i PATH=/usr/bin:/bin tar --exclude=.git -czf "$RUNNER_TEMP/agent-ci-prepared.tgz" -C target .
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/agent-ci-prepared.tgz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the prepared working tree
+        id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name }}-prepared
+          path: ${{ runner.temp }}/agent-ci-prepared.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+  # The agent runs behind a workflow_call boundary (agent-job.yml) that
+  # receives exactly one model credential, chosen here by a static chain over
+  # the five model secrets for the route the resolve job resolved, plus the
+  # read-only helper and target tokens. No dynamic secrets[...] lookup exists:
+  # one would make the runner hold every secret this workflow receives,
+  # including the write-capable target token.
+  agent:
+    name: Agent
+    needs: [resolve, setup]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.setup.result == 'skipped' || (needs.setup.result == 'success' && needs.setup.outputs.prepared_artifact_id != '')) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/agent-job.yml
+    with:
+      runs_on: ${{ inputs.runs_on }}
+      job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
+      repository: ${{ needs.resolve.outputs.repository }}
+      cross: ${{ needs.resolve.outputs.cross }}
+      sha: ${{ needs.resolve.outputs.sha }}
+      base: ${{ needs.resolve.outputs.base }}
+      route_id: ${{ needs.resolve.outputs.route_id }}
+      allow_pool: ${{ inputs.allow_pool }}
+      mode: ${{ inputs.mode }}
+      output_contract: ${{ inputs.output_contract }}
+      use_case: ${{ inputs.use_case }}
+      prompt: ${{ inputs.prompt }}
+      preset: ${{ inputs.preset }}
+      publish_branch: ${{ inputs.publish_branch }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      max_attempts: ${{ inputs.max_attempts }}
+      skills_oat_packs: ${{ inputs.skills_oat_packs }}
+      skills_source: ${{ inputs.skills_source }}
+      prepared_artifact_id: ${{ needs.setup.outputs.prepared_artifact_id }}
+      prepared_sha256: ${{ needs.setup.outputs.prepared_sha256 }}
+      artifact_name: ${{ inputs.artifact_name }}
+      agent_ci_repository: ${{ inputs.agent_ci_repository }}
+      agent_ci_ref: ${{ inputs.agent_ci_ref }}
+    secrets:
+      AGENT_CI_CREDENTIAL: ${{ (needs.resolve.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (needs.resolve.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (needs.resolve.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (needs.resolve.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (needs.resolve.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
+      AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+      # The private proxy origin, only for a pool route (empty otherwise).
+      AGENT_CI_PROXY_BASE_URL: ${{ needs.resolve.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
+
+  publish:
+    name: Publish
+    needs: [resolve, agent]
+    if: ${{ !cancelled() && needs.agent.outputs.result_artifact_id != '' }}
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      status: ${{ steps.publish.outputs.status }}
+      pr_url: ${{ steps.publish.outputs.pr_url }}
+      comment_url: ${{ steps.publish.outputs.comment_url }}
+    steps:
+      # The publisher pushes with this checkout's token: GITHUB_TOKEN for the
+      # calling repository, AGENT_CI_TARGET_TOKEN for another one.
+      - name: Check out the target repository
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ needs.resolve.outputs.repository }}
+          token: ${{ needs.resolve.outputs.cross == 'true' && secrets.AGENT_CI_TARGET_TOKEN || github.token }}
+          path: target
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      # By the agent job's own upload ID, never by name: an artifact another
+      # job of this run uploads under the same name is never used.
+      - name: Download the run result
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.agent.outputs.result_artifact_id }}
+          path: ${{ runner.temp }}/agent-ci-result
+          merge-multiple: true
+
+      - name: Publish
+        id: publish
+        env:
+          GITHUB_TOKEN: ${{ needs.resolve.outputs.cross == 'true' && secrets.AGENT_CI_TARGET_TOKEN || github.token }}
+          TARGET_REPOSITORY: ${{ needs.resolve.outputs.repository }}
+          PUBLISH_PR: ${{ inputs.publish_pr }}
+          BRANCH: ${{ inputs.publish_branch }}
+          BASE: ${{ needs.resolve.outputs.base }}
+          TITLE: ${{ inputs.pr_title }}
+          COMMENT_PR: ${{ needs.resolve.outputs.comment_pr }}
+          PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
+          ADOPT: ${{ inputs.adopt_branch }}
+          PATH_POLICY: ${{ inputs.path_policy || inputs.preset }}
+          RESULT_DIGEST: ${{ needs.agent.outputs.result_digest }}
+        run: >-
+          agent-ci publish --result-dir "$RUNNER_TEMP/agent-ci-result" --cwd target
+          --repo "$TARGET_REPOSITORY" --publish-pr "$PUBLISH_PR" --branch "$BRANCH"
+          --base "$BASE" --title "$TITLE" --comment-on "$COMMENT_PR"
+          --comment-author "$PUBLISHER_LOGIN" --adopt "$ADOPT" --path-policy "$PATH_POLICY"
+          --result-digest "$RESULT_DIGEST" --github-output
+
+      - name: Notify
+        if: always() && steps.publish.outcome != 'skipped'
+        env:
+          AGENT_CI_NOTIFY_WEBHOOK: ${{ secrets.AGENT_CI_NOTIFY_WEBHOOK }}
+          PR_URL: ${{ steps.publish.outputs.pr_url }}
+          RESULT_DIGEST: ${{ needs.agent.outputs.result_digest }}
+        run: agent-ci notify --result-dir "$RUNNER_TEMP/agent-ci-result" --pr-url "$PR_URL" --result-digest "$RESULT_DIGEST"

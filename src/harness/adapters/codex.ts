@@ -1,0 +1,307 @@
+import { rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import {
+  compactUsage,
+  num,
+} from '@agent-ci/harness/adapters/result-envelope.js';
+import { classifyFailure, truncate } from '@agent-ci/harness/classify.js';
+import { buildChildEnv } from '@agent-ci/harness/env.js';
+import { writeOwnedFile } from '@agent-ci/harness/home.js';
+import { readOutputFile } from '@agent-ci/harness/output-file.js';
+import type {
+  HarnessAdapter,
+  HarnessOutcome,
+  HarnessRequest,
+  ToolBridge,
+} from '@agent-ci/harness/types.js';
+import type { Route } from '@agent-ci/routing/schema.js';
+
+/** Provider id agent-ci writes into the isolated CODEX_HOME. */
+export const CODEX_PROVIDER_ID = 'agent_ci';
+const LAST_MESSAGE_FILE = 'codex-last-message.txt';
+const SCHEMA_FILE = 'codex-output-schema.json';
+
+/**
+ * The isolated `CODEX_HOME/config.toml`. A route with `baseUrl` gets a
+ * Responses-API provider whose key comes from the route's first credential
+ * (`env_key`), as the 2026-10-25 probe verified against the local proxy.
+ * Without `baseUrl` the file is empty and Codex uses its built-in provider
+ * with the route's credential.
+ */
+export function codexConfigToml(route: Route, bridge?: ToolBridge): string {
+  const bridgeLines = bridge === undefined ? [] : codexBridgeToml(bridge);
+  if (route.baseUrl === undefined) return bridgeLines.join('\n');
+  const envKey = route.credentials[0];
+  return [
+    `model_provider = ${JSON.stringify(CODEX_PROVIDER_ID)}`,
+    '',
+    `[model_providers.${CODEX_PROVIDER_ID}]`,
+    'name = "agent-ci route"',
+    `base_url = ${JSON.stringify(route.baseUrl)}`,
+    'wire_api = "responses"',
+    ...(envKey === undefined ? [] : [`env_key = ${JSON.stringify(envKey)}`]),
+    'supports_websockets = false',
+    '',
+    ...bridgeLines,
+  ].join('\n');
+}
+
+/**
+ * The tool bridge as a Codex MCP server table: one stdio server with only
+ * its one tool enabled, and that tool approved, because `codex exec` has no
+ * one to answer an approval prompt (live probe, research
+ * `p04-tool-bridge-probes-2026-10-25.md`). The isolated CODEX_HOME holds no
+ * other server.
+ */
+export function codexBridgeToml(bridge: ToolBridge): string[] {
+  const table = `mcp_servers.${bridge.server}`;
+  return [
+    `[${table}]`,
+    `command = ${JSON.stringify(bridge.command)}`,
+    `args = [${bridge.args.map((arg) => JSON.stringify(arg)).join(', ')}]`,
+    `enabled_tools = [${JSON.stringify(bridge.tool)}]`,
+    'startup_timeout_sec = 20',
+    '',
+    `[${table}.tools.${bridge.tool}]`,
+    'approval_mode = "approve"',
+    '',
+  ];
+}
+
+/**
+ * Codex: `codex exec -m M --json -o <file> -s <sandbox> ... -- <prompt>`.
+ * read-only: `-s read-only`; edit: `-s workspace-write`.
+ */
+export function codexArgs(
+  request: HarnessRequest,
+  files: { lastMessage: string; schema?: string },
+): string[] {
+  const sandbox =
+    request.mode === 'read-only' ? 'read-only' : 'workspace-write';
+  const resume = request.resumeSessionId;
+  // `codex exec resume` has no `-s` and does not keep the first turn's
+  // sandbox (it falls back to config), so the sandbox is set again through
+  // `-c sandbox_mode` (live probe 2026-10-25, research
+  // `review-harness-probes-2026-10-25.md`). It also has no `--color`.
+  const args =
+    resume === undefined
+      ? [
+          'exec',
+          '-m',
+          request.route.providerModel,
+          '--json',
+          '-o',
+          files.lastMessage,
+          '-s',
+          sandbox,
+          '--skip-git-repo-check',
+          '--color',
+          'never',
+        ]
+      : [
+          'exec',
+          'resume',
+          '-m',
+          request.route.providerModel,
+          '--json',
+          '-o',
+          files.lastMessage,
+          '-c',
+          `sandbox_mode=${JSON.stringify(sandbox)}`,
+          '--skip-git-repo-check',
+        ];
+  if (request.route.effort !== undefined) {
+    args.push(
+      '-c',
+      `model_reasoning_effort=${JSON.stringify(request.route.effort)}`,
+    );
+  }
+  if (files.schema !== undefined) args.push('--output-schema', files.schema);
+  args.push('--');
+  if (resume !== undefined) args.push(resume);
+  args.push(request.prompt);
+  return args;
+}
+
+interface CodexEvent {
+  readonly type?: string;
+  readonly thread_id?: string;
+  readonly message?: string;
+  readonly error?: { readonly message?: string };
+  readonly usage?: Record<string, unknown>;
+  readonly item?: { readonly type?: string; readonly text?: string };
+}
+
+function events(stdout: string): CodexEvent[] {
+  const parsed: CodexEvent[] = [];
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    try {
+      parsed.push(JSON.parse(trimmed) as CodexEvent);
+    } catch {
+      // ignore non-JSON lines
+    }
+  }
+  return parsed;
+}
+
+export const codexAdapter: HarnessAdapter = {
+  id: 'codex',
+  defaultCommand: 'codex',
+  versionArgs: ['--version'],
+  supportsResume: true,
+  // `-s read-only` still offers a read-only shell; there is no tool-free mode.
+  supportsNoTools: false,
+  supportsToolBridge: true,
+  async prepare(request) {
+    const codexHome = request.home.env.CODEX_HOME;
+    if (codexHome === undefined) throw new Error('home root lacks CODEX_HOME');
+    // Never follow a link at an agent-ci-owned path.
+    await writeOwnedFile(
+      path.join(codexHome, 'config.toml'),
+      codexConfigToml(
+        request.route,
+        request.mode === 'read-only' ? request.toolBridge : undefined,
+      ),
+    );
+    const lastMessage = path.join(request.scratchDir, LAST_MESSAGE_FILE);
+    await rm(lastMessage, { force: true });
+    let schema: string | undefined;
+    if (
+      request.jsonSchema !== undefined &&
+      request.route.structuredOutput === 'output-schema'
+    ) {
+      schema = path.join(request.scratchDir, SCHEMA_FILE);
+      await writeFile(schema, JSON.stringify(request.jsonSchema));
+    }
+    return {
+      command: 'codex',
+      args: codexArgs(
+        request,
+        schema === undefined ? { lastMessage } : { lastMessage, schema },
+      ),
+      env: buildChildEnv({
+        parentEnv: request.parentEnv,
+        route: request.route,
+        homeEnv: request.home.env,
+      }),
+    };
+  },
+  async interpret(output, request, limits): Promise<HarnessOutcome> {
+    const parsed = events(output.stdout);
+    const thread = parsed.find((event) => event.type === 'thread.started');
+    const session =
+      thread?.thread_id === undefined ? {} : { sessionId: thread.thread_id };
+    const completed = parsed.findLast(
+      (event) => event.type === 'turn.completed',
+    );
+    const usage =
+      completed?.usage === undefined
+        ? null
+        : compactUsage({
+            inputTokens: num(completed.usage.input_tokens),
+            outputTokens: num(completed.usage.output_tokens),
+            cacheReadTokens: num(completed.usage.cached_input_tokens),
+            cacheWriteTokens: num(completed.usage.cache_write_input_tokens),
+          });
+    const failedTurn = parsed.findLast((event) => event.type === 'turn.failed');
+    if (
+      output.exitCode !== 0 ||
+      failedTurn !== undefined ||
+      completed === undefined
+    ) {
+      const lastError =
+        failedTurn?.error?.message ??
+        parsed.findLast((event) => event.type === 'error')?.message ??
+        '';
+      const stderr = output.stderr
+        .split('\n')
+        .filter(
+          (line) => !line.startsWith('Reading additional input from stdin'),
+        )
+        .join('\n');
+      const diagnostic = [lastError, stderr]
+        .filter((part) => part.trim() !== '')
+        .join('\n');
+      const { code, retryable } = classifyFailure(diagnostic);
+      return {
+        ok: false,
+        code,
+        retryable,
+        usage,
+        ...session,
+        message: truncate(
+          diagnostic === ''
+            ? `codex exited with ${output.exitCode}`
+            : diagnostic,
+        ),
+      };
+    }
+    // The final-answer file is written after the streams were capped, so
+    // it gets its own bounded read under the same budget. Only a missing
+    // file falls back to the last agent message event, which came through
+    // the capped stdout.
+    let finalText: string | undefined;
+    const file = await readOutputFile(
+      path.join(request.scratchDir, LAST_MESSAGE_FILE),
+      limits.maxOutputBytes,
+    );
+    if (file.kind === 'too-large') {
+      return {
+        ok: false,
+        code: 'E_HARNESS_OUTPUT_LIMIT',
+        retryable: false,
+        usage,
+        ...session,
+        message: `codex's final message file (${file.size} bytes) exceeds the ${limits.maxOutputBytes}-byte output limit`,
+      };
+    }
+    if (file.kind === 'invalid') {
+      return {
+        ok: false,
+        code: 'E_HARNESS_FAILED',
+        retryable: false,
+        usage,
+        ...session,
+        message: `codex's final message file is unusable: ${file.reason}`,
+      };
+    }
+    if (file.kind === 'ok') {
+      finalText = file.text;
+    } else {
+      finalText = parsed.findLast(
+        (event) => event.item?.type === 'agent_message',
+      )?.item?.text;
+    }
+    if (finalText === undefined) {
+      return {
+        ok: false,
+        code: 'E_HARNESS_FAILED',
+        retryable: false,
+        usage,
+        ...session,
+        message: 'codex produced no final message',
+      };
+    }
+    let structured: unknown;
+    if (
+      request.jsonSchema !== undefined &&
+      request.route.structuredOutput === 'output-schema'
+    ) {
+      try {
+        structured = JSON.parse(finalText);
+      } catch {
+        structured = undefined;
+      }
+    }
+    return {
+      ok: true,
+      finalText,
+      usage,
+      ...session,
+      ...(structured === undefined ? {} : { structured }),
+    };
+  },
+};

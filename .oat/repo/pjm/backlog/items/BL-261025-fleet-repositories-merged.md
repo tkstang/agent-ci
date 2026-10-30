@@ -1,0 +1,29 @@
+---
+id: BL-261025-fleet-repositories-merged
+title: "Fleet repositories: merged target lists and protected artifacts"
+status: open
+priority: high
+scope: feature
+scope_estimate: L
+labels:
+  - fleet
+  - security
+  - workflows
+assignee: null
+created: 2026-10-25T22:20:20.485Z
+updated: 2026-10-25T22:20:20.485Z
+associated_issues: []
+external_plans: []
+---
+
+## Description
+
+Support the two-fleet setup (public agent-ci-fleet on GitHub-hosted runners, private agent-ci-private-fleet on self-hosted runners; see the agent-ci-v1 operator notes 2026-10-25). Add a targets_json input (an Actions variable holding a JSON array) merged with targets_file and validated together by agent-ci targets matrix. Add optional artifact encryption with a fleet-secret key (for example AGENT_CI_ARTIFACT_KEY) so a public fleet's artifacts (the prepared workspace bundle holds the target's full tree) are not downloadable in clear text, and keep logs minimal for targets marked private. Ship public and private fleet templates.
+
+## Acceptance Criteria
+
+- `fan-out.yml` accepts `targets_json` alongside `targets_file`; both are merged and validated together (schema, unique ids and repositories, allowedOwners, routing policy, matrix bound), and a malformed variable fails before any job runs
+- Optional artifact encryption: with the key secret set, every uploaded artifact (prepared workspace, run results, change sets, review bundles) is encrypted and verified by digest after decryption; without it, behavior is unchanged
+- Targets can be marked private so their agent output and file lists stay out of job logs
+- Public and private fleet templates in `consumer-workflows/`, and `docs/fleet-repo.md` describes both fleets and the public-repository exposure
+

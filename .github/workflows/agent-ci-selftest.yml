@@ -1,0 +1,90 @@
+# Credential-free self-test of run-agent.yml on pull requests in this
+# repository: the fake harness makes an edit, the publish job opens or
+# updates a static-branch pull request against the PR's head branch and
+# comments on the PR. A second job installs all four harness CLIs, checks
+# their versions and smoke-tests the Codex sandbox on the hosted runner.
+#
+# Runs only for same-repository pull requests labeled `agent-ci-selftest`
+# (never for forks) or by manual dispatch.
+name: agent-ci self-test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-ci-selftest-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fake-run:
+    name: Fake harness run and publish
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'agent-ci-selftest'))
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/run-agent.yml
+    with:
+      model: fake-edit
+      prompt: 'agent-ci self-test: write the fake edit file.'
+      mode: edit
+      output_contract: changes
+      use_case: selftest
+      target_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      skills_oat_packs: core
+      setup_command: echo prepared > agent-ci-prepared.txt
+      publish_pr: true
+      publish_branch: agent-ci/selftest-${{ github.event.pull_request.number || 'dispatch' }}
+      publish_base: ${{ github.head_ref || github.ref_name }}
+      artifact_name: agent-ci-selftest
+
+  harness-smoke:
+    name: Harness install and Codex sandbox smoke check
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'agent-ci-selftest'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out agent-ci
+        uses: actions/checkout@v5
+        with:
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Install all four harness CLIs (each checked with --version)
+        run: agent-ci harness install --harness claude,codex,opencode,cursor --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
+
+      - name: Report the installed versions from PATH
+        run: |
+          claude --version
+          codex --version
+          opencode --version
+          agent --version
+
+      - name: Smoke-test the Codex sandbox on this runner
+        run: agent-ci harness smoke --harness codex --report-only
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+      # which stops bubblewrap (Codex's Linux sandbox) from configuring its
+      # network namespace. Probe whether lifting the restriction fixes it.
+      - name: Allow unprivileged user namespaces (bubblewrap)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Smoke-test the Codex sandbox again
+        run: agent-ci harness smoke --harness codex --report-only
