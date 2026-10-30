@@ -4,7 +4,9 @@
 
 ## Curated Overview
 
-- Add brief narrative summaries here as backlog items are created and reprioritized.
+- agent-ci v1 shipped (PR #25, 2026-10-26); its p02-p06 items are archived. Open work is follow-up from that delivery and the run-up to making the repository public.
+- Active: the self-hosted runner and proxy (proxy override shipped in PR #29; runner admission pending) and the flaky moved-base publish test.
+- Planned: route qualification, fleet target lists and protected artifacts, the Codex login route, publishing to the calling repository with an App token, the Claude-only name-check gaps, and the post-v1 simplification pass. Sequencing is in `pjm/roadmap.md`.
 
 <!-- OAT BACKLOG-INDEX -->
 | ID | Title | Status | Priority | Scope | Estimate |

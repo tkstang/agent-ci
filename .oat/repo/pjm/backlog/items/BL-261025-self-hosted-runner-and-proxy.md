@@ -11,7 +11,7 @@ labels:
   - release
 assignee: null
 created: 2026-10-25T22:20:21.268Z
-updated: 2026-10-25T22:20:21.268Z
+updated: 2026-10-30T21:00:00.000Z
 associated_issues: []
 external_plans: []
 ---
@@ -26,3 +26,7 @@ Make the proxy base URL configurable per runner (models.yaml uses 127.0.0.1:8317
 - One live `allow_pool` job runs on a registered self-hosted runner and is recorded
 - A release tag exists and the consumer templates show pinning it (or a SHA)
 
+## Progress
+
+- 2026-10-28 (PR #29): criterion 1 met in a different form. An optional `AGENT_CI_PROXY_BASE_URL` secret (an environment variable locally) replaces the loopback origin of every pool route without editing `models.yaml`. It is set per calling repository or fleet rather than per runner; each route keeps its own path. The private fleet passes it through (2026-10-30).
+- Still open: criterion 2 (runner admission in `tkstang/actions-runner` is pending the operator's approval on the host) and criterion 3 (no release tag; the private fleet pins a commit SHA).
