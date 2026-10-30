@@ -17,10 +17,13 @@
 #                the PR head in a controlled environment and uploads
 #                checks.json. This job runs pull-request code; its output
 #                is untrusted and the reviewer passes validate it.
-# - review-*:    contents: read. The PR head checkout (no persisted token)
-#                and ONLY the route's model credential, in the pass step
-#                only. The harness runs read-only: no setup command, no
-#                skills, no repository code. In verify-review it reads the
+# - review-*:    contents: read. The PR head checkout (no persisted token).
+#                The pass step gets only the route's model credential (and,
+#                for a pool route, AGENT_CI_PROXY_BASE_URL), but the runner
+#                holds every model secret the caller passes (step
+#                expressions are evaluated there). The harness runs
+#                read-only: no setup command, no skills, no repository
+#                code. In verify-review it reads the
 #                recorded checks through the run_check MCP bridge.
 # - adjudicate:  contents: read. Sources come from the git database API (trees and blobs) in a
 #                step without the model credential; the adjudicator runs
@@ -137,8 +140,9 @@ on:
       allow_pool:
         description: >-
           Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner whose host serves the loopback proxy, and never
-          for a Claude model; set true there to opt in.
+          on a self-hosted runner that can reach the proxy (the loopback default, or
+          the AGENT_CI_PROXY_BASE_URL origin), and never for a Claude model; set true
+          there to opt in.
         type: boolean
         default: false
       runs_on:
@@ -477,7 +481,8 @@ jobs:
           # The resolved route's credential (empty for fake), picked by a
           # static chain. Step expressions are evaluated on the runner, so this
           # job's runner still holds every model secret the caller passes:
-          # pass only the one your route uses (Deferred Findings, p05).
+          # pass only the one your route uses (docs/security-model.md,
+          # Residual risk).
           AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
           AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
           ROUTE_ID: ${{ steps.route.outputs.route_id }}

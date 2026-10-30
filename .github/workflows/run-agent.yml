@@ -90,8 +90,10 @@ on:
       allow_pool:
         description: >-
           Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner whose host serves the loopback proxy, and never
-          for a Claude model; set true there to opt in.
+          on a self-hosted runner, and never for a Claude model; set true there to
+          opt in. The route uses the loopback proxy origin unless the optional
+          AGENT_CI_PROXY_BASE_URL secret names another origin (https, or http
+          for a loopback host).
         type: boolean
         default: false
       runs_on:
@@ -172,8 +174,9 @@ on:
         default: ''
       publisher_login:
         description: >-
-          Login the publish token acts as. Empty means github-actions[bot] (GITHUB_TOKEN);
-          set it (for example my-app[bot]) when publishing with a GitHub App token.
+          Login the publish token acts as. Empty means the token's user (GET /user),
+          else github-actions[bot] (GITHUB_TOKEN); set it (for example my-app[bot])
+          when publishing with a GitHub App token.
         type: string
         default: ''
       artifact_name:
