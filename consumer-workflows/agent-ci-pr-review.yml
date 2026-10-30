@@ -22,9 +22,8 @@
 # it out, and verify-review (when enabled) runs it only in a job without
 # model or helper secrets. A Codex or Cursor reviewer's own shell can still
 # run files from the checkout while the credential is in its environment
-# (see docs/security-model.md in agent-ci); Claude, and OpenCode for
-# grok-4.7, have no shell. Changes to this file take effect once they are
-# merged.
+# (see docs/security-model.md in agent-ci); Claude and OpenCode reviewers
+# have no shell. Changes to this file take effect once they are merged.
 #
 # Setup (once per repository):
 # 1. Pin the agent-ci ref (tag or SHA) in `uses:`; the helpers are checked
@@ -36,6 +35,13 @@
 #    OPENCODE_API_KEY for grok-4.7. Only the reviewer and adjudicator steps
 #    receive it.
 # 4. Create the `agent-ci:review` label.
+#
+# Optional, pool routes only: AGENT_CI_PROXY_BASE_URL replaces the loopback
+# proxy origin with an https endpoint. A pool route also needs
+# `allow_pool: true`, a self-hosted `runs_on` and AGENT_CI_PROXY_API_KEY.
+# Without them it does not change routing, but every review and adjudicator
+# runner still receives the secret: delete the line below unless a review
+# model uses a pool route.
 #
 # verify-review (off by default): set `verify: true` below and add
 # .github/agent-ci/checks.yaml (an optional setup command and up to 10 named
@@ -104,5 +110,6 @@ jobs:
       AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-      # Optional: private https proxy origin for pool routes (see docs/configuration.md).
+      # Optional, pool routes only (see the header and docs/configuration.md).
+      # AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
       AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}

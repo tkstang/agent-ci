@@ -126,7 +126,7 @@ Each request is checked against the route and the environment
 | Rule                                                                                                                                                                                                                                         | Code                                             |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
 | A `pool` route needs the opt-in: `--allow-pool` locally, the `allow_pool: true` workflow input in Actions (`--allow-pool-value true`).                                                                                                       | `E_POLICY_POOL`                                  |
-| In CI, a `pool` route runs only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`), because a GitHub-hosted runner cannot reach a loopback proxy.                                                                                    | `E_POLICY_POOL_CI`                               |
+| In CI, a `pool` route runs only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`), by policy; by default the pool is a loopback address that a GitHub-hosted runner cannot reach.                                                   | `E_POLICY_POOL_CI`                               |
 | In CI, a Claude-family `pool` route is refused on every runner while `CI_POOL_ALLOWS_CLAUDE` is `false` in `src/routing/policy.ts`. Changing that constant alone would not let one run in a workflow; see [The proxy pool](#the-proxy-pool). | `E_POLICY_POOL_CI`                               |
 | A `login` route is local only, and needs `--seed-login`.                                                                                                                                                                                     | `E_POLICY_LOGIN_CI`, `E_CREDENTIAL_MISSING`      |
 | Every credential the route names must be set and non-empty. `agent-ci route`, the review gate and `targets` skip this check, because a workflow resolves the route before it maps the credential into the agent step.                        | `E_CREDENTIAL_MISSING`                           |
@@ -163,15 +163,17 @@ guard, so a run that echoes them fails.
 loopback `baseUrl` (`http://127.0.0.1:8317`). Locally they need
 `--allow-pool` and the pool key: `ANTHROPIC_AUTH_TOKEN` for the Claude pool
 routes, `AGENT_CI_PROXY_API_KEY` for the Codex pool route. In Actions only
-the non-Claude pool route can run, on a self-hosted runner whose host serves
-the proxy, with `allow_pool: true` and the `AGENT_CI_PROXY_API_KEY` secret;
+the non-Claude pool route can run, on a self-hosted runner that can reach
+the proxy (on its host, or through `AGENT_CI_PROXY_BASE_URL`), with
+`allow_pool: true` and the `AGENT_CI_PROXY_API_KEY` secret;
 the workflows never pass `ANTHROPIC_AUTH_TOKEN`. Running a Claude pool route in
 Actions would need both a policy change (`CI_POOL_ALLOWS_CLAUDE`) and
 credential wiring: `ANTHROPIC_AUTH_TOKEN` is not among the credentials
 `agent-ci route --github-output` accepts (it refuses the Claude pool routes
 with `E_ROUTE_CONFIG`) and is in no workflow's credential chain. The operator
 decided to keep Claude pool routes refused in CI
-(DR-261025-keep-claude-pool-routes). Runner setup is in
+([DR-261025-keep-claude-pool-routes](../.oat/repo/reference/decisions/DR-261025-keep-claude-pool-routes.md)).
+Runner setup is in
 [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy).
 
 When `AGENT_CI_PROXY_BASE_URL` is set, every pool route takes its origin
@@ -201,15 +203,18 @@ As of this commit (`agent-ci models` prints the live table):
 | `glm-5.3-flash`       | `glm-5.3-flash-opencode-login`       | opencode | personal | subscription | seeded login              | 2026-10-25 |
 | `glm-5.3-flash`       | `glm-5.3-flash-opencode`             | opencode | personal | subscription | `OPENCODE_API_KEY`        | not yet    |
 | `deepseek-v4.1-flash` | `deepseek-v4.1-flash-opencode-login` | opencode | personal | subscription | seeded login              | 2026-10-26 |
-| `deepseek-v4.1-flash` | `deepseek-v4.1-flash-opencode`       | opencode | personal | subscription | `OPENCODE_API_KEY`        | not yet    |
+| `deepseek-v4.1-flash` | `deepseek-v4.1-flash-opencode`       | opencode | personal | subscription | `OPENCODE_API_KEY`        | 2026-10-30 |
 | `grok-4.7`            | `grok-4.7-cursor`                    | cursor   | work     | subscription | `CURSOR_API_KEY`          | 2026-10-25 |
+
+The five `fake-*` routes (harness `fake`, billing `none`) are omitted.
 
 The routes a hosted Actions runner can use are `claude-haiku-4-5-personal`,
 `claude-haiku-4-5-api` (by `route` only), the three `OPENCODE_API_KEY`
 routes (`grok-4.7-opencode`, `glm-5.3-flash-opencode`,
 `deepseek-v4.1-flash-opencode`) and `grok-4.7-cursor` (pinned). Of the key
-routes, only `grok-4.7-opencode` has run live in Actions (2026-10-26, a fleet
-docs update). OpenCode Go bills
+routes, `grok-4.7-opencode` (2026-10-26) and `deepseek-v4.1-flash-opencode`
+(2026-10-30) have run live in Actions, each in a fleet docs update; the GLM
+key route has not. OpenCode Go bills
 DeepSeek V4.1 Flash at twice its off-peak rate during peak hours (01:00-04:00
 and 06:00-10:00 UTC, Monday to Friday), so schedule it outside them.
 

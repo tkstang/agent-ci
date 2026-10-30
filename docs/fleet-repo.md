@@ -65,8 +65,14 @@ agent-ci is private, so two things are needed once:
      every target repository;
    - `AGENT_CI_TARGET_READ_TOKEN`: Contents read-only on every private
      target;
-   - the model secret your targets' routes use, for example
-     `CLAUDE_CODE_OAUTH_TOKEN`. `tools-update` needs none.
+   - the model secret of every route your targets use, for example
+     `CLAUDE_CODE_OAUTH_TOKEN` for `claude-haiku-4-5` and `OPENCODE_API_KEY`
+     for `grok-4.7`. The template passes only `CLAUDE_CODE_OAUTH_TOKEN`;
+     add a `secrets:` line for each other one (validation does not check
+     this). `tools-update` needs none;
+   - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes (self-hosted
+     runner, `allow_pool: true` and `AGENT_CI_PROXY_API_KEY`); see
+     [Configuration and credentials](configuration.md).
 5. Allow GitHub Actions to create pull requests in the fleet repository's
    Actions settings only if a target is the fleet repository itself; other
    targets are published with `AGENT_CI_TARGET_TOKEN`.
@@ -103,7 +109,8 @@ comment happens there. For each repository that wants reviews:
    agent-ci commit SHA.
 2. Store `AGENT_CI_SOURCE_TOKEN` and the reviewer model secrets the caller
    passes (the template passes `CLAUDE_CODE_OAUTH_TOKEN` and
-   `OPENCODE_API_KEY`; remove the ones you do not use).
+   `OPENCODE_API_KEY`, plus the optional pool-route
+   `AGENT_CI_PROXY_BASE_URL`; remove the ones you do not use).
 3. Create the `agent-ci:review` label (and `agent-ci:verify-review` if you
    set `verify: true`).
 4. Merge the caller to the default branch. `pull_request_target` and

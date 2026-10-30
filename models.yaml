@@ -162,7 +162,7 @@ routes:
     billing: subscription
     account: personal
     structuredOutput: prompt
-    qualified: null
+    qualified: '2026-10-30'
     notes: >-
       OpenCode Go key from the environment; the CI route. Go bills peak hours
       (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday) at twice the

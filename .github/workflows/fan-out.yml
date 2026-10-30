@@ -73,8 +73,10 @@ on:
       allow_pool:
         description: >-
           Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner whose host serves the loopback proxy, and never
-          for a Claude model; set true there to opt in.
+          on a self-hosted runner, and never for a Claude model; set true there to
+          opt in. The route uses the loopback proxy origin unless the optional
+          AGENT_CI_PROXY_BASE_URL secret names another origin (https, or http
+          for a loopback host).
         type: boolean
         default: false
       runs_on:

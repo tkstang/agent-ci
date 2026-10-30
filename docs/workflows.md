@@ -37,7 +37,7 @@ the nested publish job asks for them.
 ## Pinning and helpers
 
 Call a workflow as `uses: tkstang/agent-ci/.github/workflows/<file>@<ref>`
-with a tag or commit SHA. Each job checks out the agent-ci helpers at that
+with a tag or commit SHA. Each job that runs agent-ci checks out the helpers at that
 same commit (`job.workflow_repository` at `job.workflow_sha`) and builds them
 with the `.github/actions/setup-agent-ci` action, so there is no second pin.
 The `agent_ci_repository` and `agent_ci_ref` inputs override this; leave
@@ -53,35 +53,42 @@ them empty so the helpers always match the pinned workflow. Because agent-ci is 
 Runs one prompt through the routed harness, then publishes. Its jobs hold
 separate authority:
 
-| Job                                 | Runs repository code | Holds                                                                                                                                                       | Does                                                                                                                                                                                                |
-| ----------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resolve`                           | no                   | `GITHUB_TOKEN`, `AGENT_CI_SOURCE_TOKEN` (helper checkout); for another repository `AGENT_CI_TARGET_TOKEN` and `AGENT_CI_TARGET_READ_TOKEN`, which it checks | Resolves the target repository, the one commit every job checks out, the publish base and the pull request to comment on (`agent-ci targets resolve`), and the route (`agent-ci route`).            |
-| `setup` (only with `setup_command`) | yes                  | no secret; the read-only target token for a private other repository                                                                                        | Runs `setup_command` in the target checkout and uploads the working tree without `.git`.                                                                                                            |
-| `agent` (`agent-job.yml`)           | the agent            | the one model credential the route names, `AGENT_CI_SOURCE_TOKEN`, the read-only target token                                                               | Restores the setup tree (`agent-ci workspace restore`), installs the harness and skills, runs `agent-ci run`, and uploads `run-result.json`, `run-log.jsonl` and `changes.json` with their digest.  |
-| `publish`                           | no                   | `contents: write` and `pull-requests: write` (`GITHUB_TOKEN`, or `AGENT_CI_TARGET_TOKEN` for another repository)                                            | Downloads the agent's artifact by ID, checks its digest, publishes the static-branch pull request and the PR comment (`agent-ci publish`), and sends the optional notification (`agent-ci notify`). |
+| Job                                 | Runs repository code | Holds                                                                                                                                                                                               | Does                                                                                                                                                                                                |
+| ----------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolve`                           | no                   | `GITHUB_TOKEN`, `AGENT_CI_SOURCE_TOKEN` (helper checkout); for another repository `AGENT_CI_TARGET_TOKEN` and `AGENT_CI_TARGET_READ_TOKEN`, which it checks                                         | Resolves the target repository, the one commit every job checks out, the publish base and the pull request to comment on (`agent-ci targets resolve`), and the route (`agent-ci route`).            |
+| `setup` (only with `setup_command`) | yes                  | no secret; the read-only target token for a private other repository                                                                                                                                | Runs `setup_command` in the target checkout and uploads the working tree without `.git`.                                                                                                            |
+| `agent` (`agent-job.yml`)           | the agent            | the one model credential the route names, `AGENT_CI_SOURCE_TOKEN`, the read-only target token; for a pool route only, `AGENT_CI_PROXY_BASE_URL`                                                     | Restores the setup tree (`agent-ci workspace restore`), installs the harness and skills, runs `agent-ci run`, and uploads `run-result.json`, `run-log.jsonl` and `changes.json` with their digest.  |
+| `publish`                           | no                   | `contents: write` and `pull-requests: write` (`GITHUB_TOKEN`, or `AGENT_CI_TARGET_TOKEN` for another repository), `AGENT_CI_SOURCE_TOKEN` (helper checkout), the optional `AGENT_CI_NOTIFY_WEBHOOK` | Downloads the agent's artifact by ID, checks its digest, publishes the static-branch pull request and the PR comment (`agent-ci publish`), and sends the optional notification (`agent-ci notify`). |
 
 Key inputs (all optional; see the file for every input):
 
-| Input                                                      | Default                                 | Meaning                                                                                                                        |
-| ---------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `model`, `harness`, `route`                                | empty                                   | What to run. Set `model` or `route`. See [Harnesses and routing](harnesses-and-routing.md).                                    |
-| `prompt` or `preset`                                       | empty                                   | Your prompt, or a preset whose prompt agent-ci owns (`docs-update`, `instructions-update`). Set one.                           |
-| `mode`                                                     | `read-only`                             | `read-only` or `edit`.                                                                                                         |
-| `output_contract`                                          | `report`                                | `report`, `changes`, `issues` or `verdict`.                                                                                    |
-| `use_case`                                                 | `generic-prompt`                        | Run identity; also names the default static branch `agent-ci/<use_case>`.                                                      |
-| `target_repository`, `target_ref`                          | the calling repository and event commit | Run on and publish to another repository (needs `AGENT_CI_TARGET_TOKEN`).                                                      |
-| `setup_command`                                            | empty                                   | Trusted setup, for example dependency installation, in the separate secret-free setup job.                                     |
-| `skills_oat_packs`, `skills_source`                        | empty                                   | OAT packs installed into the per-job home; repository skills (edit runs only).                                                 |
-| `publish_pr`, `publish_branch`, `publish_base`, `pr_title` | `false`, `agent-ci/<use_case>`          | Publish an edit run's changes as a pull request from a static branch.                                                          |
-| `path_policy`                                              | the preset's policy                     | Refuse to publish changes outside a use-case path policy.                                                                      |
-| `adopt_branch`                                             | `false`                                 | Replace the static branch content even if agent-ci did not make its head commit. History is kept; agent-ci never force-pushes. |
-| `comment_pr`                                               | the triggering pull request             | Pull request to comment on.                                                                                                    |
-| `allow_pool`                                               | `false`                                 | Allow a proxy-pool route (self-hosted runners only).                                                                           |
-| `runs_on`                                                  | `ubuntu-latest`                         | Runner label for every job.                                                                                                    |
-| `timeout_minutes`, `max_attempts`, `job_timeout_minutes`   | `30`, `2`, `60`                         | Agent deadline, attempts for transient failures, per-job timeout.                                                              |
-| `publisher_login`                                          | `github-actions[bot]`                   | Login the publish token acts as; set it for a GitHub App token.                                                                |
+| Input                                                      | Default                                      | Meaning                                                                                                                                                                         |
+| ---------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`, `harness`, `route`                                | empty                                        | What to run. Set `model` or `route`. See [Harnesses and routing](harnesses-and-routing.md).                                                                                     |
+| `prompt` or `preset`                                       | empty                                        | Your prompt, or a preset whose prompt agent-ci owns (`docs-update`, `instructions-update`). Set one.                                                                            |
+| `mode`                                                     | `read-only`                                  | `read-only` or `edit`.                                                                                                                                                          |
+| `output_contract`                                          | `report`                                     | `report`, `changes`, `issues` or `verdict`.                                                                                                                                     |
+| `use_case`                                                 | `generic-prompt`                             | Run identity; also names the default static branch `agent-ci/<use_case>`.                                                                                                       |
+| `target_repository`, `target_ref`                          | the calling repository and event commit      | Run on and publish to another repository (needs `AGENT_CI_TARGET_TOKEN`).                                                                                                       |
+| `setup_command`                                            | empty                                        | Trusted setup, for example dependency installation, in the separate secret-free setup job.                                                                                      |
+| `skills_oat_packs`, `skills_source`                        | empty                                        | OAT packs installed into the per-job home; repository skills (edit runs only).                                                                                                  |
+| `publish_pr`, `publish_branch`, `publish_base`, `pr_title` | `false`, `agent-ci/<use_case>`               | Publish an edit run's changes as a pull request from a static branch.                                                                                                           |
+| `path_policy`                                              | the preset's policy                          | Refuse to publish changes outside a use-case path policy.                                                                                                                       |
+| `adopt_branch`                                             | `false`                                      | Replace the static branch content even if agent-ci did not make its head commit. History is kept; agent-ci never force-pushes.                                                  |
+| `comment_pr`                                               | the triggering pull request                  | Pull request to comment on.                                                                                                                                                     |
+| `allow_pool`                                               | `false`                                      | Allow a proxy-pool route (self-hosted runners only, never a Claude model). Needs `AGENT_CI_PROXY_API_KEY`; the optional `AGENT_CI_PROXY_BASE_URL` replaces the loopback origin. |
+| `runs_on`                                                  | `ubuntu-latest`                              | Runner label for every job.                                                                                                                                                     |
+| `timeout_minutes`, `max_attempts`, `job_timeout_minutes`   | `30`, `2`, `60`                              | Agent deadline, attempts for transient failures, per-job timeout.                                                                                                               |
+| `publisher_login`                                          | the token's user, else `github-actions[bot]` | Login the publish token acts as (empty: `GET /user`, else `github-actions[bot]`); set it for a GitHub App token.                                                                |
 
 Outputs: `status`, `pr_url` and `comment_url`.
+
+The optional `AGENT_CI_PROXY_BASE_URL` secret reaches only the agent step,
+and only for a pool route. The two agent wrappers (`docs-update.yml`,
+`instructions-update.yml`) and `fan-out.yml` pass it on
+to `run-agent.yml`; `pr-review.yml` gives it to its reviewer and adjudicator
+steps under the same rule. See
+[Configuration and credentials](configuration.md).
 
 Publishing details (`agent-ci publish`):
 
@@ -156,7 +163,9 @@ A target may set `base`, `model`, `harness`, `route`, `mode`, `useCases`
 (default: every preset) and `inputs` (`setupCommand`, `skillsOatPacks`,
 `timeoutMinutes` 1-360, `maxAttempts` 1-5, `oatCliVersion`,
 `dependencyPolicy`, `prTitle`, `publishBranch` under `agent-ci/`).
-`targets.example.yaml` documents every field. Validate a file locally:
+`targets.example.yaml` shows every field. Validation does not check that the
+caller passes each route's model secret, so add one `secrets:` line per
+credential your targets' routes name. Validate a file locally:
 
 ```bash
 agent-ci targets validate --file targets.yaml
@@ -179,33 +188,42 @@ prompts.
 | `tools-update.yml`        | `tools-update`        | deterministic, no model | `agent-ci/oat-tools-update`              | none        | the OAT-managed directories (`.oat`, `.cursor`, `.claude`, `.agents`, `.codex/agents`) and root `.gitignore`/`.gitattributes`; `package.json` and lockfiles only with `dependency_policy: include-lockfile`                                                                             |
 
 `agent-ci preset list` prints each preset with its exact path policy rules.
-The two agent wrappers take the same model, route, target, setup and publish
-inputs as `run-agent.yml` (with `base` in place of `target_ref` and
-`publish_base`). `tools-update.yml` takes `oat_cli_version` (default
+The two agent wrappers take `model`, `harness`, `route`,
+`target_repository`, `base` (in place of `target_ref` and `publish_base`),
+`setup_command`, `skills_oat_packs`, `publish_branch`, `pr_title`,
+`adopt_branch`, `allow_pool`, `runs_on`, `timeout_minutes`, `max_attempts`
+and `publisher_login`; the preset fixes the mode, output contract, path
+policy and `publish_pr`. `tools-update.yml` takes `oat_cli_version` (default
 `latest`; pin an exact version for reproducible runs) and
-`dependency_policy` (`skills-only` or `include-lockfile`).
+`dependency_policy` (`skills-only` or `include-lockfile`). All three wrappers
+output `status` and `pr_url`.
 
 ## Consumer templates
 
 Copy one of these into the calling repository's `.github/workflows/`, pin
 the `uses:` ref, and add the secrets it lists.
 
-| Template                                       | Calls                                       | Triggers                                                                        | Secrets                                                                                          |
-| ---------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `consumer-workflows/agent-ci-run.yml`          | `run-agent.yml` (edit mode, publishes a PR) | `workflow_dispatch` with `prompt` and `model`                                   | `AGENT_CI_SOURCE_TOKEN`, one model secret                                                        |
-| `consumer-workflows/agent-ci-pr-review.yml`    | `pr-review.yml`                             | `pull_request_target` (labeled), `issue_comment` (created), `workflow_dispatch` | `AGENT_CI_SOURCE_TOKEN`, the reviewer model secrets                                              |
-| `consumer-workflows/agent-ci-docs-update.yml`  | `docs-update.yml`                           | weekly schedule, `workflow_dispatch`                                            | `AGENT_CI_SOURCE_TOKEN`, one model secret                                                        |
-| `consumer-workflows/agent-ci-tools-update.yml` | `tools-update.yml`                          | weekly schedule, `workflow_dispatch`                                            | `AGENT_CI_SOURCE_TOKEN`                                                                          |
-| `consumer-workflows/agent-ci-fleet.yml`        | `fan-out.yml`                               | three weekly schedules, `workflow_dispatch` with `preset`, `target`, `reset`    | `AGENT_CI_SOURCE_TOKEN`, `AGENT_CI_TARGET_TOKEN`, `AGENT_CI_TARGET_READ_TOKEN`, one model secret |
+| Template                                       | Calls                                       | Triggers                                                                        | Secrets                                                                                                                                                             |
+| ---------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `consumer-workflows/agent-ci-run.yml`          | `run-agent.yml` (edit mode, publishes a PR) | `workflow_dispatch` with `prompt` and `model`                                   | `AGENT_CI_SOURCE_TOKEN`, one model secret                                                                                                                           |
+| `consumer-workflows/agent-ci-pr-review.yml`    | `pr-review.yml`                             | `pull_request_target` (labeled), `issue_comment` (created), `workflow_dispatch` | `AGENT_CI_SOURCE_TOKEN`, the reviewer model secrets, optional `AGENT_CI_PROXY_BASE_URL`                                                                             |
+| `consumer-workflows/agent-ci-docs-update.yml`  | `docs-update.yml`                           | weekly schedule, `workflow_dispatch`                                            | `AGENT_CI_SOURCE_TOKEN`, one model secret                                                                                                                           |
+| `consumer-workflows/agent-ci-tools-update.yml` | `tools-update.yml`                          | weekly schedule, `workflow_dispatch`                                            | `AGENT_CI_SOURCE_TOKEN`                                                                                                                                             |
+| `consumer-workflows/agent-ci-fleet.yml`        | `fan-out.yml`                               | three weekly schedules, `workflow_dispatch` with `preset`, `target`, `reset`    | `AGENT_CI_SOURCE_TOKEN`, `AGENT_CI_TARGET_TOKEN`, `AGENT_CI_TARGET_READ_TOKEN`, the model secret of every route the targets use, optional `AGENT_CI_PROXY_BASE_URL` |
 
 `actionlint` checks every template in CI.
 
 ## This repository's self-tests
 
-Three callers exercise the workflows on pull requests in `tkstang/agent-ci`
-with the `fake` harness and no model secret:
+Three callers exercise the workflows on same-repository pull requests in
+`tkstang/agent-ci` with the `fake` harness and no model secret, each only
+on pull requests that carry its label (the review self-test only when a
+review label is added):
 `agent-ci-selftest.yml` (`run-agent.yml`, including the setup handoff and a
-static pull request), `agent-ci-fanout-selftest.yml` (`fan-out.yml` against
-this repository) and `agent-ci-review-selftest.yml` (`pr-review.yml` and
-verify-review, triggered by the review labels). They use `pull_request`
-because the workflows reach the default branch only when they merge.
+static pull request, plus a harness install and Codex sandbox check; label
+`agent-ci-selftest`), `agent-ci-fanout-selftest.yml` (`fan-out.yml` against
+this repository; label `agent-ci-fanout-selftest`) and
+`agent-ci-review-selftest.yml` (`pr-review.yml` and verify-review, triggered
+by the review labels). The first two can also be dispatched. They use
+`pull_request` because the workflows reach the default branch only when they
+merge.

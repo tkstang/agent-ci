@@ -10,6 +10,8 @@
 # 3. Add the ONE model credential the chosen route names (see `agent-ci models`
 #    in agent-ci), for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 or
 #    OPENCODE_API_KEY for grok-4.7. Only the agent step ever receives it.
+#    The template passes only CLAUDE_CODE_OAUTH_TOKEN: add a matching
+#    `secrets:` line for any other model you dispatch.
 # 4. Allow GitHub Actions to create pull requests (Settings > Actions >
 #    General > Workflow permissions) if publish_pr is true.
 #
@@ -58,3 +60,5 @@ jobs:
     secrets:
       AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # For another model's route, for example grok-4.7:
+      # OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}

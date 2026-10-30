@@ -22,6 +22,10 @@ targets:
   # id: lowercase letters, digits and hyphens; names the run artifact.
   - id: web-app
     repository: my-org/web-app
+    harness: claude # pin the harness for the model (agent presets only)
+    # Or pick an exact route instead of model and harness; the only way to
+    # pick a paid-api route (it needs ANTHROPIC_API_KEY):
+    # route: claude-haiku-4-5-api
     inputs:
       # Runs in run-agent.yml's credential-free setup job; only the resulting
       # working tree reaches the agent.
@@ -30,16 +34,17 @@ targets:
   - id: docs-site
     repository: my-org/docs-site
     base: develop
-    model: grok-4.7
+    model: grok-4.7 # the fleet caller must also pass OPENCODE_API_KEY
     # Presets this target takes part in (default: all of them).
     useCases: [docs-update, instructions-update]
     inputs:
       setupCommand: cd site && pnpm install --frozen-lockfile --ignore-scripts
+      skillsOatPacks: core,docs # replaces the preset's OAT packs
       prTitle: 'docs: agent-ci docs refresh'
 
+  # A tools-update-only target needs no model: tools-update runs no agent.
   - id: platform
     repository: my-org/platform
-    route: claude-haiku-4-5-api # an exact route (the only way to pick paid-api)
     useCases: [tools-update]
     inputs:
       oatCliVersion: 0.3.33 # tools-update: pinned @open-agent-toolkit/cli

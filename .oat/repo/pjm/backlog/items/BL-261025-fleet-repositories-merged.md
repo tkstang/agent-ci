@@ -11,7 +11,7 @@ labels:
   - workflows
 assignee: null
 created: 2026-10-25T22:20:20.485Z
-updated: 2026-10-25T22:20:20.485Z
+updated: 2026-10-30T21:00:00.000Z
 associated_issues: []
 external_plans: []
 ---
@@ -27,3 +27,6 @@ Support the two-fleet setup (public agent-ci-fleet on GitHub-hosted runners, pri
 - Targets can be marked private so their agent output and file lists stay out of job logs
 - Public and private fleet templates in `consumer-workflows/`, and `docs/fleet-repo.md` describes both fleets and the public-repository exposure
 
+## Progress
+
+- 2026-10-30: the private fleet `tkstang/agent-ci-private-fleet` exists and runs `fan-out.yml` pinned to a commit SHA, on GitHub-hosted runners until a self-hosted runner is admitted. It uses `targets_file` only. `targets_json`, artifact encryption, private-target log suppression, the public fleet and the two templates are not started.

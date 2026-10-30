@@ -35,22 +35,30 @@ request a review, in one of three ways:
   `adjudicator` and `adjudicator_model`. Booleans accept `true`, `1`, `on`,
   `false`, `0`, `off`. `--` ends the options; the rest of the line and every
   following line are the instruction to the reviewers. There is no quoting.
-  `/agent-ci-verify-review` takes the same options and asks for
+  Naming `second_reviewer_model` or `adjudicator_model` turns that pass on;
+  combining it with `second_reviewer=false` or `adjudicator=false` is an
+  error. `/agent-ci-verify-review` takes the same options and asks for
   [verify-review](#verify-review).
 
 - Dispatch the caller workflow with `pr_number` and an optional `command`
   (the same text as a comment; blank means `/agent-ci-review`).
 
 Every model a request selects must be in the caller's `allowed_models` and
-resolve under the routing policy. A malformed comment or dispatch command,
-or a disallowed model, gets one reply comment explaining the problem; a
-label request that fails gets no reply; the workflow run fails and its job summary carries the
-reason. Bot-authored commands and edited comments are ignored.
+resolve under the routing policy. A comment or dispatch command with
+invalid options, a disallowed model, or a misconfigured caller workflow
+gets one reply comment explaining the problem, and the run fails. A label
+request that fails gets no reply but also fails the run. A dispatch without
+a valid `pr_number` or review command is skipped without a reply and does
+not fail. The job summary carries the reason in every case.
+Bot-authored commands and edited comments are ignored.
 
 The gate then requires a same-repository, open, non-draft pull request whose
 author has write access, or is a bot listed in `allowed_pr_authors`. Fork
-pull requests are skipped and never reach a model credential. Accepted
-requests get an `eyes` reaction.
+pull requests are skipped and never reach a model credential. A request the
+gate does not authorize (requester or author without write access, a fork,
+a draft or closed pull request, an unlisted bot) gets no reply and does not
+fail the run; the job summary says why. Accepted comment requests get an
+`eyes` reaction.
 
 ### Triggers
 
@@ -71,8 +79,9 @@ Consumers trigger on `pull_request_target` (labeled), `issue_comment`
   to every request. Dispatch only from the default branch or another ref
   you trust.
 
-The gate also accepts `pull_request` (labeled), only for this repository's
-pre-merge self-test.
+The gate also accepts `pull_request` (labeled). It is meant only for
+pre-merge self-tests: on `pull_request` the caller file comes from the pull
+request's branch, so consumers should not use it.
 
 ## What a review does
 
@@ -109,8 +118,11 @@ flowchart LR
 3. **Adjudicator** (`review sources`, then `review adjudicate`), when
    `adjudicator` is on: a Claude route with every tool removed reads the
    candidate findings and their cited source, fetched without a checkout,
-   and may drop or downgrade findings. It runs only on a harness with a
-   verified tool-free mode, which today is Claude.
+   and may only drop or downgrade a finding. It cannot add findings or
+   change protected ones (`high`, `critical`, or at or above
+   `fail_on_severity`), and the findings gate enforces these limits again;
+   if adjudication fails, nothing from it is applied. It runs only on a
+   harness with a verified tool-free mode, which today is Claude.
 4. **Findings gate** (`review findings`): a deterministic check over every
    pass and the adjudication. It drops findings whose quoted source does not
    match the file at the captured commits, whose line range or diff position
@@ -119,10 +131,11 @@ flowchart LR
    findings already posted by earlier runs; applies the inline floor and the
    shared comment budget. It validates what the reviewers observed, not
    whether a finding is true.
-5. **Publish** (`review publish`): posts one inline review and creates or
-   updates the summary comment. It rechecks that the head has not moved and
-   exits non-zero after publishing when the review is incomplete, the head
-   moved, or `fail_on_severity` triggered.
+5. **Publish** (`review publish`): rechecks the pull request head, posts
+   one inline review and creates or updates the summary comment. If the
+   head moved, it posts no findings and only updates the summary to say
+   so. It exits non-zero after publishing when the review is incomplete,
+   the head moved, or `fail_on_severity` triggered.
 
 Findings have a severity (`critical`, `high`, `medium`, `low`) and a
 category (`correctness`, `security`, `performance`, `repo-rule`, `test`,
@@ -203,8 +216,7 @@ is off unless the caller sets `verify: true`.
    pull request cannot add or change a check. Do not set
    `verify_config_ref` to the pull request's base branch
    (`github.base_ref`): its author can retarget the pull request to a
-   branch they pushed. (This repository's own self-test does so only
-   because its workflows exist only on the project branch before merge.)
+   branch they pushed.
 
 2. **Request it** with `/agent-ci-verify-review` or the
    `agent-ci:verify-review` label.
@@ -213,7 +225,8 @@ is off unless the caller sets `verify: true`.
    `AGENT_CI_SOURCE_TOKEN` (agent-ci arrives as a digest-pinned bundle from
    the gate job); the job's read-only `GITHUB_TOKEN` and Actions runtime
    token remain. It runs on a GitHub-hosted runner unless
-   `verify_on_self_hosted: true` (ephemeral runners only), and it is refused
+   `verify_on_self_hosted: true`, which is meant only for ephemeral runners
+   (agent-ci cannot check that a runner is ephemeral), and it is refused
    in CI with `allow_pool: true`. The optional `setup` command runs first,
    in the pull request head, with the network open: it executes the pull
    request's install scripts and lockfile. Each check runs in a fresh copy of the
@@ -227,8 +240,11 @@ is off unless the caller sets `verify: true`.
 4. **Reviewers read the results** through the `run_check` tool, an MCP
    server agent-ci serves from `checks.json`. The model can name a check;
    it cannot pass arguments or run a command. Only Claude and Codex reviewer
-   routes can use it; OpenCode and Cursor are refused with
-   `E_POLICY_HARNESS`.
+   routes can use it; the gate refuses an OpenCode or Cursor reviewer for a
+   verify-review request (and `review pass` refuses one with
+   `E_POLICY_HARNESS`). In the shipped routing table the only Codex route
+   is a pool route, and verify-review is refused in CI with `allow_pool`,
+   so verify-review in Actions currently uses Claude reviewers.
 5. **The findings gate** recomputes every cited evidence ID and drops
    unknown, forged or tampered citations. The summary shows each check's
    name and exit code, and the isolation the verify job reported.
