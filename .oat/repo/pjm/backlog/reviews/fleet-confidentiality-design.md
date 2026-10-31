@@ -59,13 +59,13 @@ workflow implementation.
 
 ### What the existing graph requires
 
-| Boundary                        | Source evidence                                                                            | Consequence for full encrypted transport                                                                                                                                                                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Verification inputs and outputs | `pr-review.yml:383–407,424–441`: download helper/spec, run PR checks, upload check results | The consumer must obtain its assigned plaintext without acquiring a fleet-wide decryption key. Its outputs must become ciphertext before upload.                                                                |
-| Prepared workspace              | `run-agent.yml:359–388`: execute caller setup, pack and upload the tree                    | A later trusted upload step on that same runner does not isolate a fleet key from the setup code.                                                                                                               |
-| Built helper bootstrap          | `src/commands/helpers.ts:18–22,69–80`; `pr-review.yml:390–396,429`                         | Decryption cannot live only inside the CLI that is itself encrypted. A small trusted bootstrap must already be available and pinned.                                                                            |
-| Job isolation                   | `docs/security-model.md:18–21,329–330`                                                     | An environment variable used in an earlier/later step, or later reuse of the same runner, is not proof of key isolation.                                                                                        |
-| Scheduling                      | `fan-out.yml:207,261`; proposed runner profile in actions-runner draft #6                  | Matrix `max_parallel: 1` is separate from the proposed one-global-slot runner limit. A concurrent broker job waiting for a consumer on that same sole slot can stall. Neither is proof of installed host state. |
+| Boundary                        | Source evidence                                                                            | Consequence for full encrypted transport                                                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Verification inputs and outputs | `pr-review.yml:383–407,424–441`: download helper/spec, run PR checks, upload check results | The consumer must obtain its assigned plaintext without acquiring a fleet-wide decryption key. Its outputs must become ciphertext before upload.                                                                             |
+| Prepared workspace              | `run-agent.yml:359–388`: execute caller setup, pack and upload the tree                    | A later trusted upload step on that same runner does not isolate a fleet key from the setup code.                                                                                                                            |
+| Built helper bootstrap          | `src/commands/helpers.ts:18–22,69–80`; `pr-review.yml:390–396,429`                         | Decryption cannot live only inside the CLI that is itself encrypted. A small trusted bootstrap must already be available and pinned.                                                                                         |
+| Job isolation                   | `docs/security-model.md:18–21,329–330`                                                     | An environment variable used in an earlier/later step, or later reuse of the same runner, is not proof of key isolation.                                                                                                     |
+| Scheduling                      | `fan-out.yml:77–80,209,263`; proposed runner profile in actions-runner draft #6            | Even setting matrix `max_parallel: 1` is separate from the proposed one-global-slot runner limit. A concurrent broker job waiting for a consumer on that same sole slot can stall. Neither is proof of installed host state. |
 
 A serial decrypt/upload job must still hand its result to the next job. Uploading
 plaintext breaks encrypted transport; re-encrypting it moves the question to how
@@ -78,7 +78,9 @@ channel after a producing job exits.
 
 A plausible full-support design keeps the existing artifact IDs, digests and job
 dependencies, and uses envelope encryption with a separate authority that unwraps
-only an authorized consumer's input keys. Producers hold the encryption public
+only an authorized consumer's input keys. Every maintained download path must
+verify the plaintext digest after authenticated decryption, including helper
+bootstrap and diagnostic artifacts. Producers hold the encryption public
 key; PR/setup consumers can obtain their scoped input plaintext or keys, never
 the fleet private key. A caller-supplied artifact ID or a token able to download
 artifacts is not sufficient authorization.
