@@ -4,7 +4,9 @@
 
 - **Activated:** 2026-10-31 by the operator: complete selected follow-ups
   1, 3, 4 and 5, starting with runner/proxy readiness after reviewer changes.
-  The native delivery goal is active; no token or time budget was requested.
+  The delivery objective remains active; no token or time budget was requested.
+  The native goal tool still records an earlier blocked state and cannot be
+  resumed through its agent API; new approvals authorize the work below.
 - **Outcome:** production review configuration, a qualified runner/proxy path,
   stronger routing guards, simpler execution/workflow boundaries, and fleet
   configuration with protected private-target artifacts and logs.
@@ -56,7 +58,9 @@
 - **Additional approvals:** the operator approved direct tool-free Sol Low
   adjudication through the existing pool; preparation of external runner and
   private-fleet draft PRs; and ordered merges of agent-ci #3–#6 after hosted CI.
-  Those four merges are complete. External approval covers PR preparation only.
+  Those four merges are complete. The operator separately approved #7 after
+  exact-head hosted CI; it is merged. The operator also selected isolated
+  artifact transport for full support. External approval covers PR preparation only.
 - **Separately gated:** any further merge, force-push, credential creation/
   change/deletion, privileged runner activation and release publication.
   Prepare concrete changes and requests before asking for the relevant action.
@@ -87,7 +91,7 @@ The four reviewed source deliveries were squash-merged in order after each
 passed fresh hosted `verify` and `actionlint`. The final premerge local gate
 passed 977 tests and the required checks. Label-gated self-tests were skipped;
 this is not live model or runner qualification. Current merged source is
-`2c9c777dc8d2f54185f46eb8b46baaf741fe21c2`.
+`50d8e809eb843c164988ff0cdc076d14aa604174` (including the separately approved #7).
 
 | Delivery                                                                     | Merge commit                               | Result                                                                                                                                         |
 | ---------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -98,15 +102,16 @@ this is not live model or runner qualification. Current merged source is
 
 Pinned Codex 0.163.0 has no verified global tool-free CLI/app-server mode;
 its adapter capability remains false. The approved direct Responses transport
-for Sol Low is prepared in [draft #7](https://github.com/tkstang/agent-ci/pull/7),
-head `cf3b94da842345b6cd5da93b7790ae2285345362`, with shared eligibility gates,
-strict structured output, no tools, no redirects or paid fallback, bounded
-bodies/retries/deadlines, and existing artifact/leak guards. Its local worktree gate passed 1,034 tests and required checks; hosted verify
-and actionlint passed. Independent correctness/security review found no defects. Testing/docs review
-identified a credential-table correction and discarded-envelope leak regression
-coverage; both follow-ups are prepared for independent confirmation.
-No live transport proof is claimed. The operator's reviewer-plus-adjudicator caller still needs
-that delivery and live acceptance.
+for Sol Low was squash-merged in [PR #7](https://github.com/tkstang/agent-ci/pull/7)
+as `50d8e809eb843c164988ff0cdc076d14aa604174`, after hosted verify/actionlint
+passed at approved head `9b6f181b2b691ac05a0a79873eb8be7b766ce89c`.
+It has shared eligibility gates, strict structured output, no tools, no redirects
+or paid fallback, bounded bodies/retries/deadlines and full-envelope leak guards.
+The final local gate passed 1,036 tests and required checks; independent
+correctness/security, testing, complexity and documentation reviews, including
+follow-up confirmation, found no remaining findings. No live transport proof is
+claimed. The operator's reviewer-plus-adjudicator caller still needs preparation
+and live acceptance.
 
 External drafts prepared under the operator's PR-only approval:
 
@@ -136,10 +141,13 @@ must be included in credential/receipt review; do not install the new profile
 under the personal-skills-only scope. External merges, credentials, host
 activation and workflow dispatch have not been approved or performed.
 
-The [fleet confidentiality proposal](fleet-confidentiality-design.md) still
-awaits an operator choice: restricted encrypted modes, isolated transport for
-full support, or explicit acceptance of shared decryption authority in executable
-PR/setup jobs. No encryption key or transport has been introduced.
+The operator selected isolated transport for full support in the
+[fleet confidentiality proposal](fleet-confidentiality-design.md). The
+[durable design and delivery plan](../../../reference/research/fleet-artifact-transport.md)
+propose an external scoped key-release service and exact-job grants, keeping
+shared decryption authority outside executable PR/setup jobs. Platform binding,
+service packaging/custody and live qualification remain unresolved gates.
+No encryption key or transport has been introduced.
 
 Target tokens, target selection and privileged host admission remain user-owned.
 Source-secret deletion requires the caller merge, explicit approval and a fresh
@@ -147,6 +155,6 @@ no-reader check. Release publication is separately gated; no tag or release
 exists. New production routes, runner/JIT lifecycle and model-backed acceptance
 remain unqualified. No paid fallback or live model call ran in this preparation.
 
-Goal remains active and incomplete. Remaining scope is direct Sol adjudication,
+Goal remains active and incomplete. Remaining scope is live Sol adjudication,
 approved runner/caller integration and live pool evidence, versioned delivery,
 artifact encryption and final integrated acceptance.

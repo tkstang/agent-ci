@@ -17,6 +17,8 @@ Agent-facing rules live in the `AGENTS.md` files alongside each directory.
 | `pjm/handoffs/`            | One-shot project-kickoff prompts (deleted when consumed) | Backlog walkthroughs; removed in the shipping PR           |
 | `reference/decisions/`     | Durable decision records + generated index               | `oat decision`                                             |
 
+Durable investigations: [research index](reference/research/index.md).
+
 ## Conventions
 
 - **Generated vs. curated.** Generated tables live inside `<!-- OAT ... -->`

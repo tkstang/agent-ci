@@ -80,7 +80,7 @@ No new credential, secret deletion or target-repository selection is included.
 6. Qualify Sol High and requested Opus High independently before marking
    their routes qualified. Sol Low adjudication additionally needs the
    approved direct tool-free Responses implementation
-   ([draft #7](https://github.com/tkstang/agent-ci/pull/7)) and its own proof. Keep the generic
+   (merged [PR #7](https://github.com/tkstang/agent-ci/pull/7)) and its own live proof. Keep the generic
    primary-only default; the operator's reviewer-plus-adjudicator preference
    is not fulfilled until that path works.
 
@@ -112,8 +112,10 @@ consumers to a version that does not exist.
   isolation, plus original Git-context pinning during local review.
 - Merged file/JSON target lists and private-output suppression. Artifacts are
   still plaintext and Actions metadata can identify targets.
-- Direct tool-free Sol adjudication is pending its own reviewed source delivery;
-  add its verified behavior and source commit only after that PR merges.
+- Direct tool-free Sol Low adjudication through the existing subscription pool
+  merged as `50d8e809eb843c164988ff0cdc076d14aa604174` in #7. It bypasses CLI
+  installation, sends no tools and rejects leaked credentials across the full
+  response envelope. Live proxy compatibility remains unqualified.
 
 Validation records must distinguish local/hosted source checks from live runner,
 selected-model and JIT lifecycle proof. New production routes and the dedicated

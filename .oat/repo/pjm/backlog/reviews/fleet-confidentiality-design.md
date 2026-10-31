@@ -50,12 +50,20 @@ Option 1 provides a bounded initial delivery without weakening the boundary;
 option 2 is the path to full acceptance while retaining it. No secret is created,
 read, changed or deleted for any option during preparation.
 
+## Selected direction
+
+The operator selected **option 2: isolated transport for full support** on
+2026-10-31. The [durable transport design](../../../reference/research/fleet-artifact-transport.md)
+proposes an external scoped broker, exact-job authorization, envelope protocol
+and staged acceptance. Design selection does not authorize service provisioning,
+credentials, dispatch or weakening the PR/setup boundary.
+
 ## Option 2 feasibility check
 
 Read-only assessment at source `9b6f181`, 2026-10-31. The maintained workflow
 inventory is still nine upload sites and fifteen download sites. This assessment
-does not select an encryption option or authorize a service, key, deployment or
-workflow implementation.
+predates the selection above and does not authorize a service, key, deployment
+or workflow implementation.
 
 ### What the existing graph requires
 
@@ -88,8 +96,9 @@ artifacts is not sufficient authorization.
 Before implementation, prove the binding between repository, run and attempt,
 trusted workflow identity, consumer role and immutable artifact identity. Also
 specify expiry, replay, retries, cancellation, rotation and destruction of the
-consumer's job state. GitHub identity claims have not been qualified for these
-bindings; do not assume the platform provides an authenticated per-job claim.
+consumer's job state. GitHub now documents signed `check_run_id` and advertises it in OIDC discovery.
+Its actual nested/matrix issuance and the assignment mapping remain unqualified;
+see the design for the required pre-release uniqueness proof.
 
 Two possible locations for that authority need comparison if option 2 is chosen:
 
@@ -116,9 +125,10 @@ token and upload artifacts. Preventing malicious additional uploads would requir
 mediating that authority too. Encryption does not conceal Actions metadata or
 replace the private-target output controls.
 
-The operator's three-way choice above remains pending. Option 2 needs a reviewed
-transport design before implementation; options 1 and 3 retain their stated
-coverage/boundary tradeoffs. No acceptance criterion is closed by this assessment.
+The operator selected option 2. It needs a reviewed transport design and
+platform conformance before enabled implementation can be accepted. Options 1
+and 3 remain historical alternatives. No acceptance criterion is closed by
+this assessment.
 
 ## Independent work
 
