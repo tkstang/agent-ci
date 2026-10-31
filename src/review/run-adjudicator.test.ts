@@ -267,6 +267,51 @@ describe('Sol Low adjudicator run lifecycle', () => {
     },
   );
 
+  it.each(['reasoning', 'metadata'] as const)(
+    'withholds accepted artifacts for a secret in discarded %s',
+    async (location) => {
+      const s = await scenario((_req, res) => {
+        const response = completedResponse({ operations: [kept] });
+        const envelope =
+          location === 'metadata'
+            ? { ...response, metadata: { trace: KEY } }
+            : {
+                ...response,
+                output: [
+                  {
+                    type: 'reasoning',
+                    summary: [{ type: 'summary_text', text: KEY }],
+                  },
+                  ...response.output,
+                ],
+              };
+        res.end(JSON.stringify(envelope));
+      });
+      const result = await runAdjudicator(s.options, noCli);
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          status: 'failed',
+          reason: expect.stringContaining('E_CREDENTIAL_LEAK'),
+        },
+      });
+      expect(
+        existsSync(path.join(s.options.outDir, 'adjudication-answer.json')),
+      ).toBe(false);
+      expect(
+        JSON.parse(
+          await readFile(
+            path.join(s.options.outDir, 'adjudication.json'),
+            'utf8',
+          ),
+        ),
+      ).toEqual({ version: 1, status: 'failed', operations: [] });
+      const outputs = await persisted(s.options.outDir);
+      expect(outputs).not.toContain(KEY);
+      expect(outputs).not.toContain(s.origin);
+    },
+  );
+
   it.each([401, 503])(
     'retries only transient status %s on the same route',
     async (status) => {
