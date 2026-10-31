@@ -31,8 +31,8 @@
 3. [**BL-261025-close-remaining-claude-only — Close remaining Claude-only policy name-check gaps**](../archived/BL-261025-close-remaining-claude-only.md).
    Implemented load-time guards for separator-less Claude names and Cursor
    automatic routers, with explicit Grok and Claude Code pool controls
-   preserved. Archived with the implementation delivery; independent review
-   and merge remain pending.
+   preserved. Archived with the independently reviewed implementation delivery;
+   merged in PR #4.
 4. [**BL-261025-post-v1-simplification-pass — Post-v1 simplification pass**](../archived/BL-261025-post-v1-simplification-pass.md).
    Implemented original Git-context pinning and per-pass reviewer/adjudicator
    credential boundaries, shared severity/command rules and an early local
@@ -53,10 +53,13 @@
   Use coherent branches/PRs for later batches and preserve earlier deliveries.
 - **Authorized:** local implementation, focused checks, Conventional Commits,
   SSH pushes and independently reviewed PRs within agent-ci's selected scope.
-- **Separately gated:** merges, force-pushes, external-repository mutations,
-  credential creation/change/deletion and privileged runner activation.
+- **Additional approvals:** the operator approved direct tool-free Sol Low
+  adjudication through the existing pool; preparation of external runner and
+  private-fleet draft PRs; and ordered merges of agent-ci #3–#6 after hosted CI.
+  Those four merges are complete. External approval covers PR preparation only.
+- **Separately gated:** any further merge, force-push, credential creation/
+  change/deletion, privileged runner activation and release publication.
   Prepare concrete changes and requests before asking for the relevant action.
-  Do not publish a release before its source changes are approved and merged.
 - **User-owned setup:** target write/read tokens, target-repository selection
   and privileged runner admission. Existing secret names do not prove valid
   credentials or grant mutation authority.
@@ -80,52 +83,68 @@
 
 ## Evidence and remaining work
 
-- Baseline `main` is `95fec188`; public-source cleanup and earlier README/
-  publishing-timeout PRs are merged. PJM adoption is declared and doctor passes.
-- [Reviewer preparation PR #3](https://github.com/tkstang/agent-ci/pull/3),
-  head `587d1b3`: all 934 tests and required local checks passed; independent
-  correctness, testing, complexity and docs reviews are clear. Hosted verify
-  and actionlint passed. Ready for separately approved merge. New production
-  aliases remain unqualified; generic defaults enable primary only.
-- Pinned Codex 0.163.0 has no verified global tool-free CLI/app-server mode.
-  Its adapter capability remains false. A direct tools-empty Responses request
-  through the existing subscription pool is proposed for Sol Low adjudication;
-  the operator's choice is still pending. Do not bypass the capability guard.
-  Model/effort and revised Claude-pool intent is recorded in
-  [Production reviews and pool CI](../../../reference/decisions/DR-261031-production-reviews-and-pool-ci.md).
-- [Runner/routing PR #4](https://github.com/tkstang/agent-ci/pull/4),
-  head `bd82670`: label-array support and Claude-name/automatic-selector guards.
-  All 958 tests and local gates passed; independent reviews clear after a
-  planning-text correction. Claude-only gaps archived in the delivery;
-  merge remains gated. The [runner packet](runner-proxy-readiness.md) records
-  exact admission/qualification/release work. No host activation or live
-  pool run is claimed. An idle JIT runner count alone proves no deployment
-  state; the fixed runner allowlist still excludes the private fleet.
-- [Simplification PR #5](https://github.com/tkstang/agent-ci/pull/5),
-  head `b8c57ba`: original Git observations pinned, reviewer/adjudicator
-  credentials isolated, policy rules shared, and local trust rejected early.
-  All 961 tests and local gates passed; independent reviews clear after a
-  documentation count correction. Six-area dispositions are in the archived
-  item; no public workflow inputs removed. Hosted failed-child output
-  propagation remains unverified and missing artifacts fail closed.
-- The stacked PRs target their parent branches. Repository CI currently
-  triggers only for PRs into `main`; retarget/update and hosted validation
-  are required after the separately approved parent merges.
-- Fleet file/JSON merging and private-output controls are implemented on
-  `feat/fleet-target-inputs-and-private-output`, pending final validation and
-  review. Public/private templates are prepared; no external caller or target
-  selection changed. Artifacts remain plaintext and private-output mode does
-  not hide Actions metadata. The
-  [fleet confidentiality proposal](fleet-confidentiality-design.md) records
-  the pending choice for shared-key authority versus preserved verification/
-  setup isolation. No encryption key or transport has been introduced.
-- External runner admission and private-fleet caller migration PR preparation
-  was requested for separate approval; no answer or mutation yet. The caller
-  still needs a valid source pin and retired source-token input removed.
-  Secret deletion requires its own approval and a fresh no-reader check.
-- Target tokens, target selection and privileged host admission remain
-  user-owned. Release publication follows approved source merges and separate
-  publication approval. No model-backed qualification or paid fallback ran.
-- Goal remains active and incomplete. Remaining work includes Sol adjudication,
-  approved runner/caller integration, live pool evidence, versioned release,
-  artifact encryption and final integrated acceptance.
+The four reviewed source deliveries were squash-merged in order after each
+passed fresh hosted `verify` and `actionlint`. The final premerge local gate
+passed 977 tests and the required checks. Label-gated self-tests were skipped;
+this is not live model or runner qualification. Current merged source is
+`2c9c777dc8d2f54185f46eb8b46baaf741fe21c2`.
+
+| Delivery                                                                     | Merge commit                               | Result                                                                                                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Reviewer defaults #3](https://github.com/tkstang/agent-ci/pull/3)           | `da58e836420ea6ad424d07c88a3752ce2eed0dd3` | Sol High primary, optional Opus High, Sol Low adjudicator configuration; generic primary-only default.                                         |
+| [Runner/routing guards #4](https://github.com/tkstang/agent-ci/pull/4)       | `cdbf974e9a382a7db9b981ec6d7ae92aba2192c6` | Label arrays, Claude-only name guards and automatic-router refusal.                                                                            |
+| [Simplification #5](https://github.com/tkstang/agent-ci/pull/5)              | `e8c6bca7ad8bd88c7a4edccc398467fd6f4b0ae9` | Original Git observations pinned, per-pass credential isolation, shared policy and early local trust checks.                                   |
+| [Fleet inputs/private output #6](https://github.com/tkstang/agent-ci/pull/6) | `2c9c777dc8d2f54185f46eb8b46baaf741fe21c2` | Validated file/JSON merging, private-output suppression and caller templates. Artifacts remain plaintext and Actions metadata remains visible. |
+
+Pinned Codex 0.163.0 has no verified global tool-free CLI/app-server mode;
+its adapter capability remains false. The approved direct Responses transport
+for Sol Low is prepared in [draft #7](https://github.com/tkstang/agent-ci/pull/7),
+head `cf3b94da842345b6cd5da93b7790ae2285345362`, with shared eligibility gates,
+strict structured output, no tools, no redirects or paid fallback, bounded
+bodies/retries/deadlines, and existing artifact/leak guards. Its local worktree gate passed 1,034 tests and required checks; hosted verify
+and actionlint passed. Independent security/integration review is pending.
+No live transport proof is claimed. The operator's reviewer-plus-adjudicator caller still needs
+that delivery and live acceptance.
+
+External drafts prepared under the operator's PR-only approval:
+
+- [Private-fleet caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5),
+  head `bc8da29599bcd3eab974ea0a53b610ae902f52f6`: pins the existing merged
+  agent-ci source, removes the source-token mapping, requires dedicated labels,
+  private output and one parallel target, and stays manual-only/disabled behind
+  `AGENT_CI_FLEET_ADMITTED`. Target membership and the DeepSeek maintenance
+  default are unchanged. Static validation and four independent review lenses
+  passed; no hosted checks are configured in this caller repository.
+- [Runner reservation #6](https://github.com/tkstang/actions-runner/pull/6),
+  head `1eaf9d7b35fb9528fcfcfc19e2b48a61b1068bb0`, stacked on existing runner #4:
+  seventh guest identity, separate uninstalled
+  one-slot profile, empty exact job list and independent refusal of fleet starts
+  in the observer, root helper and JIT wrapper. Guest qualification inventories
+  include the new identity. Exact nested jobs remain unqualified. Existing
+  pilot/configuration/installer and installed host state are unchanged. Unit and
+  source checks passed; all four review lenses are covered, including independent
+  confirmation of a case-alias observer fix. Initial full suite passed 149 tests;
+  the added case-alias regression passed with all 16 GitHub-boundary tests. No
+  hosted checks are configured. An older guest needs
+  an approved upgrade before the new seven-identity status proof can pass.
+
+The [runner packet](runner-proxy-readiness.md) records admission, qualification
+and release gates. Disabled repository entries still expand observation and
+must be included in credential/receipt review; do not install the new profile
+under the personal-skills-only scope. External merges, credentials, host
+activation and workflow dispatch have not been approved or performed.
+
+The [fleet confidentiality proposal](fleet-confidentiality-design.md) still
+awaits an operator choice: restricted encrypted modes, isolated transport for
+full support, or explicit acceptance of shared decryption authority in executable
+PR/setup jobs. No encryption key or transport has been introduced.
+
+Target tokens, target selection and privileged host admission remain user-owned.
+Source-secret deletion requires the caller merge, explicit approval and a fresh
+no-reader check. Release publication is separately gated; no tag or release
+exists. New production routes, runner/JIT lifecycle and model-backed acceptance
+remain unqualified. No paid fallback or live model call ran in this preparation.
+
+Goal remains active and incomplete. Remaining scope is direct Sol adjudication,
+approved runner/caller integration and live pool evidence, versioned delivery,
+artifact encryption and final integrated acceptance.
