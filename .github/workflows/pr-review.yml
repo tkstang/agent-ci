@@ -147,7 +147,7 @@ on:
         type: boolean
         default: false
       runs_on:
-        description: Runner label for every job.
+        description: Runner label or JSON array of required labels for every job.
         type: string
         default: ubuntu-latest
       timeout_minutes:
@@ -194,7 +194,7 @@ permissions:
 jobs:
   gate:
     name: Authorize the request and bind the review spec
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -316,7 +316,7 @@ jobs:
     name: Run the configured checks (no credentials)
     needs: gate
     if: needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.mode == 'verify-review'
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
@@ -401,7 +401,7 @@ jobs:
     name: Primary reviewer (read-only)
     needs: [gate, verify]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' }}
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
@@ -523,7 +523,7 @@ jobs:
     name: Second reviewer (read-only)
     needs: [gate, verify]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.second_enabled == 'true' }}
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
@@ -640,7 +640,7 @@ jobs:
     name: Adjudicate (tool-free)
     needs: [gate, review-primary, review-second]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.adjudicator_enabled == 'true' }}
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
@@ -768,7 +768,7 @@ jobs:
     name: Gate the findings (deterministic)
     needs: [gate, review-primary, review-second, adjudicate]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' }}
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
@@ -869,7 +869,7 @@ jobs:
     name: Publish the review
     needs: [gate, findings]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' }}
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: 15
     permissions:
       contents: read

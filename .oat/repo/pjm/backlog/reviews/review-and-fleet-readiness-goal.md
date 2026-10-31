@@ -109,4 +109,8 @@
   delivery. Resolve the pending adjudicator transport choice separately;
   continue runner-readiness preparation and independent code batches when
   live acceptance depends on operator-owned setup.
-- Completion audit remains pending for every batch above.
+- Runner label-array support and the [qualification packet](runner-proxy-readiness.md)
+  are prepared. External admission/caller PRs, activation, a live pool run and
+  release publication remain separately gated. Claude-name policy gaps are
+  implemented and archived in the next delivery, pending review and merge.
+- Completion audit remains pending for the complete goal.
