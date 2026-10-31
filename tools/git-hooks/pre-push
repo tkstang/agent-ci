@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+# Fast local gate before pushing: typecheck + focused tests.
+# Deliberately NOT the full CI matrix — "fast at the local gate, exhaustive in CI".
+# Escape hatch: GIT_HOOKS=0 git push ...
+[ "$GIT_HOOKS" = "0" ] && exit 0
+
+set -e
+
+# Git exports repository-binding variables (GIT_DIR, GIT_INDEX_FILE, ...) to
+# hooks; inherited by tests that spawn git, they redirect fixtures into this repo.
+for var in $(git rev-parse --local-env-vars); do unset "$var"; done
+
+echo "pre-push: typecheck"
+pnpm run typecheck
+
+echo "pre-push: test"
+pnpm run test

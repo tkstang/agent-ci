@@ -1,0 +1,174 @@
+# Reusable wrapper: OAT docs update. agent-ci owns the prompt (preset docs-update):
+# consumers call this workflow and never copy it. It calls run-agent.yml in
+# edit mode with the core and docs OAT packs installed into the per-job home,
+# and publishes to the static branch agent-ci/oat-docs-update only when every
+# changed path passes the docs-update path policy.
+#
+# GitHub validates the nested publish job's permissions against the original
+# caller: the caller must grant contents: write and pull-requests: write.
+# Another target repository (target_repository) needs AGENT_CI_TARGET_TOKEN
+# (write; resolve and publish jobs only) and, when private,
+# AGENT_CI_TARGET_READ_TOKEN (read-only; the checkouts that run code).
+name: '[agent-ci] Update documentation'
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: Qualified model from models.yaml. Set model or route.
+        type: string
+        default: ''
+      harness:
+        description: Pin a harness. Empty resolves from the model.
+        type: string
+        default: ''
+      route:
+        description: Pick an exact route id from models.yaml.
+        type: string
+        default: ''
+      target_repository:
+        description: Repository (owner/name) to update. Empty means the calling repository.
+        type: string
+        default: ''
+      base:
+        description: >-
+          Branch to run on and to open the pull request against. Empty means the
+          triggering branch, else the default branch (for another repository: its
+          default branch).
+        type: string
+        default: ''
+      setup_command:
+        description: Trusted dependency setup, run in a separate job without secrets.
+        type: string
+        default: ''
+      skills_oat_packs:
+        description: OAT packs installed into the per-job home.
+        type: string
+        default: core,docs
+      publish_branch:
+        description: Static branch under agent-ci/. Empty means agent-ci/oat-docs-update.
+        type: string
+        default: ''
+      pr_title:
+        description: Title of the published pull request.
+        type: string
+        default: 'agent-ci: OAT docs update'
+      adopt_branch:
+        description: >-
+          Reset: replace the static branch content even when agent-ci did not make its
+          head commit (history is kept; never a force push).
+        type: boolean
+        default: false
+      allow_pool:
+        description: >-
+          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
+          on a self-hosted runner, and never for a Claude model; set true there to
+          opt in. The route uses the loopback proxy origin unless the optional
+          AGENT_CI_PROXY_BASE_URL secret names another origin (https, or http
+          for a loopback host).
+        type: boolean
+        default: false
+      runs_on:
+        description: Runner label for every job.
+        type: string
+        default: ubuntu-latest
+      timeout_minutes:
+        description: Deadline for all agent attempts.
+        type: number
+        default: 30
+      max_attempts:
+        description: Attempts for transient failures (each in an isolated copy).
+        type: number
+        default: 2
+      publisher_login:
+        description: Login the publish token acts as (set it for a GitHub App token).
+        type: string
+        default: ''
+      artifact_name:
+        description: Name of the run artifact (unique per workflow run).
+        type: string
+        default: agent-ci-docs-update
+      agent_ci_repository:
+        description: Repository that provides the agent-ci helpers. Empty means run-agent.yml's own.
+        type: string
+        default: ''
+      agent_ci_ref:
+        description: Helper ref. Empty means run-agent.yml's own commit.
+        type: string
+        default: ''
+    secrets:
+      AGENT_CI_TARGET_TOKEN:
+        required: false
+      AGENT_CI_TARGET_READ_TOKEN:
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENCODE_API_KEY:
+        required: false
+      CURSOR_API_KEY:
+        required: false
+      AGENT_CI_PROXY_API_KEY:
+        description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
+        required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: >-
+          Optional private proxy origin (https) that replaces the loopback origin of
+          pool routes. A secret so Actions masks it; passed to the agent step only for
+          a pool route.
+        required: false
+      AGENT_CI_NOTIFY_WEBHOOK:
+        required: false
+    outputs:
+      status:
+        value: ${{ jobs.run.outputs.status }}
+      pr_url:
+        value: ${{ jobs.run.outputs.pr_url }}
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: OAT docs update
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/run-agent.yml
+    with:
+      preset: docs-update
+      use_case: oat-docs-update
+      mode: edit
+      output_contract: changes
+      path_policy: docs-update
+      publish_pr: true
+      model: ${{ inputs.model }}
+      harness: ${{ inputs.harness }}
+      route: ${{ inputs.route }}
+      target_repository: ${{ inputs.target_repository }}
+      target_ref: ${{ inputs.base }}
+      publish_base: ${{ inputs.base }}
+      setup_command: ${{ inputs.setup_command }}
+      skills_oat_packs: ${{ inputs.skills_oat_packs }}
+      publish_branch: ${{ inputs.publish_branch }}
+      pr_title: ${{ inputs.pr_title }}
+      adopt_branch: ${{ inputs.adopt_branch }}
+      runs_on: ${{ inputs.runs_on }}
+      allow_pool: ${{ inputs.allow_pool }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      max_attempts: ${{ inputs.max_attempts }}
+      publisher_login: ${{ inputs.publisher_login }}
+      artifact_name: ${{ inputs.artifact_name }}
+      agent_ci_repository: ${{ inputs.agent_ci_repository }}
+      agent_ci_ref: ${{ inputs.agent_ci_ref }}
+    secrets:
+      AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
+      AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+      AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
+      AGENT_CI_NOTIFY_WEBHOOK: ${{ secrets.AGENT_CI_NOTIFY_WEBHOOK }}

@@ -1,0 +1,63 @@
+{
+  "name": "@tkstang/agent-ci",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable GitHub Actions workflows and CLI that run Claude Code, Codex, OpenCode or Cursor agents against repositories and publish the results.",
+  "license": "MIT",
+  "author": "Thomas Stang",
+  "bin": {
+    "agent-ci": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "models.yaml",
+    "tools/install-hooks.mjs"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch src/cli.ts",
+    "build": "tsrs -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
+    "lint": "oxlint",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:agents": "node tools/check-no-claude-md.mjs",
+    "docs:check": "tsx src/docs-check/main.ts",
+    "prepare": "node tools/install-hooks.mjs",
+    "worktree:init": "bash scripts/worktree/init.sh",
+    "worktree:validate": "bash scripts/worktree/validate.sh"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.2",
+    "@commitlint/config-conventional": "^21.0.2",
+    "@types/node": "^24.13.2",
+    "lint-staged": "^17.0.8",
+    "oxfmt": "0.55.0",
+    "oxlint": "^1.70.0",
+    "tsc-alias": "^1.8.17",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
+    "tsx": "^4.22.4",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-7": "npm:typescript@^7.0.2",
+    "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=11 <12"
+  },
+  "packageManager": "pnpm@11.8.0"
+}

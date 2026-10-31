@@ -1,0 +1,40 @@
+# Credential-free self-test of fan-out.yml on pull requests in this
+# repository: the targets job reads this repository's targets.yaml (which
+# lists only tkstang/agent-ci), and each target runs the docs-update preset
+# through run-agent.yml with the fake harness, opening or updating the
+# static-branch pull request agent-ci/oat-docs-update against the PR's head
+# branch under the docs-update path policy.
+#
+# Runs only for same-repository pull requests labeled
+# `agent-ci-fanout-selftest` (never for forks) or by manual dispatch.
+name: 'CI: Fleet self-test'
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-ci-fanout-selftest-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fan-out:
+    name: Fan-out with the fake harness
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'agent-ci-fanout-selftest'))
+    # Nested reusable-workflow permissions are checked against this caller.
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/fan-out.yml
+    with:
+      preset: docs-update
+      targets_file: targets.yaml
+      model: fake-edit
+      base: ${{ github.head_ref || github.ref_name }}

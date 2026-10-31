@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "pjm": {
+    "initialized": true,
+    "schemaVersion": 1
+  },
+  "documentation": {
+    "root": "docs",
+    "tooling": "markdown",
+    "index": "docs/index.md",
+    "nonReaderPaths": []
+  }
+}

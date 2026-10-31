@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1792905421815,"sessionID":"ses_<redacted>","part":{"id":"prt_<redacted>","sessionID":"ses_<redacted>","messageID":"msg_<redacted>","type":"step-start","snapshot":"4b825dc642cb6eb9a060e54bf8d69288fbee4904"}}
+{"type":"text","timestamp":1792905421819,"sessionID":"ses_<redacted>","part":{"id":"prt_<redacted>","sessionID":"ses_<redacted>","messageID":"msg_<redacted>","type":"text","text":"agent-ci-probe-ok","time":{"start":1792905421818,"end":1792905421819}}}

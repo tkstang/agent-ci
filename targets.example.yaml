@@ -1,0 +1,52 @@
+# Example targets.yaml for a fleet repository that calls fan-out.yml.
+# Every value becomes a reusable-workflow input; agent-ci targets validate
+# checks the schema, unique ids and repositories, allowedOwners and that each
+# model resolves under the routing policy (in CI, login routes are refused and
+# pool routes resolve only with the opt-in on a self-hosted runner, never for
+# a Claude model).
+version: 1
+
+# Optional: every target repository must belong to one of these owners.
+allowedOwners: [my-org]
+
+# Optional defaults; a target's own values win.
+defaults:
+  base: main
+  model: claude-haiku-4-5 # a models.yaml model; pin with harness or route
+  mode: edit # edit | read-only
+  inputs:
+    timeoutMinutes: 30
+    maxAttempts: 2
+
+targets:
+  # id: lowercase letters, digits and hyphens; names the run artifact.
+  - id: web-app
+    repository: my-org/web-app
+    harness: claude # pin the harness for the model (agent presets only)
+    # Or pick an exact route instead of model and harness; the only way to
+    # pick a paid-api route (it needs ANTHROPIC_API_KEY):
+    # route: claude-haiku-4-5-api
+    inputs:
+      # Runs in run-agent.yml's credential-free setup job; only the resulting
+      # working tree reaches the agent.
+      setupCommand: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+
+  - id: docs-site
+    repository: my-org/docs-site
+    base: develop
+    model: grok-4.7 # the fleet caller must also pass OPENCODE_API_KEY
+    # Presets this target takes part in (default: all of them).
+    useCases: [docs-update, instructions-update]
+    inputs:
+      setupCommand: cd site && pnpm install --frozen-lockfile --ignore-scripts
+      skillsOatPacks: core,docs # replaces the preset's OAT packs
+      prTitle: 'docs: agent-ci docs refresh'
+
+  # A tools-update-only target needs no model: tools-update runs no agent.
+  - id: platform
+    repository: my-org/platform
+    useCases: [tools-update]
+    inputs:
+      oatCliVersion: 0.3.33 # tools-update: pinned @open-agent-toolkit/cli
+      dependencyPolicy: include-lockfile # tools-update: allow lockfile changes
+      publishBranch: agent-ci/oat-tools

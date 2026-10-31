@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    // --- Module system: ESM-only, native Node resolution (NodeNext) ---
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    "types": ["node"],
+
+    // --- Strictness: the extra-strict house superset on top of `strict` ---
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "forceConsistentCasingInFileNames": true,
+    // Deliberately OFF (house decision): index-signature property access stays ergonomic.
+    "noPropertyAccessFromIndexSignature": false,
+
+    // --- ESM hygiene: keep `import type` honest, ensure single-file transpile safety ---
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    // --- Checker config: this base config is type-check only (no emit). ---
+    // The build config (tsconfig.build.json) turns emit on with rootDir/outDir.
+    "noEmit": true,
+
+    // --- Path aliases: named, mirrored in vitest. NO `@/*`, NO `../..` chains. ---
+    // No `baseUrl` (removed in TS 7): paths resolve
+    // relative to this config file.
+    "paths": {
+      "@agent-ci/*": ["./src/*"]
+    },
+
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src", "vitest.config.ts", "commitlint.config.js"],
+  "exclude": ["dist", "node_modules"]
+}

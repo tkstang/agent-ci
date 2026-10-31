@@ -1,0 +1,21 @@
+# actionlint 1.7.12 does not know job.workflow_sha / job.workflow_repository,
+# which GitHub provides inside a called reusable workflow (verified live
+# 2026-10-25, run 40182151786: job.workflow_sha is the called workflow's own
+# commit, github.workflow_sha the caller's). Ignore exactly those two
+# properties on the job object, in the reusable workflows that use them.
+paths:
+  .github/workflows/run-agent.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type \{check_run_id: number; container:'
+  .github/workflows/pr-review.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type \{check_run_id: number; container:'
+  .github/workflows/tools-update.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type \{check_run_id: number; container:'
+  .github/workflows/fan-out.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type \{check_run_id: number; container:'
+  .github/workflows/agent-job.yml:
+    ignore:
+      - 'property "workflow_(sha|repository)" is not defined in object type \{check_run_id: number; container:'

@@ -1,0 +1,240 @@
+# agent-ci routing table.
+#
+# A caller picks `model`; agent-ci resolves it to the first eligible route in
+# file order (or to an explicit `--route <id>`), then runs that route's
+# harness with only the credential variables the route names.
+#
+# Policy (enforced in src/routing/policy.ts):
+# - Every route declares its model `family`; `family: claude` runs only on the
+#   `claude` harness (Claude-looking names are also rejected elsewhere).
+# - Resolution never falls back from a subscription route to a paid-api route,
+#   and never falls back into a `work` account; pick those with --route.
+# - `account: pool` routes spend the operator's CLIProxyAPI pool over a
+#   loopback baseUrl. They always need the opt-in (--allow-pool locally, the
+#   allow_pool workflow input in CI). Under CI or GITHUB_ACTIONS they are
+#   allowed only on a self-hosted runner (RUNNER_ENVIRONMENT=self-hosted, its
+#   host runs the proxy) and never for a Claude model: Claude pool routes stay
+#   local only (CI_POOL_ALLOWS_CLAUDE in src/routing/policy.ts; operator
+#   decision DR-261025-keep-claude-pool-routes).
+#   Workflows pass only AGENT_CI_PROXY_API_KEY for pool routes, never
+#   ANTHROPIC_AUTH_TOKEN.
+#   The baseUrl below is the loopback default. When the optional
+#   AGENT_CI_PROXY_BASE_URL environment variable (an Actions secret in the
+#   workflows) is set to an https origin, every pool route uses that origin
+#   with its own path instead; the policy above does not change.
+# - `login: true` routes use a harness login seeded into the isolated home with
+#   --seed-login; local only.
+#
+# `qualified` is the date of the last live check of that exact route
+# (references: .oat project research harness-probes-2026-10-25), or null.
+version: 1
+routes:
+  # --- Claude Code -----------------------------------------------------------
+  - id: claude-haiku-4-5-pool
+    model: claude-haiku-4-5
+    harness: claude
+    family: claude
+    providerModel: claude-haiku-4-5-20251001
+    credentials: [ANTHROPIC_AUTH_TOKEN]
+    baseUrl: http://127.0.0.1:8317
+    billing: subscription
+    account: pool
+    structuredOutput: json-schema
+    qualified: '2026-10-25'
+    notes: Local CLIProxyAPI pool (loopback); local runs only.
+  - id: claude-haiku-4-5-personal
+    model: claude-haiku-4-5
+    harness: claude
+    family: claude
+    providerModel: claude-haiku-4-5-20251001
+    credentials: [CLAUDE_CODE_OAUTH_TOKEN]
+    billing: subscription
+    account: personal
+    structuredOutput: json-schema
+    qualified: null
+    notes: Personal subscription token from `claude setup-token`; the CI route.
+  - id: claude-haiku-4-5-api
+    model: claude-haiku-4-5
+    harness: claude
+    family: claude
+    providerModel: claude-haiku-4-5-20251001
+    credentials: [ANTHROPIC_API_KEY]
+    billing: paid-api
+    account: personal
+    structuredOutput: json-schema
+    qualified: null
+    notes: Metered API key; never chosen automatically, select with --route.
+  - id: claude-haiku-5-5-pool
+    model: claude-haiku-5-5
+    harness: claude
+    family: claude
+    providerModel: claude-haiku-5-5
+    credentials: [ANTHROPIC_AUTH_TOKEN]
+    baseUrl: http://127.0.0.1:8317
+    billing: subscription
+    account: pool
+    structuredOutput: json-schema
+    qualified: '2026-10-25'
+    notes: Local CLIProxyAPI pool (loopback); local runs only.
+
+  # --- Codex -----------------------------------------------------------------
+  - id: gpt-5.6-luna-pool
+    model: gpt-5.6-luna
+    harness: codex
+    family: openai
+    providerModel: gpt-5.6-luna
+    credentials: [AGENT_CI_PROXY_API_KEY]
+    baseUrl: http://127.0.0.1:8317/v1
+    effort: low
+    billing: subscription
+    account: pool
+    structuredOutput: output-schema
+    qualified: '2026-10-25'
+    notes: >-
+      CLIProxyAPI pool over the Responses API (loopback). Local runs with
+      --allow-pool; in CI only on a self-hosted runner whose host serves the
+      proxy, with allow_pool: true and the AGENT_CI_PROXY_API_KEY secret.
+      grok-4.7 is not reachable from Codex through the proxy
+      (ModelProtocolUnsupported).
+
+  # --- OpenCode --------------------------------------------------------------
+  - id: grok-4.7-opencode-login
+    model: grok-4.7
+    harness: opencode
+    family: xai
+    providerModel: opencode-go/grok-4.7
+    login: true
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: OpenCode Console (Go) login seeded with --seed-login; local only.
+  - id: grok-4.7-opencode
+    model: grok-4.7
+    harness: opencode
+    family: xai
+    providerModel: opencode-go/grok-4.7
+    credentials: [OPENCODE_API_KEY]
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-26'
+    notes: OpenCode Go key from the environment; the CI route.
+  - id: glm-5.3-flash-opencode-login
+    model: glm-5.3-flash
+    harness: opencode
+    family: zhipu
+    providerModel: opencode-go/glm-5.3-flash
+    login: true
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: OpenCode Console (Go) login seeded with --seed-login; local only.
+  - id: glm-5.3-flash-opencode
+    model: glm-5.3-flash
+    harness: opencode
+    family: zhipu
+    providerModel: opencode-go/glm-5.3-flash
+    credentials: [OPENCODE_API_KEY]
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: null
+    notes: OpenCode Go key from the environment; the CI route.
+  - id: deepseek-v4.1-flash-opencode-login
+    model: deepseek-v4.1-flash
+    harness: opencode
+    family: deepseek
+    providerModel: opencode-go/deepseek-v4.1-flash
+    login: true
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-26'
+    notes: OpenCode Console (Go) login seeded with --seed-login; local only.
+  - id: deepseek-v4.1-flash-opencode
+    model: deepseek-v4.1-flash
+    harness: opencode
+    family: deepseek
+    providerModel: opencode-go/deepseek-v4.1-flash
+    credentials: [OPENCODE_API_KEY]
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-30'
+    notes: >-
+      OpenCode Go key from the environment; the CI route. Go bills peak hours
+      (01:00-04:00 and 06:00-10:00 UTC, Monday to Friday) at twice the
+      off-peak rate.
+
+  # --- Cursor ----------------------------------------------------------------
+  - id: grok-4.7-cursor
+    model: grok-4.7
+    harness: cursor
+    family: xai
+    providerModel: grok-4.7-low
+    credentials: [CURSOR_API_KEY]
+    billing: subscription
+    account: work
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: Cursor team account; small test runs only. Pin with --harness cursor.
+
+  # --- Fake (no model, no credential) ----------------------------------------
+  - id: fake-echo
+    model: fake-echo
+    harness: fake
+    family: fake
+    providerModel: echo
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: Built-in plumbing harness; returns a valid report without a model.
+  - id: fake-edit
+    model: fake-edit
+    harness: fake
+    family: fake
+    providerModel: edit
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: >-
+      Built-in plumbing harness for edit runs; writes agent-ci-fake-edit.md
+      (content depends only on the prompt) without a model.
+  - id: fake-review
+    model: fake-review
+    harness: fake
+    family: fake
+    providerModel: review
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: >-
+      Built-in plumbing harness for PR review: one medium finding on the first
+      added line of the review diff, without a model.
+  - id: fake-verify-review
+    model: fake-verify-review
+    harness: fake
+    family: fake
+    providerModel: verify-review
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: >-
+      Built-in plumbing harness for verify-review: calls the run_check bridge
+      for the first recorded check and cites its evidence id, without a model.
+  - id: fake-adjudicate
+    model: fake-adjudicate
+    harness: fake
+    family: fake
+    providerModel: adjudicate
+    billing: none
+    account: personal
+    structuredOutput: prompt
+    qualified: '2026-10-25'
+    notes: Built-in plumbing harness for the PR-review adjudicator; keeps every finding.

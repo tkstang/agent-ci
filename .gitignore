@@ -1,0 +1,16 @@
+node_modules
+dist
+*.tsbuildinfo
+.DS_Store
+.mcp.json
+*.log
+
+# OAT core
+.oat/config.local.json
+.oat/state.md
+.oat/projects/local/**
+.oat/projects/archived/**
+.oat/projects/synced/*/
+!.oat/projects/local/.gitkeep
+!.oat/projects/archived/.gitkeep
+# END OAT core

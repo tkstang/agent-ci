@@ -1,0 +1,31 @@
+name: Set up agent-ci
+description: >-
+  Install and build the agent-ci helpers from a checkout (pinned by the
+  calling workflow) and put the `agent-ci` command on PATH for later steps.
+inputs:
+  path:
+    description: Directory of the agent-ci helper checkout, relative to the workspace.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v6
+      with:
+        node-version: 24
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        package_json_file: ${{ inputs.path }}/package.json
+
+    - name: Install and build agent-ci
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: |
+        pnpm install --frozen-lockfile
+        pnpm build
+        chmod +x dist/cli.js
+        mkdir -p "$RUNNER_TEMP/agent-ci-bin"
+        ln -sf "$PWD/dist/cli.js" "$RUNNER_TEMP/agent-ci-bin/agent-ci"
+        echo "$RUNNER_TEMP/agent-ci-bin" >> "$GITHUB_PATH"
