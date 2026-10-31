@@ -15,6 +15,10 @@ name: '[agent-ci] Update instructions'
 on:
   workflow_call:
     inputs:
+      private_target:
+        description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
       model:
         description: Qualified model from models.yaml. Set model or route.
         type: string
@@ -159,6 +163,7 @@ jobs:
       pr_title: ${{ inputs.pr_title }}
       adopt_branch: ${{ inputs.adopt_branch }}
       runs_on: ${{ inputs.runs_on }}
+      private_target: ${{ inputs.private_target }}
       allow_pool: ${{ inputs.allow_pool }}
       timeout_minutes: ${{ inputs.timeout_minutes }}
       max_attempts: ${{ inputs.max_attempts }}

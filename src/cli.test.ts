@@ -155,3 +155,45 @@ describe('cli run()', () => {
     expect(envelope).toMatchObject({ ok: false, code: 'E_UNEXPECTED' });
   });
 });
+
+describe('private target output', () => {
+  it.each(['success', 'user-error', 'unexpected-error'])(
+    'suppresses model text, paths and diagnostics for %s without changing exit status',
+    async (outcome) => {
+      const sentinel = 'PRIVATE_OUTPUT_SENTINEL/src/confidential.ts';
+      const sensitive: CommandSpec = {
+        name: 'sensitive',
+        summary: 'private-output boundary fixture',
+        usage: 'agent-ci sensitive',
+        run: async (_argv, ctx) => {
+          ctx.log(sentinel);
+          if (outcome === 'user-error')
+            throw new CliError('E_INVALID_INPUT', sentinel, { hint: sentinel });
+          if (outcome === 'unexpected-error') throw new Error(sentinel);
+          return { summary: sentinel, changedFiles: [sentinel] };
+        },
+      };
+      const ctx = { ...context(), env: { AGENT_CI_PRIVATE_TARGET: 'true' } };
+      const result = await run(['sensitive'], ctx, [sensitive]);
+      expect(result.exitCode).toBe(
+        outcome === 'success' ? 0 : outcome === 'user-error' ? 1 : 2,
+      );
+      expect(result.envelope).toMatchObject({
+        ok: outcome === 'success',
+        command: 'sensitive',
+        ...(outcome === 'success'
+          ? {}
+          : {
+              code:
+                outcome === 'user-error' ? 'E_INVALID_INPUT' : 'E_UNEXPECTED',
+            }),
+      });
+      expect(JSON.stringify(result.envelope)).not.toContain(sentinel);
+      expect(ctx.logs).toEqual([]);
+      const publicCtx = context();
+      const visible = await run(['sensitive'], publicCtx, [sensitive]);
+      expect(JSON.stringify(visible.envelope)).toContain(sentinel);
+      expect(publicCtx.logs).toEqual([sentinel]);
+    },
+  );
+});

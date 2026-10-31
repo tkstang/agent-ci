@@ -31,6 +31,7 @@ const DEFAULT_OAT_CLI_VERSION = 'latest';
 
 /** One matrix entry; keys are the reusable-workflow input names. */
 export interface MatrixEntry {
+  readonly private_target: boolean;
   readonly id: string;
   readonly repository: string;
   readonly base: string;
@@ -71,8 +72,8 @@ export interface SelectOptions {
   readonly allowPool?: boolean;
   /**
    * Environment for the routing policy: under CI, pool routes resolve only
-   * with the opt-in on a self-hosted runner and never for a Claude model,
-   * and login routes never resolve (checkPoolPolicy, checkEligibility).
+   * with the opt-in on a self-hosted runner; Claude still uses Claude Code.
+   * Login routes never resolve (checkPoolPolicy, checkEligibility).
    */
   readonly env: Readonly<Record<string, string | undefined>>;
 }
@@ -197,6 +198,7 @@ export function selectTargets(
     }
     const dependencyPolicy = inputs.dependencyPolicy ?? 'skills-only';
     entries.push({
+      private_target: target.private === true,
       id: target.id,
       repository: target.repository,
       base,

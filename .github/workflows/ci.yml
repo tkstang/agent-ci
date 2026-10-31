@@ -77,4 +77,4 @@ jobs:
       - name: Lint the consumer workflow templates
         uses: docker://rhysd/actionlint:1.7.12
         with:
-          args: -color consumer-workflows/agent-ci-run.yml consumer-workflows/agent-ci-pr-review.yml consumer-workflows/agent-ci-docs-update.yml consumer-workflows/agent-ci-tools-update.yml consumer-workflows/agent-ci-fleet.yml
+          args: -color consumer-workflows/agent-ci-run.yml consumer-workflows/agent-ci-pr-review.yml consumer-workflows/agent-ci-docs-update.yml consumer-workflows/agent-ci-tools-update.yml consumer-workflows/agent-ci-fleet.yml consumer-workflows/agent-ci-private-fleet.yml

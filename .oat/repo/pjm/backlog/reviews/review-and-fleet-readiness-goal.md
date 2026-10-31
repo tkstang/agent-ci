@@ -80,42 +80,52 @@
 
 ## Evidence and remaining work
 
-- `main` at `95fec188` includes the merged publishing timeout improvement.
-  Initial working tree was clean. PJM adoption is `declared`; doctor passed.
-- Reviewer aliases, effort forwarding, workflow defaults and Claude Code pool
-  CI credential wiring are implemented at `6f65d88`, pending independent
-  review and merge. All three production aliases remain unqualified. Codex
-  adjudication still fails closed because the adapter has no verified
-  tool-free mode; the capability guard remains unchanged.
-- Pinned Codex 0.163.0 source confirms that its global `ToolPolicy` belongs to
-  the embedding-host extension interface, not CLI/app-server configuration.
-  A direct tools-empty Responses request through the existing subscription
-  pool is the minimum proposed alternative for Sol adjudication. The
-  operator's transport choice is pending; primary reviews retain Codex CLI.
-- The accepted model/default and Claude-pool policy is recorded in
+- Baseline `main` is `95fec188`; public-source cleanup and earlier README/
+  publishing-timeout PRs are merged. PJM adoption is declared and doctor passes.
+- [Reviewer preparation PR #3](https://github.com/tkstang/agent-ci/pull/3),
+  head `587d1b3`: all 934 tests and required local checks passed; independent
+  correctness, testing, complexity and docs reviews are clear. Hosted verify
+  and actionlint passed. Ready for separately approved merge. New production
+  aliases remain unqualified; generic defaults enable primary only.
+- Pinned Codex 0.163.0 has no verified global tool-free CLI/app-server mode.
+  Its adapter capability remains false. A direct tools-empty Responses request
+  through the existing subscription pool is proposed for Sol Low adjudication;
+  the operator's choice is still pending. Do not bypass the capability guard.
+  Model/effort and revised Claude-pool intent is recorded in
   [Production reviews and pool CI](../../../reference/decisions/DR-261031-production-reviews-and-pool-ci.md).
-  This records intent, not shipped or live-qualified behavior.
-- Neither source nor private-fleet repository listed a registered self-hosted
-  runner at the last read-only check. The runner-related external PR remains
-  open; its host proof and admission are not acceptance evidence yet.
-- The runner's fixed repository/workflow/job allowlist does not admit
-  `agent-ci-private-fleet`. Completing its existing personal-skills pilot
-  alone would not supply a fleet runner. A narrowly scoped, separately
-  authorized admission change and agent-ci harness/proxy qualification are
-  required; preserve the existing recovery proof and deployment pins.
-- The private fleet still needs an authorized caller migration from its
-  unavailable old commit and retired source-token argument. Secret deletion
-  requires explicit approval and a fresh proof that no workflow reads it.
-- Next: validate and independently review the reviewer/pool preparation
-  delivery. Resolve the pending adjudicator transport choice separately;
-  continue runner-readiness preparation and independent code batches when
-  live acceptance depends on operator-owned setup.
-- Runner label-array support and the [qualification packet](runner-proxy-readiness.md)
-  are prepared. External admission/caller PRs, activation, a live pool run and
-  release publication remain separately gated. Claude-name policy gaps are
-  implemented and archived in the next delivery, pending review and merge.
-- The [fleet confidentiality transport proposal](fleet-confidentiality-design.md)
-  records the conflict between a shared artifact key and credential-free
-  verification/setup jobs. Operator choice is pending; no key or transport
-  has been introduced. Target merging and output suppression can proceed.
-- Completion audit remains pending for the complete goal.
+- [Runner/routing PR #4](https://github.com/tkstang/agent-ci/pull/4),
+  head `bd82670`: label-array support and Claude-name/automatic-selector guards.
+  All 958 tests and local gates passed; independent reviews clear after a
+  planning-text correction. Claude-only gaps archived in the delivery;
+  merge remains gated. The [runner packet](runner-proxy-readiness.md) records
+  exact admission/qualification/release work. No host activation or live
+  pool run is claimed. An idle JIT runner count alone proves no deployment
+  state; the fixed runner allowlist still excludes the private fleet.
+- [Simplification PR #5](https://github.com/tkstang/agent-ci/pull/5),
+  head `b8c57ba`: original Git observations pinned, reviewer/adjudicator
+  credentials isolated, policy rules shared, and local trust rejected early.
+  All 961 tests and local gates passed; independent reviews clear after a
+  documentation count correction. Six-area dispositions are in the archived
+  item; no public workflow inputs removed. Hosted failed-child output
+  propagation remains unverified and missing artifacts fail closed.
+- The stacked PRs target their parent branches. Repository CI currently
+  triggers only for PRs into `main`; retarget/update and hosted validation
+  are required after the separately approved parent merges.
+- Fleet file/JSON merging and private-output controls are implemented on
+  `feat/fleet-target-inputs-and-private-output`, pending final validation and
+  review. Public/private templates are prepared; no external caller or target
+  selection changed. Artifacts remain plaintext and private-output mode does
+  not hide Actions metadata. The
+  [fleet confidentiality proposal](fleet-confidentiality-design.md) records
+  the pending choice for shared-key authority versus preserved verification/
+  setup isolation. No encryption key or transport has been introduced.
+- External runner admission and private-fleet caller migration PR preparation
+  was requested for separate approval; no answer or mutation yet. The caller
+  still needs a valid source pin and retired source-token input removed.
+  Secret deletion requires its own approval and a fresh no-reader check.
+- Target tokens, target selection and privileged host admission remain
+  user-owned. Release publication follows approved source merges and separate
+  publication approval. No model-backed qualification or paid fallback ran.
+- Goal remains active and incomplete. Remaining work includes Sol adjudication,
+  approved runner/caller integration, live pool evidence, versioned release,
+  artifact encryption and final integrated acceptance.

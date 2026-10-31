@@ -36,6 +36,10 @@ name: '[agent-ci] Run fleet'
 on:
   workflow_call:
     inputs:
+      private_target:
+        description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
       preset:
         description: docs-update, instructions-update or tools-update.
         type: string
@@ -50,8 +54,12 @@ on:
           not make its head (history kept, never a force push). Needs one target.
         type: boolean
         default: false
+      targets_json:
+        description: JSON target array appended after targets_file; set targets_file empty for JSON only.
+        type: string
+        default: ''
       targets_file:
-        description: Path of targets.yaml in the calling repository.
+        description: Path of targets.yaml in the caller; empty disables the file.
         type: string
         default: targets.yaml
       base:
@@ -129,6 +137,9 @@ on:
       AGENT_CI_NOTIFY_WEBHOOK:
         required: false
 
+env:
+  AGENT_CI_PRIVATE_TARGET: ${{ inputs.private_target }}
+
 permissions:
   contents: read
 
@@ -174,6 +185,8 @@ jobs:
         id: select
         env:
           TARGETS_FILE: ${{ inputs.targets_file }}
+          TARGETS_JSON: ${{ inputs.targets_json }}
+          AGENT_CI_PRIVATE_TARGET: 'true'
           PRESET: ${{ inputs.preset }}
           TARGET: ${{ inputs.target }}
           RESET: ${{ inputs.reset }}
@@ -182,7 +195,7 @@ jobs:
           MAX_TARGETS: ${{ inputs.max_targets }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
         run: >-
-          agent-ci targets matrix --root caller --file "$TARGETS_FILE"
+          agent-ci targets matrix --root caller --file "$TARGETS_FILE" --targets-json "$TARGETS_JSON"
           --preset "$PRESET" --target "$TARGET" --reset "$RESET" --base "$BASE"
           --model "$MODEL" --max-targets "$MAX_TARGETS" --allow-pool-value "$ALLOW_POOL"
           --github-output
@@ -224,6 +237,7 @@ jobs:
       adopt_branch: ${{ matrix.adopt_branch }}
       artifact_name: ${{ matrix.artifact_name }}
       runs_on: ${{ inputs.runs_on }}
+      private_target: ${{ inputs.private_target || matrix.private_target }}
       allow_pool: ${{ inputs.allow_pool }}
       publisher_login: ${{ inputs.publisher_login }}
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
@@ -266,6 +280,7 @@ jobs:
       timeout_minutes: ${{ matrix.timeout_minutes }}
       artifact_name: ${{ matrix.artifact_name }}
       runs_on: ${{ inputs.runs_on }}
+      private_target: ${{ inputs.private_target || matrix.private_target }}
       publisher_login: ${{ inputs.publisher_login }}
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
       agent_ci_ref: ${{ inputs.agent_ci_ref }}

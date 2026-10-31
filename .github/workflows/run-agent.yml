@@ -38,6 +38,10 @@ name: '[agent-ci] Run agent'
 on:
   workflow_call:
     inputs:
+      private_target:
+        description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
       model:
         description: Qualified model from models.yaml (for example claude-haiku-4-5, grok-4.7, fake-edit). Set model or route.
         type: string
@@ -239,6 +243,9 @@ on:
       comment_url:
         value: ${{ jobs.publish.outputs.comment_url }}
 
+env:
+  AGENT_CI_PRIVATE_TARGET: ${{ inputs.private_target }}
+
 permissions:
   contents: read
 
@@ -354,8 +361,13 @@ jobs:
         env:
           SETUP_COMMAND: ${{ inputs.setup_command }}
         run: |
-          corepack enable
-          bash -c "$SETUP_COMMAND"
+          if [ "$AGENT_CI_PRIVATE_TARGET" = true ]; then
+            corepack enable >/dev/null 2>&1
+            bash -c "$SETUP_COMMAND" >/dev/null 2>&1
+          else
+            corepack enable
+            bash -c "$SETUP_COMMAND"
+          fi
 
       # Best effort only: the setup command ran in this job and may have
       # changed anything here. The agent job is the trust boundary.
@@ -389,6 +401,7 @@ jobs:
     uses: ./.github/workflows/agent-job.yml
     with:
       runs_on: ${{ inputs.runs_on }}
+      private_target: ${{ inputs.private_target }}
       job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
       repository: ${{ needs.resolve.outputs.repository }}
       cross: ${{ needs.resolve.outputs.cross }}

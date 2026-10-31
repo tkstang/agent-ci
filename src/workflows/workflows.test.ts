@@ -51,6 +51,45 @@ describe('runner label selection', () => {
   });
 });
 
+describe('private output transport', () => {
+  it('defaults to public output and forwards private mode across each maintenance workflow boundary', async () => {
+    for (const name of [
+      'fan-out',
+      'run-agent',
+      'agent-job',
+      'tools-update',
+      'docs-update',
+      'instructions-update',
+    ]) {
+      const workflow = await load(`.github/workflows/${name}.yml`);
+      const inputs = (
+        workflow.on.workflow_call as {
+          inputs: Record<string, unknown>;
+        }
+      ).inputs;
+      expect(inputs.private_target, name).toMatchObject({
+        type: 'boolean',
+        default: false,
+      });
+      if (Object.values(workflow.jobs).some((job) => job.steps !== undefined)) {
+        expect(
+          (workflow as typeof workflow & { env: Record<string, unknown> }).env
+            .AGENT_CI_PRIVATE_TARGET,
+          name,
+        ).toBe('${{ inputs.private_target }}');
+      }
+      for (const job of Object.values(workflow.jobs)) {
+        if (job.uses === undefined) continue;
+        expect(job.with?.private_target, name).toBe(
+          name === 'fan-out'
+            ? '${{ inputs.private_target || matrix.private_target }}'
+            : '${{ inputs.private_target }}',
+        );
+      }
+    }
+  });
+});
+
 describe('run-agent.yml', () => {
   it('is a reusable workflow whose jobs run on the runs_on input', async () => {
     const workflow = await runAgent();

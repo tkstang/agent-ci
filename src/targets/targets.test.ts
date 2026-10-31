@@ -11,6 +11,7 @@ import {
   isRepository,
   MAX_TARGETS,
   parseTargetsFile,
+  parseTargetsSources,
   type TargetsFile,
 } from '@agent-ci/targets/schema.js';
 import { selectTargets } from '@agent-ci/targets/select.js';
@@ -143,6 +144,80 @@ describe('targets.yaml', () => {
     );
     const text = `version: 1\ndefaults: {base: main}\ntargets:\n${targets.join('\n')}\n`;
     expect(code(parseTargetsFile(text))).toBe('E_TARGETS_CONFIG');
+  });
+});
+
+describe('merged targets sources', () => {
+  it('validates shared policy and uniqueness across sources before selection', () => {
+    for (const [addition, message] of [
+      [{ id: 'widgets', repository: 'octo/other' }, 'duplicate target id'],
+      [
+        { id: 'other', repository: 'OCTO/WIDGETS' },
+        'duplicate target repository',
+      ],
+      [{ id: 'other', repository: 'outside/repo' }, 'outside allowedOwners'],
+      [{ id: 'other', repository: 'octo/other', base: 42 }, 'targets.3.base'],
+      [
+        { id: 'other', repository: 'octo/other', extra: true },
+        'Unrecognized key',
+      ],
+    ] as const) {
+      const parsed = parseTargetsSources(YAML, JSON.stringify([addition]));
+      expect(parsed).toMatchObject({ ok: false, code: 'E_TARGETS_CONFIG' });
+      if (!parsed.ok) expect(parsed.message).toContain(message);
+    }
+    // JSON additions cannot replace malformed policy, version or target fields.
+    for (const yaml of [
+      'version: 2\ntargets: []',
+      'version: 1\nallowedOwners: octo\ntargets: []',
+      'version: 1\ndefaults: {base: 42}\ntargets: []',
+      'version: 1\ntargets: {}',
+      'version: 1\nextra: true\ntargets: []',
+    ]) {
+      expect(
+        code(parseTargetsSources(yaml, '[{"id":"a","repository":"octo/a"}]')),
+        yaml,
+      ).toBe('E_TARGETS_CONFIG');
+    }
+  });
+
+  it('requires bounded JSON arrays and checks UTF-8 bytes before parsing', () => {
+    for (const json of ['[', 'targets: []', '{}', 'null', 'true', '"[]"']) {
+      expect(code(parseTargetsSources(YAML, json)), json).toBe(
+        'E_TARGETS_CONFIG',
+      );
+    }
+    const oversized = `[${'é'.repeat(128 * 1024)}`;
+    const parsed = parseTargetsSources(YAML, oversized);
+    expect(parsed).toMatchObject({ ok: false, code: 'E_TARGETS_CONFIG' });
+    if (!parsed.ok) expect(parsed.message).toContain('exceeds 262144 bytes');
+    expect(code(parseTargetsSources(YAML, ' '.repeat(256 * 1024)))).toBe('ok');
+  });
+
+  it('accepts policy-only YAML only when additions make the combined list non-empty', () => {
+    const policy =
+      'version: 1\nallowedOwners: [octo]\ndefaults: {base: main}\ntargets: []';
+    const added = parseTargetsSources(
+      policy,
+      '[{"id":"a","repository":"octo/a"}]',
+    );
+    expect(added).toMatchObject({
+      ok: true,
+      value: {
+        version: 1,
+        allowedOwners: ['octo'],
+        defaults: { base: 'main' },
+        targets: [{ id: 'a' }],
+      },
+    });
+    expect(code(parseTargetsFile(policy))).toBe('E_TARGETS_CONFIG');
+    for (const json of [undefined, '', ' \n\t ', '[]']) {
+      expect(code(parseTargetsSources(policy, json))).toBe('E_TARGETS_CONFIG');
+      expect(code(parseTargetsSources(undefined, json))).toBe(
+        'E_TARGETS_CONFIG',
+      );
+      expect(parseTargetsSources(YAML, json)).toEqual(parseTargetsFile(YAML));
+    }
   });
 });
 
@@ -690,6 +765,230 @@ describe('resolveTarget', () => {
 });
 
 describe('agent-ci targets', () => {
+  it('appends JSON targets after YAML targets with file defaults and per-target overrides', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-merge-'));
+    await writeFile(
+      path.join(dir, 'targets.yaml'),
+      'version: 1\nallowedOwners: [octo]\ndefaults: {base: main, model: fake-edit, inputs: {maxAttempts: 3}}\ntargets: [{id: a, repository: octo/a}]\n',
+    );
+    const result = await run(
+      [
+        'targets',
+        'matrix',
+        '--preset',
+        'docs-update',
+        '--targets-json',
+        '[{"id":"b","repository":"octo/b","base":"develop","private":true}]',
+      ],
+      { cwd: dir, env: {}, log: () => undefined },
+    );
+    expect(result.envelope).toMatchObject({
+      ok: true,
+      data: {
+        count: 2,
+        matrix: {
+          include: [
+            {
+              id: 'a',
+              base: 'main',
+              model: 'fake-edit',
+              max_attempts: 3,
+              private_target: false,
+            },
+            {
+              id: 'b',
+              base: 'develop',
+              model: 'fake-edit',
+              max_attempts: 3,
+              private_target: true,
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it('requires a default or named file unless --file explicitly disables it', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-json-only-'));
+    const ctx = { cwd: dir, env: {}, log: () => undefined };
+    const json =
+      '[{"id":"a","repository":"octo/a","base":"main","model":"fake-edit"}]';
+    for (const fileArgs of [[], ['--file', 'missing.yaml']]) {
+      const missing = await run(
+        ['targets', 'validate', ...fileArgs, '--targets-json', json],
+        ctx,
+      );
+      expect(missing.envelope).toMatchObject({
+        ok: false,
+        code: 'E_TARGETS_CONFIG',
+      });
+    }
+    const validated = await run(
+      ['targets', 'validate', '--file', '', '--targets-json', json],
+      ctx,
+    );
+    expect(validated.envelope).toMatchObject({
+      ok: true,
+      data: {
+        targets: [{ id: 'a', repository: 'octo/a' }],
+        presets: {
+          'docs-update': 1,
+          'instructions-update': 1,
+          'tools-update': 1,
+        },
+      },
+    });
+    const matrix = await run(
+      [
+        'targets',
+        'matrix',
+        '--preset',
+        'tools-update',
+        '--file',
+        '',
+        '--targets-json',
+        json,
+      ],
+      ctx,
+    );
+    expect(matrix.envelope).toMatchObject({ ok: true, data: { count: 1 } });
+  });
+
+  it('rejects invalid merged input before writing GitHub outputs even when selecting one target', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-json-errors-'));
+    await writeFile(
+      path.join(dir, 'targets.yaml'),
+      'version: 1\nallowedOwners: [octo]\ndefaults: {base: main}\ntargets: [{id: a, repository: octo/a}]',
+    );
+    const output = path.join(dir, 'output');
+    await writeFile(output, 'sentinel\n');
+    const ctx = {
+      cwd: dir,
+      env: { GITHUB_OUTPUT: output },
+      log: () => undefined,
+    };
+    const tooMany = Array.from({ length: MAX_TARGETS }, (_, index) => ({
+      id: `t${index}`,
+      repository: `octo/r${index}`,
+    }));
+    for (const json of [
+      '[',
+      JSON.stringify(tooMany),
+      '[{"id":"b","repository":"outside/b"}]',
+    ]) {
+      const result = await run(
+        [
+          'targets',
+          'matrix',
+          '--preset',
+          'tools-update',
+          '--target',
+          'a',
+          '--targets-json',
+          json,
+          '--github-output',
+        ],
+        ctx,
+      );
+      expect(result.envelope).toMatchObject({
+        ok: false,
+        code: 'E_TARGETS_CONFIG',
+      });
+      expect(await readFile(output, 'utf8')).toBe('sentinel\n');
+    }
+  });
+
+  it('routes only selected preset targets, validates every applicable preset, and bounds the merged matrix', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-json-routing-'));
+    await writeFile(
+      path.join(dir, 'targets.yaml'),
+      'version: 1\ndefaults: {base: main, model: fake-edit}\ntargets: [{id: a, repository: octo/a}]',
+    );
+    const ctx = { cwd: dir, env: { CI: 'true' }, log: () => undefined };
+    const json =
+      '[{"id":"b","repository":"octo/b","useCases":["instructions-update"],"model":"unknown-model"}]';
+    const baseArgs = ['--targets-json', json];
+    const selected = await run(
+      [
+        'targets',
+        'matrix',
+        '--preset',
+        'instructions-update',
+        '--target',
+        'a',
+        ...baseArgs,
+      ],
+      ctx,
+    );
+    expect(selected.envelope).toMatchObject({ ok: true, data: { count: 1 } });
+    const otherPreset = await run(
+      ['targets', 'matrix', '--preset', 'docs-update', ...baseArgs],
+      ctx,
+    );
+    expect(otherPreset.envelope).toMatchObject({
+      ok: true,
+      data: { count: 1 },
+    });
+    const invalidRoute = await run(['targets', 'validate', ...baseArgs], ctx);
+    expect(invalidRoute.envelope).toMatchObject({
+      ok: false,
+      code: 'E_TARGETS_CONFIG',
+    });
+    const bounded = await run(
+      [
+        'targets',
+        'matrix',
+        '--preset',
+        'tools-update',
+        '--max-targets',
+        '1',
+        '--targets-json',
+        '[{"id":"b","repository":"octo/b"}]',
+      ],
+      ctx,
+    );
+    expect(bounded.envelope).toMatchObject({
+      ok: false,
+      code: 'E_TARGETS_LIMIT',
+    });
+  });
+
+  it('refuses a merged matrix whose inherited settings exceed the output byte bound', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-matrix-bytes-'));
+    await writeFile(
+      path.join(dir, 'targets.yaml'),
+      JSON.stringify({
+        version: 1,
+        defaults: {
+          base: 'main',
+          model: 'fake-edit',
+          inputs: { skillsOatPacks: Array(3000).fill('core').join(',') },
+        },
+        targets: [{ id: 'a', repository: 'octo/a' }],
+      }),
+    );
+    const additions = Array.from({ length: 49 }, (_, i) => ({
+      id: `t${i}`,
+      repository: `octo/t${i}`,
+    }));
+    const args = [
+      'targets',
+      'matrix',
+      '--preset',
+      'docs-update',
+      '--targets-json',
+      JSON.stringify(additions),
+    ];
+    const ctx = { cwd: dir, env: {}, log: () => undefined };
+    const one = await run([...args, '--target', 'a'], ctx);
+    expect(one.envelope).toMatchObject({ ok: true, data: { count: 1 } });
+    const combined = await run(args, ctx);
+    expect(combined.envelope).toMatchObject({
+      ok: false,
+      code: 'E_TARGETS_LIMIT',
+    });
+  });
+
   it('writes the matrix as one step-output line and confines --file to --root', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-targets-'));
     const caller = path.join(dir, 'caller');

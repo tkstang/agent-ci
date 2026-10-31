@@ -1111,3 +1111,44 @@ describe('agent-ci review help', () => {
     );
   });
 });
+
+describe('private review step summaries', () => {
+  it('suppresses the summary without suppressing machine outputs or the review operation', async () => {
+    for (const privateMode of [true, false]) {
+      const t = await setup();
+      const summaryFile = path.join(t.root, 'summary.md');
+      await writeFile(summaryFile, 'existing summary\n');
+      const labeled = await event(t.root, {
+        action: 'labeled',
+        label: { name: 'agent-ci:review' },
+        pull_request: { number: 7 },
+        sender: { login: 'maintainer', type: 'User' },
+      });
+      const gated = await t.cli(
+        [
+          'gate',
+          '--out',
+          'gate',
+          '--event-name',
+          'pull_request_target',
+          '--event-path',
+          labeled,
+          ...GATE_FLAGS(t.modelsPath),
+        ],
+        {
+          AGENT_CI_PRIVATE_TARGET: String(privateMode),
+          GITHUB_STEP_SUMMARY: summaryFile,
+        },
+      );
+      expect(gated.exitCode).toBe(0);
+      expect(await t.outputs()).toMatchObject({
+        should_run: 'true',
+        head_sha: t.head,
+      });
+      expect(existsSync(path.join(t.root, 'gate', 'request.json'))).toBe(true);
+      const written = await readFile(summaryFile, 'utf8');
+      if (privateMode) expect(written).toBe('existing summary\n');
+      else expect(written.length).toBeGreaterThan('existing summary\n'.length);
+    }
+  });
+});

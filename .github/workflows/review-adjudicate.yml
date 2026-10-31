@@ -6,6 +6,10 @@ name: '[internal] Adjudicate review'
 on:
   workflow_call:
     inputs:
+      private_target:
+        description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
       runs_on:
         type: string
         required: true
@@ -64,6 +68,9 @@ on:
         value: ${{ jobs.adjudicate.outputs.artifact_id }}
       digest:
         value: ${{ jobs.adjudicate.outputs.digest }}
+
+env:
+  AGENT_CI_PRIVATE_TARGET: ${{ inputs.private_target }}
 
 permissions:
   contents: read

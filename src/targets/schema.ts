@@ -18,8 +18,9 @@ import { z } from 'zod';
  * resolve under the routing policy before any job starts.
  */
 
-/** The hard bound on targets per file and per matrix. */
+/** The hard bound on combined targets and per matrix. */
 export const MAX_TARGETS = 50;
+const MAX_TARGETS_JSON_BYTES = 256 * 1024;
 
 /** Artifact-, concurrency- and job-name-safe target id. */
 export const TARGET_ID = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/u;
@@ -89,6 +90,8 @@ const RunSettings = {
 };
 
 export const TargetSchema = z.strictObject({
+  /** Suppress CLI/model output and file lists in workflow logs. Not encryption. */
+  private: z.boolean().optional(),
   id: z.string().regex(TARGET_ID),
   repository: z.string().refine(isRepository, 'not an owner/name repository'),
   /** Presets this target takes part in (default: every preset). */
@@ -113,16 +116,18 @@ const fileError = (message: string) =>
     'Fix targets.yaml; run agent-ci targets validate.',
   );
 
-/** Parse and check a targets file: schema, unique ids and repositories, owners. */
-export function parseTargetsFile(text: string): Result<TargetsFile> {
-  let raw: unknown;
+function parseYaml(text: string): Result<unknown> {
   try {
-    raw = parse(text);
+    return success(parse(text) as unknown);
   } catch (err) {
     return fileError(
       `targets file is not valid YAML: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`,
     );
   }
+}
+
+/** Check the complete document once: schema, unique ids and repositories, owners. */
+function validateTargetsDocument(raw: unknown): Result<TargetsFile> {
   const parsed = TargetsFileSchema.safeParse(raw);
   if (!parsed.success) {
     const issues = parsed.error.issues
@@ -156,4 +161,54 @@ export function parseTargetsFile(text: string): Result<TargetsFile> {
     }
   }
   return success(file);
+}
+
+/** Parse and check a standalone targets file; empty target lists are invalid. */
+export function parseTargetsFile(text: string): Result<TargetsFile> {
+  const parsed = parseYaml(text);
+  return parsed.ok ? validateTargetsDocument(parsed.value) : parsed;
+}
+
+/** Append JSON entries to YAML policy/defaults, then validate the full document. */
+export function parseTargetsSources(
+  yaml: string | undefined,
+  targetsJson: string | undefined,
+): Result<TargetsFile> {
+  let additions: unknown[] = [];
+  if (targetsJson !== undefined) {
+    if (Buffer.byteLength(targetsJson, 'utf8') > MAX_TARGETS_JSON_BYTES) {
+      return fileError(`targets JSON exceeds ${MAX_TARGETS_JSON_BYTES} bytes`);
+    }
+    if (targetsJson.trim() !== '') {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(targetsJson) as unknown;
+      } catch {
+        return fileError('targets JSON is not valid JSON');
+      }
+      if (!Array.isArray(raw)) {
+        return fileError('targets JSON must be an array of target entries');
+      }
+      additions = raw;
+    }
+  }
+  const parsed =
+    yaml === undefined
+      ? success<unknown>({ version: 1, targets: [] })
+      : parseYaml(yaml);
+  if (!parsed.ok) return parsed;
+  const raw = parsed.value;
+  // Do not let additions repair a malformed YAML document or targets field.
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    !('targets' in raw) ||
+    !Array.isArray(raw.targets)
+  ) {
+    return validateTargetsDocument(raw);
+  }
+  return validateTargetsDocument({
+    ...raw,
+    targets: [...raw.targets, ...additions],
+  });
 }

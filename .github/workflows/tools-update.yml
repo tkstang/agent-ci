@@ -26,6 +26,10 @@ name: '[agent-ci] Update tools'
 on:
   workflow_call:
     inputs:
+      private_target:
+        description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
       target_repository:
         description: Repository (owner/name) to update. Empty means the calling repository.
         type: string
@@ -114,6 +118,9 @@ on:
         value: ${{ jobs.publish.outputs.status }}
       pr_url:
         value: ${{ jobs.publish.outputs.pr_url }}
+
+env:
+  AGENT_CI_PRIVATE_TARGET: ${{ inputs.private_target }}
 
 permissions:
   contents: read

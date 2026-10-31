@@ -160,6 +160,7 @@ function bool(value: string | undefined, flag: string): boolean {
 }
 
 async function summary(env: CommandContext['env'], markdown: string) {
+  if (env.AGENT_CI_PRIVATE_TARGET === 'true') return;
   const file = env.GITHUB_STEP_SUMMARY;
   if (file !== undefined && file !== '')
     await appendFile(file, `${markdown}\n`);

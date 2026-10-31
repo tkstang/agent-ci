@@ -38,6 +38,7 @@ interface Job {
 interface Workflow {
   on: Record<string, unknown>;
   permissions?: Record<string, string>;
+  env?: Record<string, unknown>;
   jobs: Record<string, Job>;
 }
 
@@ -99,6 +100,27 @@ describe('pr-review.yml', () => {
             "${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}",
           );
         }
+      }
+    }
+  });
+
+  it('forwards private output mode to every reviewer and adjudicator child', async () => {
+    for (const workflow of await reviewWorkflows()) {
+      const inputs = (
+        workflow.on.workflow_call as {
+          inputs: Record<string, unknown>;
+        }
+      ).inputs;
+      expect(inputs.private_target).toMatchObject({
+        type: 'boolean',
+        default: false,
+      });
+      expect(workflow.env?.AGENT_CI_PRIVATE_TARGET).toBe(
+        '${{ inputs.private_target }}',
+      );
+      for (const job of Object.values(workflow.jobs)) {
+        if (job.uses === undefined) continue;
+        expect(job.with?.private_target).toBe('${{ inputs.private_target }}');
       }
     }
   });

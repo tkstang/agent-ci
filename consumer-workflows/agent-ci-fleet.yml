@@ -1,6 +1,12 @@
-# Fleet template: copy into the repository that owns your targets.yaml (see
+# Public fleet template: copy into the repository that owns your targets.yaml (see
 # targets.example.yaml in agent-ci) to run the OAT maintenance presets across
 # every target on a schedule or on demand.
+#
+# For private targets use agent-ci-private-fleet.yml and review its output and
+# artifact limits. Private output suppression does not encrypt artifacts.
+# Set AGENT_CI_TARGETS_JSON as a repository variable for a JSON target array
+# appended after targets.yaml; leave it unset to use only the file. Variables
+# are visible configuration.
 #
 # Secrets:
 # - AGENT_CI_TARGET_TOKEN: contents and pull-requests write on every target
@@ -66,7 +72,7 @@ permissions:
 
 jobs:
   fan-out:
-    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
+    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # no release tag exists yet: replace main with a released version or reviewed agent-ci commit SHA
     with:
       preset: >-
         ${{ inputs.preset
@@ -76,6 +82,7 @@ jobs:
       target: ${{ inputs.target || 'all' }}
       reset: ${{ inputs.reset || false }}
       targets_file: targets.yaml
+      targets_json: ${{ vars.AGENT_CI_TARGETS_JSON }}
     secrets:
       AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
       AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
