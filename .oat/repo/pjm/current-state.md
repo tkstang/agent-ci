@@ -10,16 +10,23 @@ sections another branch may also touch.
 <!-- List durable repo references, source-of-truth docs, dashboards, or processes here.
 Decisions live in reference/decisions/ (one file per record); link them rather than
 copying their content here. -->
+
 - `docs/index.md` — the user documentation (getting started, routing, workflows, PR review, configuration, fleet repositories, security model); `pnpm docs:check` keeps its index and links valid.
 - `models.yaml` — the routing table and its policy notes.
 - `.github/workflows/` (reusable workflows) and `consumer-workflows/` (copy-in callers).
 - `AGENTS.md` — toolchain, non-negotiables, definition of done.
 - Decisions: `reference/decisions/index.md` (routing policy: DR-261025-route-models-through-a-checked; harness CLIs: DR-261025-run-agents-through-harness; tsrs: DR-261025-use-tsrs-instead-of-tsc; docs IA: DR-261025-organize-the-docs-as-one-flat).
-- Delivery history: OAT project `agent-ci-v1` (brief mode, synced project files) shipped v1 as PR #25 and is being completed and archived (2026-10-30). No OAT project is active.
+- Delivery history: OAT project `agent-ci-v1` shipped and is complete and archived. No OAT project is active. The native [Review and fleet readiness delivery goal](backlog/reviews/review-and-fleet-readiness-goal.md) is active as of 2026-10-31.
 
 ## What's Implemented
 
+Current baseline (2026-10-31): the public repository was recreated with root
+`8ecf26a`; `main` at `95fec188` includes README PR #1 and publishing timeout
+PR #2. Public-source cleanup is complete. Earlier PR numbers and commit pins
+in the historical snapshot below belong to the previous repository history.
+
 <!-- Summarize shipped capabilities and important repo conventions here. -->
+
 As of 2026-10-30. agent-ci-v1 (phases p01-p06) merged as PR #25 on 2026-10-26; PR #28 (DeepSeek V4.1 Flash and GLM 5.3 Flash OpenCode routes) and PR #29 (`AGENT_CI_PROXY_BASE_URL` pool-origin override) merged after it. On 2026-10-30 `main` was squashed to one parentless commit (`369a99d`) ahead of making the repository public; pull-request metadata and old branches still reference the earlier history. No release tag yet. The user-facing description of each capability is in `docs/`; this list is the operating summary.
 
 - **CLI** `agent-ci` (one JSON envelope on stdout, `E_*` codes, logs on stderr): `run`, `route`, `models`, `doctor`, `validate`, plus the workflow-step commands `harness`, `skills`, `publish`, `review`, `preset`, `targets`, `tools-update`, `notify`, `workspace`, `digest`, `helpers`. New workflow-step logic becomes a `CommandSpec` in `src/commands/`.
@@ -39,4 +46,14 @@ As of 2026-10-30. agent-ci-v1 (phases p01-p06) merged as PR #25 on 2026-10-26; P
 <!-- Track near-term follow-up work, known gaps, and active handoff context here.
 Track concrete items in pjm/backlog/ and sequencing in pjm/roadmap.md; keep this
 section to a short narrative pointer. -->
-agent-ci-v1 is complete and archived, and the repository is public. The public-source cleanup removes private-source wording and helper-checkout token requirements. After its PR merges, verify that fleet workflows no longer read `AGENT_CI_SOURCE_TOKEN`, then obtain explicit approval before deleting that fleet secret. Then: target tokens for cross-repository fleet targets, the self-hosted runner and proxy (BL-261025-self-hosted-runner-and-proxy), PR review rollout to personal repositories, route qualification (BL-261025-qualify-the-ci-routes-live), and the flaky moved-base publish test (BL-261030-make-the-moved-base-publish). Known gaps are listed in `docs/security-model.md` (residual risk) and the backlog.
+
+The operator activated [Review and fleet readiness](backlog/reviews/review-and-fleet-readiness-goal.md): production reviewer configuration first, then **BL-261025-self-hosted-runner-and-proxy — Self-hosted runner and proxy readiness**, **BL-261025-close-remaining-claude-only — Close remaining Claude-only policy name-check gaps**, **BL-261025-post-v1-simplification-pass — Post-v1 simplification pass**, and **BL-261025-fleet-repositories-merged — Fleet repositories: merged target lists and protected artifacts**. The selected defaults and revised Claude-pool policy are recorded in [Production reviews and pool CI](../reference/decisions/DR-261031-production-reviews-and-pool-ci.md); implementation is pending review/merge and new routes are not live-qualified. Sol adjudication still needs an approved, verified tool-free transport.
+
+The private fleet's old agent-ci pin is unavailable after recreation and it
+still maps the retired source token. Caller migration requires separate
+authorization; deleting `AGENT_CI_SOURCE_TOKEN` still requires a fresh no-reader
+check and explicit approval. The runner project's current fixed allowlist
+does not admit the private fleet, so its existing pilot alone will not supply
+an agent-ci runner. Target-token provisioning and privileged host admission
+remain user-owned. Publisher-token support and native Codex persistent login
+remain Next, outside this delivery goal.

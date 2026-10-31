@@ -79,9 +79,11 @@
 
 - `main` at `95fec188` includes the merged publishing timeout improvement.
   Initial working tree was clean. PJM adoption is `declared`; doctor passed.
-- Reviewer configuration is not implemented yet. Existing Codex adjudication
-  is refused because the adapter declares no verified tool-free mode; do not
-  bypass this guard merely to make a model default resolve.
+- Reviewer aliases, effort forwarding, workflow defaults and Claude Code pool
+  CI credential wiring are implemented at `6f65d88`, pending independent
+  review and merge. All three production aliases remain unqualified. Codex
+  adjudication still fails closed because the adapter has no verified
+  tool-free mode; the capability guard remains unchanged.
 - Pinned Codex 0.163.0 source confirms that its global `ToolPolicy` belongs to
   the embedding-host extension interface, not CLI/app-server configuration.
   A direct tools-empty Responses request through the existing subscription
@@ -101,6 +103,8 @@
 - The private fleet still needs an authorized caller migration from its
   unavailable old commit and retired source-token argument. Secret deletion
   requires explicit approval and a fresh proof that no workflow reads it.
-- Next: verify supported tool-free Codex execution and exact effort routing,
-  then implement the first coherent reviewer-configuration delivery.
+- Next: validate and independently review the reviewer/pool preparation
+  delivery. Resolve the pending adjudicator transport choice separately;
+  continue runner-readiness preparation and independent code batches when
+  live acceptance depends on operator-owned setup.
 - Completion audit remains pending for every batch above.
