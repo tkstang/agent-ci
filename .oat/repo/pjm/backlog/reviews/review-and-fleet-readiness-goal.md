@@ -120,8 +120,9 @@ and live acceptance.
 External drafts prepared under the operator's PR-only approval:
 
 - [Private-fleet caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5),
-  head `bc8da29599bcd3eab974ea0a53b610ae902f52f6`: pins the existing merged
-  agent-ci source, removes the source-token mapping, requires dedicated labels,
+  merged as `fb62cc50ae1e2dbc08cded6bb8c73aba6be3229b` after the independently
+  reviewed release-pin delta `e08126f1aab7f852253f56e61947bf8a0697f538`: pins
+  `v0.1.0`, removes the source-token mapping, requires dedicated labels,
   private output and one parallel target, and stays manual-only/disabled behind
   `AGENT_CI_FLEET_ADMITTED`. Target membership and the DeepSeek maintenance
   default are unchanged. Static validation and four independent review lenses
@@ -143,7 +144,8 @@ The [runner packet](runner-proxy-readiness.md) records admission, qualification
 and release gates. Disabled repository entries still expand observation and
 must be included in credential/receipt review; do not install the new profile
 under the personal-skills-only scope. The operator subsequently approved the discussed merges, runner setup and
-bounded qualification. No runner/fleet activation or model dispatch ran here.
+bounded qualification. The private-fleet migration subsequently merged. No runner/fleet activation or
+model dispatch ran here.
 Runner #5 contains later runtime corrections and uncommitted upgrade work in a
 separate checkout; reconcile that source before integrating #6 or upgrading.
 
@@ -156,9 +158,8 @@ service packaging/custody and live qualification remain unresolved gates.
 No encryption key or transport has been introduced.
 
 The operator selected a private pilot; its identity stays in private caller
-records. Target PATs remain user-created. Source-secret deletion is approved
-only after migration and a fresh no-reader/active-run check, including the stale
-manual branch. Release `v0.1.0` is published at
+records. Target PATs remain user-created. Source-secret deletion completed after migration and a fresh no-reader/
+active-run check, including the stale manual branch. Release `v0.1.0` is published at
 `50d8e809eb843c164988ff0cdc076d14aa604174`; consumer pin updates are being prepared. New production routes, runner/JIT lifecycle and model-backed acceptance
 remain unqualified. No paid fallback or live model call ran in this preparation.
 
@@ -176,3 +177,15 @@ the old launchers are consumed and must not be replayed. This does not qualify
 the agent-ci fleet or close runner lifecycle acceptance. Runner #5 is a separate
 draft lane with runtime corrections and uncommitted upgrade edits; #4/#6 alone
 are not a coherent current production upgrade target. No privileged mutation ran.
+
+## 2026-10-31 source-secret retirement
+
+Private-fleet #5 merged as `fb62cc5`; the obsolete manual branch received only
+the exact reviewed disabled workflow in ordinary commit `a32f1ed`, preserving
+its other files and history. All three remote branch tips were scanned for
+workflow/script readers: zero source-token readers, zero tags. Five active-run
+status queries returned zero. The source release/public visibility was rechecked
+immediately before deleting `AGENT_CI_SOURCE_TOKEN`; a fresh secret-name listing
+confirmed absence. Proxy and model secrets were retained. Historical workflow
+reruns still refer to retired definitions/source history and are not a supported
+migration path. No runner, fleet admission variable or model job was activated.

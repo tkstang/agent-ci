@@ -77,7 +77,8 @@ retired source pin/token mapping and stays disabled/manual-only; runner
 [reservation #6](https://github.com/tkstang/actions-runner/pull/6) stacks on its
 existing PR #4 and refuses unqualified fleet starts. The operator subsequently preauthorized discussed merges, runner setup and
 bounded qualification, release publication and deletion of unnecessary secrets.
-No host activation, credential change or dispatch ran in this reconciliation. The installed pilot remains
+No host activation or dispatch ran in this reconciliation. The source secret
+was subsequently deleted after the verified no-reader checks below. The installed pilot remains
 personal-skills-only. Target-token provisioning and privileged host admission
 remain user-owned. Retired source-secret deletion is approved after the caller migration and a
 fresh no-reader/active-run check, including the stale manual branch. Publisher-token support and native
@@ -89,3 +90,10 @@ retained recovery/JIT success records supersede the old unexecuted-prompt
 assumption. Runner #5 has newer corrections and uncommitted upgrade work in a
 separate checkout; reconcile that lane before upgrading or activating #6.
 Target PAT creation remains user-owned; a private pilot is selected.
+
+The private-fleet migration #5 merged as `fb62cc5` with `v0.1.0` and stays
+disabled/manual-only. The old manual branch received the same reviewed disabled
+workflow without rewriting history. A fresh scan found no source-token readers
+at any of the three branch tips, no tags and no active runs; the retired
+`AGENT_CI_SOURCE_TOKEN` was deleted and absence verified. Model/proxy secrets
+remain. The target PATs were still absent at the latest metadata check.

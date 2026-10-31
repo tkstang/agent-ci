@@ -146,3 +146,10 @@ non-sudo production CI compatibility before preparing any new privileged tuple.
 Release `v0.1.0` has been published at `50d8e80` with explicit unqualified-route
 and plaintext-artifact limits. Update caller references to the existing version;
 keep fleet admission disabled until its remaining technical gates pass.
+
+Private-fleet migration #5 is now merged as `fb62cc5`, pinned to `v0.1.0` and
+still disabled. The stale manual branch now has the same reviewed disabled
+workflow. A fresh all-branch workflow/script reader scan and five active-run
+status checks passed before the approved source-token deletion; absence was
+verified afterward. Model/proxy credentials were preserved. No activation or
+new model qualification is claimed.
