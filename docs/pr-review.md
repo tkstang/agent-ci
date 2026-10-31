@@ -196,10 +196,9 @@ Selected `pr-review.yml` inputs; the workflow file has every input:
 `agent-ci review run` runs the same stages on your machine for a repository
 you can push to:
 
-```bash
+````bash
 export GITHUB_TOKEN   # a token for a user with write access; set it first
-agent-ci review run --pr 42 --cwd /path/to/clone --model gpt-6.1-sol-high --allow-pool --publish
-```
+agent-ci review run --pr 42 --cwd /path/to/clone --model gpt-6.1-sol-high --allow-pool --publish```
 
 - `--cwd` is a local clone whose `origin` is the repository (default
   `$GITHUB_REPOSITORY` for `--repo`). Each reviewer pass runs in a detached
@@ -238,17 +237,17 @@ is off unless the caller sets `verify: true`.
        timeout_minutes: 10
      - name: unit-tests
        command: node_modules/.bin/vitest run
-   ```
+````
 
-   Limits: 1-10 checks with unique names matching `[a-z][a-z0-9-]{0,39}`, a
-   command of at most 2 KiB, a timeout of 1-30 minutes (default 10), a
-   one-line description of at most 200 characters, and a 64 KiB file. The
-   file is read from the head of the default branch, or of the branch the
-   caller names in `verify_config_ref`, never from the pull request, so a
-   pull request cannot add or change a check. Do not set
-   `verify_config_ref` to the pull request's base branch
-   (`github.base_ref`): its author can retarget the pull request to a
-   branch they pushed.
+Limits: 1-10 checks with unique names matching `[a-z][a-z0-9-]{0,39}`, a
+command of at most 2 KiB, a timeout of 1-30 minutes (default 10), a
+one-line description of at most 200 characters, and a 64 KiB file. The
+file is read from the head of the default branch, or of the branch the
+caller names in `verify_config_ref`, never from the pull request, so a
+pull request cannot add or change a check. Do not set
+`verify_config_ref` to the pull request's base branch
+(`github.base_ref`): its author can retarget the pull request to a
+branch they pushed.
 
 2. **Request it** with `/agent-ci-verify-review` or the
    `agent-ci:verify-review` label.
@@ -294,7 +293,7 @@ you, and no local isolation is a credential boundary, so every local run
 also needs `--verify-trust-pr-code`:
 
 ```bash
-agent-ci review run --pr 42 --cwd /path/to/clone --model claude-haiku-4-5 \
+agent-ci review run --pr 42 --cwd /path/to/clone --model claude-haiku-5-5 \
   --verify --verify-trust-pr-code --publish
 ```
 

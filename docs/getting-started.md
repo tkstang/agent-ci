@@ -80,7 +80,7 @@ With a personal Claude subscription token (create it with
 
 ```bash
 export CLAUDE_CODE_OAUTH_TOKEN   # set it from your own secret store first
-agent-ci run --model claude-haiku-4-5 --prompt "List the top-level directories and what each holds."
+agent-ci run --model claude-haiku-5-5 --prompt "List the top-level directories and what each holds."
 ```
 
 With an existing OpenCode Go login on this machine (`opencode` logged in),
@@ -102,7 +102,7 @@ an edit run that changed files also writes `.agent-ci/changes.json`, which
 ```bash
 agent-ci doctor
 agent-ci models
-agent-ci route --model claude-haiku-4-5
+agent-ci route --model claude-haiku-5-5
 ```
 
 - `doctor` reports each harness CLI (found, version), each known credential
@@ -113,8 +113,8 @@ agent-ci route --model claude-haiku-4-5
 - `models` lists every route in `models.yaml`; `--model <name>` narrows it.
 - `route` resolves the route a run would use under the current policy,
   without needing the credential (login routes are always skipped; `route`
-  has no `--seed-login`), and lists the routes it skipped with the reason. For `claude-haiku-4-5` without flags it picks
-  `claude-haiku-4-5-personal` and skips the pool route with `E_POLICY_POOL`.
+  has no `--seed-login`), and lists the routes it skipped with the reason. For `claude-haiku-5-5` without flags it picks
+  `claude-haiku-5-5-personal` and skips the pool route with `E_POLICY_POOL`.
 
 [Harnesses and routing](harnesses-and-routing.md) explains how a model name
 becomes a route.

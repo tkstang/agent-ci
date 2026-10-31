@@ -6,8 +6,7 @@ description: How agent-ci turns a model name into a harness, credential and acco
 # Harnesses and routing
 
 A caller names a model, for example `gpt-6.1-sol-high` or
-`claude-opus-5-5-high`.
-agent-ci looks the model up in `models.yaml`, picks one route under its
+`claude-opus-5-5-high`.agent-ci looks the model up in `models.yaml`, picks one route under its
 routing policy, and runs that route's harness CLI with only the credential
 the route names. This page is the reference for harnesses, the routing
 table and the policy. Where each credential comes from is in

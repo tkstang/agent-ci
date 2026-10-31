@@ -26,7 +26,7 @@
 #   read; give fleets with different trust their own fleet repository and
 #   tokens (a secret cannot be chosen per target without a dynamic lookup).
 # - The model credential of every route your targets use, one `secrets:` line
-#   each (for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 and
+#   each (for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-5-5 and
 #   OPENCODE_API_KEY for grok-4.7). targets validate does not check this; a
 #   target whose credential is missing fails at run time. tools-update needs
 #   none.

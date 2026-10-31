@@ -43,7 +43,7 @@ on:
         type: boolean
         default: false
       model:
-        description: Qualified model from models.yaml (for example claude-haiku-4-5, grok-4.7, fake-edit). Set model or route.
+        description: Qualified model from models.yaml (for example claude-haiku-5-5, grok-4.7, fake-edit). Set model or route.
         type: string
         default: ''
       harness:
