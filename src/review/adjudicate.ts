@@ -4,6 +4,7 @@ import {
   type AdjudicationOperation,
   CANDIDATE_ID,
   contractError,
+  isProtected,
   isSeverity,
   LIMITS,
   type ReviewFinding,
@@ -64,16 +65,8 @@ export type AdjudicationCandidate = {
   finding: ReviewFinding;
 };
 
-/** True when the gate protects a candidate at this severity. */
-export function isProtected(
-  severity: Severity,
-  failOn: Severity | null,
-): boolean {
-  return (
-    severityRank(severity) >= severityRank('high') ||
-    (failOn !== null && severityRank(severity) >= severityRank(failOn))
-  );
-}
+// Preserve this module's public export while keeping one policy implementation.
+export { isProtected } from '@agent-ci/review/contracts.js';
 
 /**
  * Schema-valid candidates with the gate's namespaced ids

@@ -1154,6 +1154,14 @@ async function runLocal(
     },
     RUN_USAGE,
   );
+  if (flags.verify === true && flags['verify-trust-pr-code'] !== true)
+    throw new CliError(
+      'E_VERIFY_RUN',
+      'Local verify-review runs pull-request code as you and requires --verify-trust-pr-code.',
+      {
+        hint: 'Use the credential-free Actions verify job, or acknowledge only code you would run yourself.',
+      },
+    );
   const allowPool = poolOptIn(flags);
   const { env } = context;
   const scope = optional(flags.scope) ?? 'local';

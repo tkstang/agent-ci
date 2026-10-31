@@ -1,8 +1,10 @@
 import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
 import {
   type CommandOptions,
+  commandToken,
   inlineCode,
   isCommandError,
+  isReviewCommand,
   parseReviewCommand,
   resolveRequestConfig,
   REVIEW_COMMANDS,
@@ -175,26 +177,6 @@ function positiveInteger(value: unknown): number | null {
   const number = Number(text);
   return Number.isSafeInteger(number) ? number : null;
 }
-/** First whitespace-delimited token of the first line, exactly. */
-function commandToken(text: string): string {
-  return /^[^ \t\r\n]*/u.exec(text)?.[0] ?? '';
-}
-/** Invisible, control and non-ASCII space characters. */
-const FUSED =
-  /^[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u{a0}\u{1680}\u{2000}-\u{200a}\u{202f}\u{205f}\u{3000}\u{feff}]/u;
-/**
- * True when `text` starts with a known command: exactly, or fused to an
- * invisible or control character, which the parser then rejects with a
- * reply instead of the request being silently ignored.
- */
-function isCommand(text: string): boolean {
-  const token = commandToken(text);
-  if (Object.hasOwn(REVIEW_COMMANDS, token)) return true;
-  return Object.keys(REVIEW_COMMANDS).some(
-    (name) => token.startsWith(name) && FUSED.test(token.slice(name.length)),
-  );
-}
-
 /**
  * Git's branch-name rules (`refs/heads/<name>` passes `git check-ref-format`,
  * and no leading `-`, which `git branch` refuses), so any base
@@ -313,7 +295,7 @@ function classify(
       return { status: 'ignore', reason: 'edited-comment' };
     const comment = field(event, 'comment');
     const body = field(comment, 'body');
-    if (typeof body !== 'string' || !isCommand(body))
+    if (typeof body !== 'string' || !isReviewCommand(body))
       return { status: 'ignore', reason: 'not-a-command' };
     // Bot-authored commands are ignored before anything else is checked.
     if (isBot(field(comment, 'user')) || isBot(sender))
@@ -361,7 +343,7 @@ function classify(
       reason: 'invalid-dispatch',
       notice: 'A PR review dispatch needs a positive pr_number.',
     };
-  if (!isCommand(commandText))
+  if (!isReviewCommand(commandText))
     return {
       status: 'skip',
       reason: 'invalid-dispatch',

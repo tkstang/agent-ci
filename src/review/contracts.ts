@@ -364,6 +364,16 @@ function text(value: unknown, maxBytes: number, allowEmpty = false): boolean {
 export function severityRank(severity: Severity): number {
   return SEVERITIES.length - SEVERITIES.indexOf(severity);
 }
+/** High/critical and the configured failure threshold may never be reduced. */
+export function isProtected(
+  severity: Severity,
+  failOn: Severity | null,
+): boolean {
+  return (
+    severityRank(severity) >= severityRank('high') ||
+    (failOn !== null && severityRank(severity) >= severityRank(failOn))
+  );
+}
 export function isSeverity(value: unknown): value is Severity {
   return oneOf(value, SEVERITIES);
 }

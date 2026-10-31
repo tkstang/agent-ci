@@ -910,9 +910,11 @@ describe('agent-ci review verify-review stages', () => {
         envelope: { ok: false, code: 'E_VERIFY_RUN' },
       });
       expect(t.fake.sent('POST')).toEqual([]);
+      expect(t.fake.sent('GET')).toEqual([]);
+      expect(existsSync(path.join(t.root, 'local'))).toBe(false);
       expect(git(clone, 'worktree', 'list').split('\n')).toHaveLength(1);
     }
-    // A fresh output directory: the refused run kept its spec.
+    // A separate output directory for the acknowledged run.
     argv[argv.length - 1] = 'local-trusted';
     const result = await t.cli([...argv, '--verify-trust-pr-code'], {
       CI: '',
