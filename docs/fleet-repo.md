@@ -22,7 +22,7 @@ refers to its secrets.
 ## 1. Let your repositories use agent-ci
 
 agent-ci is public. Pin its reusable workflows to a released version tag
-when available, or a reviewed full commit SHA in the `uses:` reference. The helpers are checked out at that same commit with the
+such as `v0.1.0`, or a reviewed full commit SHA in the `uses:` reference. The helpers are checked out at that same commit with the
 job's `GITHUB_TOKEN`; no separate source token or agent-ci Actions access
 setting is needed.
 
@@ -60,8 +60,8 @@ setting is needed.
    `docs-update` Mondays, `tools-update` Tuesdays and `instructions-update`
    Wednesdays. The private template is manual-only until runner admission
    and scheduled-event policy are reviewed; replace its label placeholder
-   with the complete admitted label array. Replace `@main` with a released
-   version or reviewed full SHA before enabling either caller. For the pool
+   with the complete admitted label array. Both templates pin `v0.1.0`;
+   review later releases before updating them. For the pool
    template, set each agent target's model to an admitted pool alias (for
    example `gpt-6.1-sol-high`) instead of the personal example above. It
    starts in JSON-only mode: set the repository Actions variable
@@ -164,8 +164,8 @@ requests of the repository the workflow runs in, and the triggering label or
 comment happens there. For each repository that wants reviews:
 
 1. Copy `consumer-workflows/agent-ci-pr-review.yml` to
-   `.github/workflows/agent-ci-pr-review.yml` and pin its `uses:` ref to an
-   agent-ci commit SHA.
+   `.github/workflows/agent-ci-pr-review.yml`. Its `uses:` ref pins
+   `v0.1.0`; review later releases before updating it.
 2. Store the reviewer model secrets the caller passes (the template passes
    `CLAUDE_CODE_OAUTH_TOKEN` and `OPENCODE_API_KEY`, plus the optional pool-route
    `AGENT_CI_PROXY_BASE_URL`; remove the ones you do not use).

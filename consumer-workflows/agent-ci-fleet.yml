@@ -72,7 +72,7 @@ permissions:
 
 jobs:
   fan-out:
-    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # no release tag exists yet: replace main with a released version or reviewed agent-ci commit SHA
+    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@v0.1.0
     with:
       preset: >-
         ${{ inputs.preset

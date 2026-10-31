@@ -60,10 +60,14 @@
   private-fleet draft PRs; and ordered merges of agent-ci #3–#6 after hosted CI.
   Those four merges are complete. The operator separately approved #7 after
   exact-head hosted CI; it is merged. The operator also selected isolated
-  artifact transport for full support. External approval covers PR preparation only.
-- **Separately gated:** any further merge, force-push, credential creation/
-  change/deletion, privileged runner activation and release publication.
-  Prepare concrete changes and requests before asking for the relevant action.
+  artifact transport for full support. On 2026-10-31 the operator preauthorized
+  the discussed external merges, runner setup/activation and bounded qualification,
+  release publication, and deletion of secrets proved unnecessary. Technical
+  readiness, credential boundaries and preservation of other sessions still apply.
+- **Remaining boundaries:** no force-push or branch deletion; target PAT creation
+  remains user-owned. Broker hosting/key custody is undecided and not provisioned.
+  Do not replay consumed privileged launchers, bypass qualification, or overwrite
+  another session's runner work under the new setup authorization.
 - **User-owned setup:** target write/read tokens, target-repository selection
   and privileged runner admission. Existing secret names do not prove valid
   credentials or grant mutation authority.
@@ -138,8 +142,10 @@ External drafts prepared under the operator's PR-only approval:
 The [runner packet](runner-proxy-readiness.md) records admission, qualification
 and release gates. Disabled repository entries still expand observation and
 must be included in credential/receipt review; do not install the new profile
-under the personal-skills-only scope. External merges, credentials, host
-activation and workflow dispatch have not been approved or performed.
+under the personal-skills-only scope. The operator subsequently approved the discussed merges, runner setup and
+bounded qualification. No runner/fleet activation or model dispatch ran here.
+Runner #5 contains later runtime corrections and uncommitted upgrade work in a
+separate checkout; reconcile that source before integrating #6 or upgrading.
 
 The operator selected isolated transport for full support in the
 [fleet confidentiality proposal](fleet-confidentiality-design.md). The
@@ -149,12 +155,24 @@ shared decryption authority outside executable PR/setup jobs. Platform binding,
 service packaging/custody and live qualification remain unresolved gates.
 No encryption key or transport has been introduced.
 
-Target tokens, target selection and privileged host admission remain user-owned.
-Source-secret deletion requires the caller merge, explicit approval and a fresh
-no-reader check. Release publication is separately gated; no tag or release
-exists. New production routes, runner/JIT lifecycle and model-backed acceptance
+The operator selected a private pilot; its identity stays in private caller
+records. Target PATs remain user-created. Source-secret deletion is approved
+only after migration and a fresh no-reader/active-run check, including the stale
+manual branch. Release `v0.1.0` is published at
+`50d8e809eb843c164988ff0cdc076d14aa604174`; consumer pin updates are being prepared. New production routes, runner/JIT lifecycle and model-backed acceptance
 remain unqualified. No paid fallback or live model call ran in this preparation.
 
 Goal remains active and incomplete. Remaining scope is live Sol adjudication,
-approved runner/caller integration and live pool evidence, versioned delivery,
+approved runner/caller integration and live pool evidence, versioned consumer pins,
 artifact encryption and final integrated acceptance.
+
+## 2026-10-31 setup reconciliation
+
+Design PR #8 merged as `5673eeb31339b91ac4d1574b6e2e589a58acf13f`.
+Read-only host checks confirm the reviewed boot is unchanged, installed runner
+source is `4e72f1ddb41a07e68af40d2071cc7962fa014950`, and the activation receipt
+and watcher plist are absent. Later retained recovery/JIT success records exist;
+the old launchers are consumed and must not be replayed. This does not qualify
+the agent-ci fleet or close runner lifecycle acceptance. Runner #5 is a separate
+draft lane with runtime corrections and uncommitted upgrade edits; #4/#6 alone
+are not a coherent current production upgrade target. No privileged mutation ran.

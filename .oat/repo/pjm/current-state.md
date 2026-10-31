@@ -21,9 +21,10 @@ copying their content here. -->
 ## What's Implemented
 
 Current baseline (2026-10-31): the public repository was recreated with root
-`8ecf26a`; `main` at `50d8e80` includes README/publishing PRs #1–#2,
+`8ecf26a`; `main` at `5673eeb` includes README/publishing PRs #1–#2,
 reviewer, runner/routing, simplification and fleet/private-output PRs #3–#6,
-and direct Sol Low adjudication PR #7.
+direct Sol Low adjudication PR #7, and the isolated transport design in #8.
+Release `v0.1.0` is published at `50d8e80`; it does not claim live qualification.
 Public-source cleanup is complete. Earlier PR numbers and commit pins
 in the historical snapshot below belong to the previous repository history.
 
@@ -74,9 +75,17 @@ External draft preparation is approved and underway: private-fleet
 [caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5) replaces the
 retired source pin/token mapping and stays disabled/manual-only; runner
 [reservation #6](https://github.com/tkstang/actions-runner/pull/6) stacks on its
-existing PR #4 and refuses unqualified fleet starts. No external merge, host
-activation, credential change or dispatch ran. The installed pilot remains
+existing PR #4 and refuses unqualified fleet starts. The operator subsequently preauthorized discussed merges, runner setup and
+bounded qualification, release publication and deletion of unnecessary secrets.
+No host activation, credential change or dispatch ran in this reconciliation. The installed pilot remains
 personal-skills-only. Target-token provisioning and privileged host admission
-remain user-owned. Retired secret deletion requires separate approval after the
-caller merge and a fresh no-reader check. Publisher-token support and native
+remain user-owned. Retired source-secret deletion is approved after the caller migration and a
+fresh no-reader/active-run check, including the stale manual branch. Publisher-token support and native
 Codex persistent login remain Next, outside this goal.
+
+Read-only setup reconciliation confirms installed runner source `4e72f1d`,
+unchanged reviewed boot, and no activation receipt or watcher plist. Later
+retained recovery/JIT success records supersede the old unexecuted-prompt
+assumption. Runner #5 has newer corrections and uncommitted upgrade work in a
+separate checkout; reconcile that lane before upgrading or activating #6.
+Target PAT creation remains user-owned; a private pilot is selected.

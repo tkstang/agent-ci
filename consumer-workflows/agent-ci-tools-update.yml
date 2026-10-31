@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   tools-update:
-    uses: tkstang/agent-ci/.github/workflows/tools-update.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
+    uses: tkstang/agent-ci/.github/workflows/tools-update.yml@v0.1.0
     with:
       oat_cli_version: 0.3.33 # an exact version keeps runs reproducible; latest also works
       dependency_policy: skills-only # include-lockfile also allows lockfile changes
