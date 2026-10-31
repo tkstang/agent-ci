@@ -221,7 +221,7 @@ const GATE_USAGE = `agent-ci review gate — authorize a review request (GitHub 
                                  verify input; default false).
   --allow-pool | --allow-pool-value <true|false>
                                  Let pool models resolve (in CI only on a
-                                 self-hosted runner, never a Claude model);
+                                 self-hosted runner);
                                  the workflow's allow_pool input.
   --models <path>                Routing table.
   --github-output                should_run, pr_number, head_sha, base_ref,
@@ -1094,7 +1094,7 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
   --instruction <text>         Request instruction.
   --allow-pool | --allow-pool-value <true|false>
                                Let pool models resolve (in CI only on a
-                               self-hosted runner, never a Claude model).
+                               self-hosted runner).
   --seed-login                 Login routes (local only).
   --publish                    Post the inline review and summary as the
                                token's user (default: gate only, no posting).

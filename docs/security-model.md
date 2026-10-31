@@ -103,8 +103,8 @@ no write token. Its resolve and publish jobs match `run-agent.yml`'s.
   that checkout's token, and the publish job runs no repository code.
 - **The verify job gets no helper token.** agent-ci reaches it as a bundle
   the gate job uploads, checked against its sha256.
-- **Pool routes** need an explicit opt-in, run in CI only on a self-hosted
-  runner, and never for a Claude model (see
+- **Pool routes** need an explicit opt-in and run in CI only on a self-hosted
+  runner. Claude pool routes run through Claude Code (see
   [Harnesses and routing](harnesses-and-routing.md#policy)).
 - **Private proxy origin.** The optional `AGENT_CI_PROXY_BASE_URL` secret
   replaces the loopback origin of pool routes. It is a secret, not a

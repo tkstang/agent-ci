@@ -18,13 +18,13 @@ import { HARNESS_IDS } from '@agent-ci/routing/schema.js';
  * select one with a static expression chain over exactly these names (a
  * dynamic `secrets[...]` lookup would make the runner receive every secret
  * the workflow holds), so a route naming anything else is refused here.
- * `AGENT_CI_PROXY_API_KEY` serves non-Claude pool routes on self-hosted
- * runners only (see checkPoolPolicy); the Claude pool credential
- * (`ANTHROPIC_AUTH_TOKEN`) is deliberately not wired.
+ * Pool credentials serve only opted-in self-hosted CI runs (see
+ * checkPoolPolicy), including ANTHROPIC_AUTH_TOKEN for Claude Code.
  */
 export const WORKFLOW_MODEL_SECRETS = [
   'CLAUDE_CODE_OAUTH_TOKEN',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'OPENCODE_API_KEY',
   'CURSOR_API_KEY',
   'AGENT_CI_PROXY_API_KEY',
@@ -33,8 +33,7 @@ export const WORKFLOW_MODEL_SECRETS = [
 const USAGE = `agent-ci route — resolve the route a run would use, without running it.
 
 Applies the routing policy for this environment (pool routes need the
-opt-in and, when CI or GITHUB_ACTIONS is set, a self-hosted runner and a
-non-Claude model; login routes are refused in CI) but does not require the
+opt-in and, when CI or GITHUB_ACTIONS is set, a self-hosted runner; login routes are refused in CI) but does not require the
 route's credential to be present: a workflow resolves the route first, then
 passes only that credential to the agent step.
 
@@ -42,7 +41,7 @@ Flags:
   --model <key> | --route <id>   What to resolve (one required).
   --harness <id>                 Pin a harness.
   --allow-pool                   Allow a proxy-pool route (in CI only on a
-                                 self-hosted runner, never a Claude model).
+                                 self-hosted runner).
   --allow-pool-value <true|false>
                                  The same as a value (workflow inputs).
   --models <path>                Routing table (default: packaged models.yaml).
@@ -52,7 +51,7 @@ Flags:
                                  $GITHUB_OUTPUT. Refuses a route that names
                                  more than one credential, or one outside
                                  CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY,
-                                 OPENCODE_API_KEY, CURSOR_API_KEY and
+                                 ANTHROPIC_AUTH_TOKEN, OPENCODE_API_KEY, CURSOR_API_KEY and
                                  AGENT_CI_PROXY_API_KEY (the secrets the
                                  workflows select statically).`;
 

@@ -63,7 +63,7 @@ on:
       allow_pool:
         description: >-
           Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner, and never for a Claude model; set true there to
+          on a self-hosted runner, set true there to
           opt in. The route uses the loopback proxy origin unless the optional
           AGENT_CI_PROXY_BASE_URL secret names another origin (https, or http
           for a loopback host).
@@ -106,12 +106,15 @@ on:
         required: false
       ANTHROPIC_API_KEY:
         required: false
+      ANTHROPIC_AUTH_TOKEN:
+        description: Proxy-pool key for Claude Code (self-hosted runners with allow_pool only).
+        required: false
       OPENCODE_API_KEY:
         required: false
       CURSOR_API_KEY:
         required: false
       AGENT_CI_PROXY_API_KEY:
-        description: Proxy-pool key for non-Claude pool routes (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Codex pool routes (self-hosted runners with allow_pool only).
         required: false
       AGENT_CI_PROXY_BASE_URL:
         description: >-
@@ -168,6 +171,7 @@ jobs:
       AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}

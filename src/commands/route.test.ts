@@ -49,6 +49,16 @@ routes:
     account: personal
     structuredOutput: prompt
     qualified: null
+  - id: unlisted-key
+    model: unlisted-key
+    harness: opencode
+    family: other
+    providerModel: p/unlisted
+    credentials: [CUSTOM_MODEL_TOKEN]
+    billing: subscription
+    account: personal
+    structuredOutput: prompt
+    qualified: null
   - id: fake-keyed
     model: fake-keyed
     harness: fake
@@ -140,7 +150,7 @@ describe('agent-ci route', () => {
     expect(await readFile(output, 'utf8')).toContain('credential=\n');
   });
 
-  it('keeps every policy refusal (pool in CI, pinned pool route)', async () => {
+  it('refuses a pinned pool route on a hosted CI runner', async () => {
     const { dir, models } = await setup();
     const pinned = await run(
       ['route', '--route', 'claude-pool', '--models', models, '--allow-pool'],
@@ -152,6 +162,30 @@ describe('agent-ci route', () => {
     });
   });
 
+  it('selects the Claude pool credential for an opted-in self-hosted workflow', async () => {
+    const { dir, models, output } = await setup();
+    const result = await run(
+      [
+        'route',
+        '--route',
+        'claude-pool',
+        '--allow-pool',
+        '--models',
+        models,
+        '--github-output',
+      ],
+      ctx(dir, {
+        GITHUB_ACTIONS: 'true',
+        RUNNER_ENVIRONMENT: 'self-hosted',
+        GITHUB_OUTPUT: output,
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(output, 'utf8')).toContain(
+      'credential=ANTHROPIC_AUTH_TOKEN\n',
+    );
+  });
+
   it('refuses a multi-credential route for a workflow and needs GITHUB_OUTPUT', async () => {
     const { dir, models, output } = await setup();
     const multi = await run(
@@ -159,13 +193,12 @@ describe('agent-ci route', () => {
       ctx(dir, { GITHUB_OUTPUT: output }),
     );
     expect(multi.envelope).toMatchObject({ ok: false, code: 'E_ROUTE_CONFIG' });
-    // Only the four statically selectable model secrets reach a workflow.
+    // A route cannot expose a credential outside the static workflow list.
     const unlisted = await run(
       [
         'route',
         '--route',
-        'claude-pool',
-        '--allow-pool',
+        'unlisted-key',
         '--models',
         models,
         '--github-output',

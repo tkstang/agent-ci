@@ -29,7 +29,7 @@ Model selection:
   --route <id>               Pick an exact route (the only way to use a paid
                              route or skip the fallback rules).
   --allow-pool               Allow a proxy-pool route (in CI only on a
-                             self-hosted runner, never a Claude model).
+                             self-hosted runner).
   --allow-pool-value <true|false>
                              The same as a value (workflow inputs).
   --seed-login               Seed your existing harness login into the

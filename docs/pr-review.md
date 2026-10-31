@@ -143,21 +143,40 @@ category (`correctness`, `security`, `performance`, `repo-rule`, `test`,
 
 ## Inputs
 
+The primary reviewer defaults to Sol 6.1 High. Opus 5.5 High is an optional
+second reviewer, and the adjudicator model defaults to Sol 6.1 Low. Both
+optional passes remain off unless the caller or request enables them. The
+model keys include effort (`gpt-6.1-sol-high`, `gpt-6.1-sol-low`,
+`claude-opus-5-5-high`) so each pass selects the intended setting.
+
+These routes use the subscription proxy pool. Before using them in Actions,
+configure an admitted self-hosted runner, `allow_pool: true` and the model
+secrets. `runs_on` still defaults to `ubuntu-latest` and pool opt-in to
+`false`; leaving them unchanged refuses the pool route. The new routes
+remain unqualified until their live checks pass.
+
+Sol Low adjudication is the intended default but is not yet available: the
+pinned Codex harness has no verified tool-free mode, so enabling that pass
+currently fails closed. Leave `adjudicator: false` until a tool-free Sol
+transport is implemented and qualified. A personal caller can then enable
+it with `adjudicator: true`; keep `second_reviewer: false` so Opus runs only
+on request. The generic consumer template leaves both optional passes off.
+
 Selected `pr-review.yml` inputs; the workflow file has every input:
 
-| Input                                                  | Default                        | Meaning                                                                                                                     |
-| ------------------------------------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `reviewer_model`                                       | `claude-haiku-4-5`             | Primary reviewer.                                                                                                           |
-| `second_reviewer`, `second_reviewer_model`             | `false`, `grok-4.7`            | Run an independent second pass on every request.                                                                            |
-| `adjudicator`, `adjudicator_model`                     | `false`, `claude-haiku-4-5`    | Run the adjudicator on every request (Claude routes only).                                                                  |
-| `allowed_models`                                       | `claude-haiku-4-5`, `grok-4.7` | Models a request may select (newline- or comma-separated).                                                                  |
-| `allowed_pr_authors`                                   | empty                          | Bot logins whose pull requests may be reviewed.                                                                             |
-| `repo_guidance`, `repo_guidance_path`, `context_paths` | empty                          | Review guidance appended to agent-ci's baseline, a guidance file read from the PR head, and paths the reviewer reads first. |
-| `fail_on_severity`                                     | empty                          | `critical`, `high`, `medium` or `low` fails the run after publishing; empty keeps reviews advisory.                         |
-| `min_inline_severity`                                  | `medium`                       | Lowest severity posted inline; lower findings appear in the summary only.                                                   |
-| `max_inline_comments`                                  | `10`                           | Inline comment budget per run, shared by every pass (0-100).                                                                |
-| `verify`, `verify_config_ref`, `verify_on_self_hosted` | `false`, empty, `false`        | [verify-review](#verify-review) settings.                                                                                   |
-| `allow_pool`, `runs_on`                                | `false`, `ubuntu-latest`       | Proxy-pool opt-in and runner label.                                                                                         |
+| Input                                                  | Default                                                       | Meaning                                                                                                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `reviewer_model`                                       | `gpt-6.1-sol-high`                                            | Primary reviewer.                                                                                                           |
+| `second_reviewer`, `second_reviewer_model`             | `false`, `claude-opus-5-5-high`                               | Run an independent second pass on every request.                                                                            |
+| `adjudicator`, `adjudicator_model`                     | `false`, `gpt-6.1-sol-low`                                    | Run the adjudicator on every request (Claude routes only).                                                                  |
+| `allowed_models`                                       | `gpt-6.1-sol-high`, `claude-opus-5-5-high`, `gpt-6.1-sol-low` | Models a request may select (newline- or comma-separated).                                                                  |
+| `allowed_pr_authors`                                   | empty                                                         | Bot logins whose pull requests may be reviewed.                                                                             |
+| `repo_guidance`, `repo_guidance_path`, `context_paths` | empty                                                         | Review guidance appended to agent-ci's baseline, a guidance file read from the PR head, and paths the reviewer reads first. |
+| `fail_on_severity`                                     | empty                                                         | `critical`, `high`, `medium` or `low` fails the run after publishing; empty keeps reviews advisory.                         |
+| `min_inline_severity`                                  | `medium`                                                      | Lowest severity posted inline; lower findings appear in the summary only.                                                   |
+| `max_inline_comments`                                  | `10`                                                          | Inline comment budget per run, shared by every pass (0-100).                                                                |
+| `verify`, `verify_config_ref`, `verify_on_self_hosted` | `false`, empty, `false`                                       | [verify-review](#verify-review) settings.                                                                                   |
+| `allow_pool`, `runs_on`                                | `false`, `ubuntu-latest`                                      | Proxy-pool opt-in and runner label.                                                                                         |
 
 ## Review locally
 
@@ -166,7 +185,7 @@ you can push to:
 
 ```bash
 export GITHUB_TOKEN   # a token for a user with write access; set it first
-agent-ci review run --pr 42 --cwd /path/to/clone --model claude-haiku-4-5 --publish
+agent-ci review run --pr 42 --cwd /path/to/clone --model gpt-6.1-sol-high --allow-pool --publish
 ```
 
 - `--cwd` is a local clone whose `origin` is the repository (default
