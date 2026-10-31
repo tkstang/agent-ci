@@ -82,9 +82,22 @@
 - Reviewer configuration is not implemented yet. Existing Codex adjudication
   is refused because the adapter declares no verified tool-free mode; do not
   bypass this guard merely to make a model default resolve.
+- Pinned Codex 0.163.0 source confirms that its global `ToolPolicy` belongs to
+  the embedding-host extension interface, not CLI/app-server configuration.
+  A direct tools-empty Responses request through the existing subscription
+  pool is the minimum proposed alternative for Sol adjudication. The
+  operator's transport choice is pending; primary reviews retain Codex CLI.
+- The accepted model/default and Claude-pool policy is recorded in
+  [Production reviews and pool CI](../../../reference/decisions/DR-261031-production-reviews-and-pool-ci.md).
+  This records intent, not shipped or live-qualified behavior.
 - Neither source nor private-fleet repository listed a registered self-hosted
   runner at the last read-only check. The runner-related external PR remains
   open; its host proof and admission are not acceptance evidence yet.
+- The runner's fixed repository/workflow/job allowlist does not admit
+  `agent-ci-private-fleet`. Completing its existing personal-skills pilot
+  alone would not supply a fleet runner. A narrowly scoped, separately
+  authorized admission change and agent-ci harness/proxy qualification are
+  required; preserve the existing recovery proof and deployment pins.
 - The private fleet still needs an authorized caller migration from its
   unavailable old commit and retired source-token argument. Secret deletion
   requires explicit approval and a fresh proof that no workflow reads it.
