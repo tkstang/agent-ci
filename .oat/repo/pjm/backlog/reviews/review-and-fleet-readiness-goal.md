@@ -33,11 +33,12 @@
    automatic routers, with explicit Grok and Claude Code pool controls
    preserved. Archived with the implementation delivery; independent review
    and merge remain pending.
-4. [**BL-261025-post-v1-simplification-pass — Post-v1 simplification pass**](../items/BL-261025-post-v1-simplification-pass.md).
-   Start with in-place Git-context protection and per-pass reviewer credential
-   boundaries. Assess all six recorded areas; simplify or document an
-   evidence-backed reason to retain each. Preserve required verification,
-   isolation and credential guarantees rather than removing layers wholesale.
+4. [**BL-261025-post-v1-simplification-pass — Post-v1 simplification pass**](../archived/BL-261025-post-v1-simplification-pass.md).
+   Implemented original Git-context pinning and per-pass reviewer/adjudicator
+   credential boundaries, shared severity/command rules and an early local
+   trust check. All six areas have evidence-backed dispositions in the
+   archived record; no workflow inputs were removed. Pending independent
+   review and merge.
 5. [**BL-261025-fleet-repositories-merged — Fleet repositories: merged target lists and protected artifacts**](../items/BL-261025-fleet-repositories-merged.md).
    Deliver validated file/JSON target merging, private-target log protection,
    optional authenticated encryption across every artifact path, and public
@@ -113,4 +114,8 @@
   are prepared. External admission/caller PRs, activation, a live pool run and
   release publication remain separately gated. Claude-name policy gaps are
   implemented and archived in the next delivery, pending review and merge.
+- The [fleet confidentiality transport proposal](fleet-confidentiality-design.md)
+  records the conflict between a shared artifact key and credential-free
+  verification/setup jobs. Operator choice is pending; no key or transport
+  has been introduced. Target merging and output suppression can proceed.
 - Completion audit remains pending for the complete goal.
