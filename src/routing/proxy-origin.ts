@@ -17,7 +17,7 @@ function invalid(rule: string): Result<never> {
   return failure(
     'E_ROUTE_CONFIG',
     `${PROXY_BASE_URL_ENV} is invalid: ${rule}`,
-    `Set ${PROXY_BASE_URL_ENV} to an origin only, for example https://proxy.example.com, or leave it unset for the loopback default.`,
+    `Set ${PROXY_BASE_URL_ENV} to an origin only, for example https://localhost, or leave it unset for the loopback default.`,
   );
 }
 

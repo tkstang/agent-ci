@@ -27,14 +27,13 @@
 #
 # Setup (once per repository):
 # 1. Pin the agent-ci ref (tag or SHA) in `uses:`; the helpers are checked
-#    out at that same commit. agent-ci is private, so its Actions access
-#    setting must allow workflows from repositories owned by the same user.
-# 2. Add the AGENT_CI_SOURCE_TOKEN secret (contents: read on tkstang/agent-ci).
-# 3. Add the model credential the chosen routes name (see `agent-ci models`),
+#    out at that same commit. agent-ci is public; the helper checkout uses
+#    the job's GITHUB_TOKEN.
+# 2. Add the model credential the chosen routes name (see `agent-ci models`),
 #    for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 or
 #    OPENCODE_API_KEY for grok-4.7. Only the reviewer and adjudicator steps
 #    receive it.
-# 4. Create the `agent-ci:review` label.
+# 3. Create the `agent-ci:review` label.
 #
 # Optional, pool routes only: AGENT_CI_PROXY_BASE_URL replaces the loopback
 # proxy origin with an https endpoint. A pool route also needs
@@ -48,7 +47,7 @@
 # checks) on the default branch (agent-ci reads it from the default branch
 # head, never from the PR or its base). `/agent-ci-verify-review` or the
 # `agent-ci:verify-review` label then runs those checks on the PR head in a
-# separate job that holds NO secret (not even AGENT_CI_SOURCE_TOKEN), and
+# separate job that holds no model credentials, and
 # Claude or Codex reviewers read the results through the run_check tool and
 # cite them. That job runs pull-request code: enable it only where pull
 # request authors (who need write access) may run code in your Actions.
@@ -107,7 +106,6 @@ jobs:
         claude-haiku-4-5
         grok-4.7
     secrets:
-      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
       # Optional, pool routes only (see the header and docs/configuration.md).

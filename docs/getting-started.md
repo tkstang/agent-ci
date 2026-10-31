@@ -17,7 +17,7 @@ after this page.
 
 - Node.js 24 or later and pnpm 11 (`package.json` pins `pnpm@11.8.0` and
   `engines.node >=24`).
-- A clone of `tkstang/agent-ci`. The repository is private.
+- A clone of the public `tkstang/agent-ci` repository.
 - For a model-backed run, the harness CLI the route uses, on `PATH`:
   `claude` (Claude Code), `codex`, `opencode` or `agent` (Cursor). See
   [Install harness CLIs](#install-harness-clis).

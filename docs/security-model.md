@@ -38,17 +38,17 @@ gaps are tracked in the [backlog](../.oat/repo/pjm/backlog/index.md).
 
 ### run-agent.yml
 
-| Job                       | Repository code       | Model credential                            | GitHub write                | Other tokens                                                                                                                          |
-| ------------------------- | --------------------- | ------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `resolve`                 | none                  | none                                        | none                        | `GITHUB_TOKEN`, `AGENT_CI_SOURCE_TOKEN`; for another repository `AGENT_CI_TARGET_TOKEN` and the read-only target token (checked here) |
-| `setup`                   | runs `setup_command`  | none                                        | none                        | read-only target token for a private other repository                                                                                 |
-| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)     | `AGENT_CI_SOURCE_TOKEN`, read-only target token; `AGENT_CI_PROXY_BASE_URL` for a pool route only                                      |
-| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests` | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`, `AGENT_CI_SOURCE_TOKEN`; optional `AGENT_CI_NOTIFY_WEBHOOK`                                |
+| Job                       | Repository code       | Model credential                            | GitHub write                               | Other tokens                                                                                                 |
+| ------------------------- | --------------------- | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `resolve`                 | none                  | none                                        | target-token scopes for another repository | `GITHUB_TOKEN`; for another repository `AGENT_CI_TARGET_TOKEN` and the read-only target token (checked here) |
+| `setup`                   | runs `setup_command`  | none                                        | none                                       | read-only target token for a private other repository                                                        |
+| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)                    | read-only target token; `AGENT_CI_PROXY_BASE_URL` for a pool route only                                      |
+| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests`                | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`; optional `AGENT_CI_NOTIFY_WEBHOOK`                                |
 
 The agent job sits behind its own `workflow_call` boundary
-(`agent-job.yml`), which declares only four secrets: the selected model
-credential, the helper token, the read-only target token and, for a pool
-route only, the private proxy origin (`AGENT_CI_PROXY_BASE_URL`). So even
+(`agent-job.yml`), which declares only three secrets: the selected model
+credential, the read-only target token and, for a pool route only, the
+private proxy origin (`AGENT_CI_PROXY_BASE_URL`). So even
 the runner that executes the agent holds no other model secret and no
 write token.
 
@@ -64,23 +64,23 @@ digest matches the one the agent job recorded.
 | Job                               | Pull-request code                                                       | Model credential                                                                                                                               | GitHub write                  |
 | --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | `gate`                            | no checkout                                                             | none                                                                                                                                           | label, reaction and one reply |
-| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none, and no helper token; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain                                                 | none (`contents: read`)       |
+| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain                                                                      | none (`contents: read`)       |
 | `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | every model secret the caller passes is on the runner; only the route's reaches the pass step, plus `AGENT_CI_PROXY_BASE_URL` for a pool route | none                          |
 | `adjudicate`                      | no checkout; sources come from the git database API                     | the route's credential, tool-free Claude run                                                                                                   | none                          |
 | `findings`                        | no checkout                                                             | none                                                                                                                                           | none (read-only token)        |
 | `publish`                         | no checkout                                                             | none                                                                                                                                           | review and summary comment    |
 
-Every job except `verify` also checks out the agent-ci helpers with
-`AGENT_CI_SOURCE_TOKEN`.
+Every job except `verify` also checks out the public agent-ci helpers with
+the job's `GITHUB_TOKEN`.
 
 ### fan-out.yml and tools-update.yml
 
 `fan-out.yml` calls `run-agent.yml` or `tools-update.yml` once per target,
 so the same job boundaries apply per target. `tools-update.yml` never runs a
 model and declares no model credential. Its run job runs the pinned OAT CLI
-from npm (npm code) and holds `AGENT_CI_SOURCE_TOKEN` and, for a private
-target in another repository, `AGENT_CI_TARGET_READ_TOKEN`; it holds no
-write token. Its resolve and publish jobs match `run-agent.yml`'s.
+from npm (npm code) and holds the job's read-only `GITHUB_TOKEN` and, for a
+private target in another repository, `AGENT_CI_TARGET_READ_TOKEN`; it holds
+no write token. Its resolve and publish jobs match `run-agent.yml`'s.
 
 ## Token scoping
 

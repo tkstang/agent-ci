@@ -58,7 +58,7 @@ routes:
     qualified: null
 `;
 
-const SYNTHETIC_KEY = 'synthetic-cursor-key-0123456789abcdef';
+const SYNTHETIC_KEY = 'fixture-cursor-token';
 
 /** Strict on the first answer (findings array), lenient on the last. */
 const structured: StructuredRunOptions = {

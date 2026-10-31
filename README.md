@@ -65,4 +65,4 @@ documentation conventions are in [docs/contributing.md](docs/contributing.md).
 
 ## License
 
-MIT; see [LICENSE](LICENSE). The repository is private.
+MIT; see [LICENSE](LICENSE).

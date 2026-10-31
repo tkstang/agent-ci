@@ -18,4 +18,4 @@ Publishing (static-branch PR, PR comment, notifications) runs in its own job wit
 
 ## Consequences
 
-PRs and pushes made with `GITHUB_TOKEN` do not trigger the target repository's workflows, so generated PRs get no CI unless the App token is configured; the consumer template documents this. Consumer repositories still need `AGENT_CI_SOURCE_TOKEN` for the helper checkout.
+PRs and pushes made with `GITHUB_TOKEN` do not trigger the target repository's workflows, so generated PRs get no CI unless the App token is configured; the consumer template documents this. Consumer repositories check out the public helper source with the job's read-only `GITHUB_TOKEN`.

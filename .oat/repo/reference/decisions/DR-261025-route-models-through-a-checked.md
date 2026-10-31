@@ -14,7 +14,7 @@ A caller picks a model; agent-ci must choose the harness, credential and account
 
 ## Decision
 
-`models.yaml` maps each qualified model to routes (harness, provider model, credential env names, billing class, account personal|work|pool, structured-output mode, qualification date). Policy in `src/routing/policy.ts`: Claude models only on the claude harness; no automatic fallback from subscription to paid-api billing or into a work account (paid or work routes are chosen only explicitly); `pool` routes need `--allow-pool` and are always refused when CI or GITHUB_ACTIONS is set; login-seeded routes are local only. Every harness child gets an environment built from an allowlist plus only the route's named credentials, and an isolated per-run home root.
+`models.yaml` maps each qualified model to routes (harness, provider model, credential env names, billing class, account personal|work|pool, structured-output mode, qualification date). Policy in `src/routing/policy.ts`: Claude models only on the claude harness; no automatic fallback from subscription to paid-api billing or into account class `work` (paid or `work` routes are chosen only explicitly); `pool` routes need `--allow-pool` and are always refused when CI or GITHUB_ACTIONS is set; login-seeded routes are local only. Every harness child gets an environment built from an allowlist plus only the route's named credentials, and an isolated per-run home root.
 
 ## Consequences
 

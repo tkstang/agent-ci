@@ -166,9 +166,6 @@ on:
         type: string
         default: ''
     secrets:
-      AGENT_CI_SOURCE_TOKEN:
-        description: Contents read on the agent-ci repository (consumer repositories; it is private).
-        required: false
       CLAUDE_CODE_OAUTH_TOKEN:
         required: false
       ANTHROPIC_API_KEY:
@@ -226,7 +223,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -295,7 +292,7 @@ jobs:
           if-no-files-found: error
 
       # verify-review: the built CLI for the verify job, which must not hold
-      # AGENT_CI_SOURCE_TOKEN (it runs pull-request code).
+      # model credentials (it runs pull-request code).
       - name: Pack the agent-ci helpers for the verify job
         id: helpers
         if: steps.spec-upload.outcome == 'success' && steps.gate.outputs.mode == 'verify-review'
@@ -426,7 +423,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -548,7 +545,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -658,7 +655,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -788,7 +785,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -889,7 +886,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 

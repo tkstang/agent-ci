@@ -19,7 +19,7 @@ Packs dist/, package.json, models.yaml and the runtime dependencies (each
 must itself have none) into one gzip tarball. pr-review.yml's gate job
 uploads it, and the credential-free verify job downloads it by artifact id,
 checks its sha256 and runs node dist/cli.js from it: that job runs pull
-request code, so it never receives AGENT_CI_SOURCE_TOKEN or a model secret.
+request code, so it never receives a source credential or a model secret.
 --github-output writes sha256=<hex> to $GITHUB_OUTPUT.`;
 
 type PackageJson = { dependencies?: Record<string, string> };

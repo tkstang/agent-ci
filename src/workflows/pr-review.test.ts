@@ -379,7 +379,6 @@ describe('consumer PR review template', () => {
     expect(job.secrets).not.toBe('inherit');
     expect(Object.keys((job.secrets as Record<string, unknown>) ?? {})).toEqual(
       [
-        'AGENT_CI_SOURCE_TOKEN',
         'CLAUDE_CODE_OAUTH_TOKEN',
         'OPENCODE_API_KEY',
         'AGENT_CI_PROXY_BASE_URL',

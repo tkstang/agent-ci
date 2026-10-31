@@ -108,14 +108,14 @@ The table loads only if every route passes these checks, else
    - `E_POLICY_FALLBACK`: a `paid-api` route after a skipped `subscription`
      route.
    - `E_POLICY_ACCOUNT_FALLBACK`: a `work` route after a skipped route of
-     another account. Pin it with `--harness` or `--route` if the work
-     account is intended.
+     another account. Pin it with `--harness` or `--route` if account
+     class `work` is intended.
 
 For example, `grok-4.7` has three routes: the OpenCode login route, the
-OpenCode key route, and a Cursor route on the work account. With
+OpenCode key route, and a Cursor route with `account: work`. With
 `CURSOR_API_KEY` set but neither `--seed-login` nor `OPENCODE_API_KEY`,
 `agent-ci run --model grok-4.7` stops with `E_POLICY_ACCOUNT_FALLBACK`
-rather than spend the work account; `--harness cursor` selects it
+rather than switch account classes; `--harness cursor` selects it
 deliberately.
 
 ## Policy
@@ -130,7 +130,7 @@ Each request is checked against the route and the environment
 | In CI, a Claude-family `pool` route is refused on every runner while `CI_POOL_ALLOWS_CLAUDE` is `false` in `src/routing/policy.ts`. Changing that constant alone would not let one run in a workflow; see [The proxy pool](#the-proxy-pool). | `E_POLICY_POOL_CI`                               |
 | A `login` route is local only, and needs `--seed-login`.                                                                                                                                                                                     | `E_POLICY_LOGIN_CI`, `E_CREDENTIAL_MISSING`      |
 | Every credential the route names must be set and non-empty. `agent-ci route`, the review gate and `targets` skip this check, because a workflow resolves the route before it maps the credential into the agent step.                        | `E_CREDENTIAL_MISSING`                           |
-| No fallback from subscription to paid billing, or into a work account.                                                                                                                                                                       | `E_POLICY_FALLBACK`, `E_POLICY_ACCOUNT_FALLBACK` |
+| No fallback from subscription to paid billing, or into account class `work`.                                                                                                                                                                 | `E_POLICY_FALLBACK`, `E_POLICY_ACCOUNT_FALLBACK` |
 
 The child process receives only the route's named credential variables.
 Every other known credential variable in your environment
@@ -178,7 +178,7 @@ Runner setup is in
 
 When `AGENT_CI_PROXY_BASE_URL` is set, every pool route takes its origin
 from it and keeps its own path, so the Codex pool route uses
-`https://proxy.example.com/v1` for an origin of `https://proxy.example.com`.
+`https://localhost/v1` for an origin of `https://localhost`.
 The value must be a canonical `https` origin with no trailing slash
 (`http` only for a loopback host) and is otherwise refused with
 `E_ROUTE_CONFIG`. It changes where the pool is

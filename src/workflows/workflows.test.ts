@@ -99,11 +99,10 @@ describe('run-agent.yml', () => {
     }
     expect([...WORKFLOW_MODEL_SECRETS]).toEqual(MODEL_SECRETS);
 
-    // The call passes the selected credential, two read-only tokens and,
+    // The call passes the selected credential, the read-only target token and,
     // for a pool route only, the private proxy origin.
     expect(jobs.agent?.secrets).toEqual({
       AGENT_CI_CREDENTIAL: modelChain('needs.resolve.outputs.credential'),
-      AGENT_CI_SOURCE_TOKEN: '${{ secrets.AGENT_CI_SOURCE_TOKEN }}',
       AGENT_CI_TARGET_READ_TOKEN: '${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}',
       AGENT_CI_PROXY_BASE_URL: poolOriginFor('needs.resolve.outputs.account'),
     });
@@ -118,7 +117,6 @@ describe('run-agent.yml', () => {
       ),
     ).toEqual([
       'AGENT_CI_CREDENTIAL',
-      'AGENT_CI_SOURCE_TOKEN',
       'AGENT_CI_TARGET_READ_TOKEN',
       'AGENT_CI_PROXY_BASE_URL',
     ]);
@@ -152,9 +150,7 @@ describe('run-agent.yml', () => {
         if (refs.includes('AGENT_CI_NOTIFY_WEBHOOK')) {
           expect([jobName, entry.name]).toEqual(['publish', 'Notify']);
         }
-        if (refs.includes('AGENT_CI_SOURCE_TOKEN')) {
-          expect(entry.name).toBe('Check out the agent-ci helpers');
-        }
+        expect(refs).not.toContain('AGENT_CI_SOURCE_TOKEN');
       }
     }
   });
@@ -190,9 +186,7 @@ describe('run-agent.yml', () => {
       expect(helpers.with?.ref).toBe(
         '${{ inputs.agent_ci_ref || job.workflow_sha }}',
       );
-      expect(helpers.with?.token).toBe(
-        '${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}',
-      );
+      expect(helpers.with?.token).toBe('${{ github.token }}');
     }
     for (const job of [jobs.resolve, await agentJob()]) {
       expect(job?.steps?.[0]?.name).toBe('Require a resolvable helper ref');
@@ -547,10 +541,7 @@ describe('consumer template', () => {
     );
     // Helpers follow the uses: pin; no second pin to drift.
     expect(job.with?.agent_ci_ref).toBeUndefined();
-    expect(Object.keys(job.secrets ?? {})).toEqual([
-      'AGENT_CI_SOURCE_TOKEN',
-      'CLAUDE_CODE_OAUTH_TOKEN',
-    ]);
+    expect(Object.keys(job.secrets ?? {})).toEqual(['CLAUDE_CODE_OAUTH_TOKEN']);
     expect(job.secrets).not.toBe('inherit');
   });
 });

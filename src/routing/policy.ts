@@ -7,7 +7,7 @@ import type { Route } from '@agent-ci/routing/schema.js';
  *
  * - Claude models run only in the Claude Code harness.
  * - No automatic fallback from a subscription route to paid API billing.
- * - No automatic fallback into a work account.
+ * - No automatic fallback into the `work` account class.
  * - `pool` routes need an explicit opt-in; under CI they are allowed only on
  *   a self-hosted runner and never for a Claude model ({@link checkPoolPolicy}).
  * - Login-seeded routes are local only.

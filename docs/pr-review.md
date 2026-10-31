@@ -221,10 +221,10 @@ is off unless the caller sets `verify: true`.
 2. **Request it** with `/agent-ci-verify-review` or the
    `agent-ci:verify-review` label.
 3. **The verify job runs the checks** on the pull request head before any
-   reviewer starts. It holds no model credential and no
-   `AGENT_CI_SOURCE_TOKEN` (agent-ci arrives as a digest-pinned bundle from
-   the gate job); the job's read-only `GITHUB_TOKEN` and Actions runtime
-   token remain. It runs on a GitHub-hosted runner unless
+   reviewer starts. It holds no model credential. agent-ci arrives as a
+   digest-pinned bundle from the gate job; the job's read-only
+   `GITHUB_TOKEN` and Actions runtime token remain. It runs on a
+   GitHub-hosted runner unless
    `verify_on_self_hosted: true`, which is meant only for ephemeral runners
    (agent-ci cannot check that a runner is ephemeral), and it is refused
    in CI with `allow_pool: true`. The optional `setup` command runs first,

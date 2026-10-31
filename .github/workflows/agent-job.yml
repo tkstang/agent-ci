@@ -91,8 +91,6 @@ on:
       AGENT_CI_CREDENTIAL:
         description: The resolved route's model credential, selected by run-agent.yml.
         required: false
-      AGENT_CI_SOURCE_TOKEN:
-        required: false
       AGENT_CI_TARGET_READ_TOKEN:
         required: false
       AGENT_CI_PROXY_BASE_URL:
@@ -143,7 +141,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 

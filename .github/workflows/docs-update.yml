@@ -97,8 +97,6 @@ on:
         type: string
         default: ''
     secrets:
-      AGENT_CI_SOURCE_TOKEN:
-        required: false
       AGENT_CI_TARGET_TOKEN:
         required: false
       AGENT_CI_TARGET_READ_TOKEN:
@@ -165,7 +163,6 @@ jobs:
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
       agent_ci_ref: ${{ inputs.agent_ci_ref }}
     secrets:
-      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
       AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
       AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

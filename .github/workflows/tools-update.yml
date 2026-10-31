@@ -5,9 +5,8 @@
 # Jobs with separate authority (resolve and publish are the same as in
 # run-agent.yml):
 # - resolve: no repository code; the target repository, commit and base.
-# - run:     contents: read, no model credential. It holds
-#            AGENT_CI_SOURCE_TOKEN (helper checkout) and, for a private
-#            target in another repository, AGENT_CI_TARGET_READ_TOKEN, and it
+# - run:     contents: read, no model credential. For a private target in
+#            another repository, it holds AGENT_CI_TARGET_READ_TOKEN, and it
 #            runs npm code: `agent-ci tools-update` runs the pinned OAT CLI
 #            from npm with a temporary HOME, refuses changes outside the
 #            dependency policy, and uploads run-result.json, run-log.jsonl
@@ -95,9 +94,6 @@ on:
         type: string
         default: ''
     secrets:
-      AGENT_CI_SOURCE_TOKEN:
-        description: Contents read on the agent-ci repository (consumer repositories; it is private).
-        required: false
       AGENT_CI_TARGET_TOKEN:
         description: >-
           Contents and pull-requests write on target_repository when it is another
@@ -151,7 +147,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -213,7 +209,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -284,7 +280,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
