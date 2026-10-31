@@ -38,12 +38,12 @@ gaps are tracked in the [backlog](../.oat/repo/pjm/backlog/index.md).
 
 ### run-agent.yml
 
-| Job                       | Repository code       | Model credential                            | GitHub write                | Other tokens                                                                                                 |
-| ------------------------- | --------------------- | ------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `resolve`                 | none                  | none                                        | none                        | `GITHUB_TOKEN`; for another repository `AGENT_CI_TARGET_TOKEN` and the read-only target token (checked here) |
-| `setup`                   | runs `setup_command`  | none                                        | none                        | read-only target token for a private other repository                                                        |
-| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)     | read-only target token; `AGENT_CI_PROXY_BASE_URL` for a pool route only                                      |
-| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests` | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`; optional `AGENT_CI_NOTIFY_WEBHOOK`                                |
+| Job                       | Repository code       | Model credential                            | GitHub write                               | Other tokens                                                                                                 |
+| ------------------------- | --------------------- | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `resolve`                 | none                  | none                                        | target-token scopes for another repository | `GITHUB_TOKEN`; for another repository `AGENT_CI_TARGET_TOKEN` and the read-only target token (checked here) |
+| `setup`                   | runs `setup_command`  | none                                        | none                                       | read-only target token for a private other repository                                                        |
+| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)                    | read-only target token; `AGENT_CI_PROXY_BASE_URL` for a pool route only                                      |
+| `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests`                | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`; optional `AGENT_CI_NOTIFY_WEBHOOK`                                |
 
 The agent job sits behind its own `workflow_call` boundary
 (`agent-job.yml`), which declares only three secrets: the selected model
