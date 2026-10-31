@@ -1,14 +1,32 @@
 # agent-ci
 
-Run a chosen model through Claude Code, Codex, OpenCode or Cursor against a
-repository, from GitHub Actions or the command line, and publish the result
-as a pull request, a comment or a pull-request review.
+agent-ci is a toolkit for automating repository work with coding agents.
+Run a prompt against a Git repository and publish the result as a pull
+request, a comment or a code review, locally or from GitHub Actions.
 
-agent-ci is a TypeScript CLI (`agent-ci`) and a set of reusable GitHub
-Actions workflows that call it. A checked-in routing table (`models.yaml`)
-decides which harness, credential and account each model uses, and enforces
-the routing policy: Claude models run only in Claude Code, and no run falls
-back from a subscription to paid API billing.
+It provides a TypeScript CLI and reusable GitHub Actions workflows, with
+integrations for **Claude Code, Codex, OpenCode and Cursor**. The workflows
+coordinate repository setup, agent execution and publishing. A checked-in
+routing table (`models.yaml`) selects the model's harness, credentials and
+account under an enforced routing policy.
+
+Use these capabilities for your own automation, or start with the included
+integrations below.
+
+## Included integrations
+
+| Integration                              | What it does                                                                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [Prompt-driven tasks](docs/workflows.md) | Run a chosen model on a task and optionally publish its changes as a pull request.                                       |
+| [Pull-request review](docs/pr-review.md) | Review changes on request, with optional independent reviewers and repository check results.                             |
+| [OAT maintenance](docs/workflows.md)     | Use Open Agent Toolkit (OAT) to update documentation, agent instructions or installed tools through dedicated workflows. |
+| [Fleet maintenance](docs/fleet-repo.md)  | Run maintenance across a configured list of repositories on a schedule or on demand.                                     |
+
+Copy a caller from [`consumer-workflows/`](consumer-workflows/) into your
+repository, pin the agent-ci commit and configure the credentials its
+selected route needs. [Workflows](docs/workflows.md) describes the reusable
+interfaces and templates. The OAT tools-update workflow is deterministic
+and needs no model credential.
 
 ## Quick start
 
@@ -25,16 +43,9 @@ node /path/to/agent-ci/dist/cli.js run --model fake-echo --prompt "Summarize thi
 It writes `.agent-ci/run-result.json`, `run-log.jsonl` and `prompt.md`.
 [Getting started](docs/getting-started.md) continues with a real model.
 
-## What it does
-
-| Capability                                                                                                 | Entry point                                                                     |
-| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Run one prompt with a model, locally or in Actions                                                         | `agent-ci run`, `run-agent.yml`                                                 |
-| AI pull-request review on request, with an optional verify-review mode that cites repository check results | `agent-ci review run`, `pr-review.yml`                                          |
-| OAT docs, agent-instructions and tools updates for one repository or a fleet                               | `docs-update.yml`, `instructions-update.yml`, `tools-update.yml`, `fan-out.yml` |
-| Inspect harnesses, credentials and routes                                                                  | `agent-ci doctor`, `agent-ci models`, `agent-ci route`                          |
-
-Run `agent-ci --help` for every command.
+Run `agent-ci --help` for every command. Use `agent-ci models`,
+`agent-ci route` and `agent-ci doctor` to inspect the available models,
+routing and local setup.
 
 ## Documentation
 
