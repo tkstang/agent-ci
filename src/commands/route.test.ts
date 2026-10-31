@@ -7,6 +7,7 @@ import {
   appendGithubOutput,
   appendGithubPath,
 } from '@agent-ci/commands/github.js';
+import { DEFAULT_MODELS_PATH } from '@agent-ci/paths.js';
 import { parseModelsFile } from '@agent-ci/routing/resolve.js';
 import {
   CREDENTIAL_TRANSPORT_ENV,
@@ -130,6 +131,7 @@ describe('agent-ci route', () => {
     });
     expect(await readFile(output, 'utf8')).toBe(
       [
+        'transport=harness',
         'route_id=claude-personal',
         'model=claude-x',
         'harness=claude',
@@ -139,6 +141,75 @@ describe('agent-ci route', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  it('exposes only a safe purpose-specific transport and refuses unsupported adjudicators before writing outputs', async () => {
+    const { dir, output } = await setup();
+    const env = {
+      CI: 'true',
+      RUNNER_ENVIRONMENT: 'self-hosted',
+      GITHUB_OUTPUT: output,
+      AGENT_CI_PROXY_BASE_URL: 'http://127.0.0.1:43871',
+    };
+    const flags = [
+      '--models',
+      DEFAULT_MODELS_PATH,
+      '--allow-pool',
+      '--github-output',
+    ];
+    const ordinary = await run(
+      ['route', '--model', 'gpt-6.1-sol-low', ...flags],
+      ctx(dir, env),
+    );
+    expect(ordinary.envelope).toMatchObject({
+      ok: true,
+      data: { transport: 'harness' },
+    });
+    await writeFile(output, '');
+    const direct = await run(
+      [
+        'route',
+        '--purpose',
+        'adjudicator',
+        '--model',
+        'gpt-6.1-sol-low',
+        ...flags,
+      ],
+      ctx(dir, env),
+    );
+    expect(direct.envelope).toMatchObject({
+      ok: true,
+      data: {
+        transport: 'adjudicator-responses',
+        route: { harness: 'codex', qualified: null },
+      },
+    });
+    expect(await readFile(output, 'utf8')).toContain(
+      'transport=adjudicator-responses',
+    );
+    expect(JSON.stringify(direct.envelope)).not.toContain(
+      env.AGENT_CI_PROXY_BASE_URL,
+    );
+    expect(await readFile(output, 'utf8')).not.toContain(
+      env.AGENT_CI_PROXY_BASE_URL,
+    );
+    await writeFile(output, '');
+    const refused = await run(
+      [
+        'route',
+        '--purpose',
+        'adjudicator',
+        '--model',
+        'gpt-6.1-sol-high',
+        ...flags,
+      ],
+      ctx(dir, env),
+    );
+    expect(refused.envelope).toMatchObject({
+      ok: false,
+      code: 'E_POLICY_HARNESS',
+    });
+    expect(await readFile(output, 'utf8')).toBe('');
   });
 
   it('writes an empty credential for the fake harness', async () => {

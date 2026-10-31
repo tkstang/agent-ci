@@ -28,7 +28,7 @@
 # - adjudicate:  contents: read, isolated by review-adjudicate.yml with only
 #                its selected credential and pool origin. Sources come from the git database API (trees and blobs) in a
 #                step without the model credential; the adjudicator runs
-#                tool-free (Claude only) in an empty scratch directory. No
+#                tool-free (Claude or direct Sol Low pool Responses) in an empty scratch directory. No
 #                PR checkout.
 # - findings:    contents/pull-requests: read. Deterministic gate over the
 #                digest-bound artifacts with sources from the git database API (trees and blobs).
@@ -70,7 +70,7 @@ on:
         type: string
         default: claude-opus-5-5-high
       adjudicator:
-        description: Run the tool-free adjudicator (Claude routes only) on every request.
+        description: Run the tool-free adjudicator (Claude or Sol Low pool) on every request.
         type: boolean
         default: false
       adjudicator_model:
@@ -336,7 +336,7 @@ jobs:
         env:
           MODEL: ${{ steps.gate.outputs.adjudicator_model }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
-        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
+        run: agent-ci route --purpose adjudicator --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       # verify-review: the built CLI for the verify job, which must not hold
       # model credentials (it runs pull-request code).

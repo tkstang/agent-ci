@@ -10,6 +10,7 @@ import { appendGithubOutput } from '@agent-ci/commands/github.js';
 import type { CommandSpec } from '@agent-ci/commands/types.js';
 import { CliError } from '@agent-ci/errors.js';
 import { DEFAULT_MODELS_PATH } from '@agent-ci/paths.js';
+import { adjudicatorTransport } from '@agent-ci/routing/adjudicator.js';
 import { loadModelsFile, resolveRoute } from '@agent-ci/routing/resolve.js';
 import { HARNESS_IDS } from '@agent-ci/routing/schema.js';
 
@@ -40,12 +41,14 @@ passes only that credential to the agent step.
 Flags:
   --model <key> | --route <id>   What to resolve (one required).
   --harness <id>                 Pin a harness.
+  --purpose adjudicator          Require an eligible tool-free adjudicator and
+                                 report its transport (no endpoint).
   --allow-pool                   Allow a proxy-pool route (in CI only on a
                                  self-hosted runner).
   --allow-pool-value <true|false>
                                  The same as a value (workflow inputs).
   --models <path>                Routing table (default: packaged models.yaml).
-  --github-output                Also write route_id, model, harness, account,
+  --github-output                Also write transport, route_id, model, harness, account,
                                  billing and credential (the single credential
                                  variable name, empty for none) to
                                  $GITHUB_OUTPUT. Refuses a route that names
@@ -70,6 +73,7 @@ export const routeCommand: CommandSpec = {
         'allow-pool-value': { type: 'string' },
         models: { type: 'string' },
         'github-output': { type: 'boolean' },
+        purpose: { type: 'string' },
       },
       USAGE,
     );
@@ -100,6 +104,19 @@ export const routeCommand: CommandSpec = {
     });
     if (!resolved.ok) throw CliError.fromFailure(resolved);
     const { route } = resolved.value;
+    const purpose = oneOf(flags.purpose, '--purpose', ['adjudicator'] as const);
+    const selected =
+      purpose === 'adjudicator'
+        ? adjudicatorTransport(route, {
+            allowPool: poolOptIn(flags),
+            seedLogin: false,
+            requireCredentials: false,
+            env: context.env,
+          })
+        : undefined;
+    if (selected !== undefined && !selected.ok)
+      throw CliError.fromFailure(selected);
+    const transport = selected?.value ?? 'harness';
     if (flags['github-output'] === true) {
       if (route.credentials.length > 1) {
         throw new CliError(
@@ -121,6 +138,7 @@ export const routeCommand: CommandSpec = {
         );
       }
       await appendGithubOutput(context.env, {
+        transport,
         route_id: route.id,
         model: route.model,
         harness: route.harness,
@@ -141,6 +159,7 @@ export const routeCommand: CommandSpec = {
         login: route.login,
         qualified: route.qualified,
       },
+      transport,
       selectedBy: resolved.value.selectedBy,
       skipped: resolved.value.skipped,
     };

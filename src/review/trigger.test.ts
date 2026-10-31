@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 
+import { DEFAULT_MODELS_PATH } from '@agent-ci/paths.js';
 import { validateIdentity } from '@agent-ci/review/contracts.js';
 import { FakeGithub } from '@agent-ci/review/testing/fake-github.js';
 import {
@@ -13,6 +14,7 @@ import {
   parsePolicy,
   resolvePrReviewTrigger,
 } from '@agent-ci/review/trigger.js';
+import { loadModelsFile } from '@agent-ci/routing/resolve.js';
 import { parseModelsFile } from '@agent-ci/routing/resolve.js';
 import { describe, expect, it } from 'vitest';
 
@@ -516,6 +518,35 @@ describe('configureRequest', () => {
       status: 'planned',
       config: { adjudicator: { enabled: true, model: 'claude-haiku-4-5' } },
     });
+  });
+
+  it('plans the exact Sol Low adjudicator and refuses a forged route alias or effort before execution', async () => {
+    const loaded = await loadModelsFile(DEFAULT_MODELS_PATH);
+    if (!loaded.ok) throw new Error(loaded.message);
+    const options = {
+      models: loaded.value,
+      allowPool: true,
+      env: { CI: 'true', RUNNER_ENVIRONMENT: 'self-hosted' },
+      allowedModels: ['claude-haiku-4-5', 'gpt-6.1-sol-low'],
+    };
+    const command = '/agent-ci-review adjudicator_model=gpt-6.1-sol-low';
+    expect(configure(command, options)).toMatchObject({ status: 'planned' });
+    for (const change of [
+      { effort: 'high' },
+      { providerModel: 'gpt-5.6-luna' },
+      { account: 'personal' as const },
+    ]) {
+      const models = {
+        ...loaded.value,
+        routes: loaded.value.routes.map((route) =>
+          route.model === 'gpt-6.1-sol-low' ? { ...route, ...change } : route,
+        ),
+      };
+      expect(configure(command, { ...options, models })).toMatchObject({
+        status: 'failed',
+        failure: { detail: expect.stringContaining('tool-free') },
+      });
+    }
   });
 
   it('blames the requester for a model name with invalid syntax', () => {

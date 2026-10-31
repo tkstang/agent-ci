@@ -97,7 +97,7 @@ Stages (each one job step in pr-review.yml):
               (model credential; no GitHub token).
   sources     Fetch the cited source the adjudicator will see (GitHub
               token; no model credential, no checkout).
-  adjudicate  Run the tool-free adjudicator (Claude only; model credential).
+  adjudicate  Run the tool-free adjudicator (Claude or Sol Low pool; model credential).
   findings    Gate every pass and the adjudication deterministically
               (read-only GitHub token; no checkout).
   publish     Post one inline review and the summary comment (GitHub token;
@@ -777,7 +777,7 @@ async function sources(
   });
 }
 
-const ADJUDICATE_USAGE = `agent-ci review adjudicate — the tool-free adjudicator (Claude only).
+const ADJUDICATE_USAGE = `agent-ci review adjudicate — the tool-free adjudicator (Claude or Sol Low pool).
 
   --spec-dir --spec-sha256 --repo     The prepared spec.
   --primary-dir --primary-digest      Each pass's artifact and digest.
@@ -1091,7 +1091,7 @@ const RUN_USAGE = `agent-ci review run — a whole PR review on this machine.
   --cwd <dir>                  A local clone with that repository as origin.
   --model <model>              Primary reviewer (required).
   --second-model <model>       Turn the second reviewer on.
-  --adjudicator-model <model>  Turn the adjudicator on (Claude only).
+  --adjudicator-model <model>  Turn the adjudicator on (Claude or Sol Low pool).
   --instruction <text>         Request instruction.
   --allow-pool | --allow-pool-value <true|false>
                                Let pool models resolve (in CI only on a

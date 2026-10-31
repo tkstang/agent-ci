@@ -61,14 +61,14 @@ digest matches the one the agent job recorded.
 
 ### pr-review.yml
 
-| Job                               | Pull-request code                                                       | Model credential                                                             | GitHub write                  |
-| --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------- |
-| `gate`                            | no checkout                                                             | none                                                                         | label, reaction and one reply |
-| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain    | none (`contents: read`)       |
-| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | only the route's credential, plus `AGENT_CI_PROXY_BASE_URL` for a pool route | none                          |
-| `adjudicate`                      | no checkout; sources come from the git database API                     | only the route's credential and pool-only origin, tool-free Claude run       | none                          |
-| `findings`                        | no checkout                                                             | none                                                                         | none (read-only token)        |
-| `publish`                         | no checkout                                                             | none                                                                         | review and summary comment    |
+| Job                               | Pull-request code                                                       | Model credential                                                                                                          | GitHub write                  |
+| --------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `gate`                            | no checkout                                                             | none                                                                                                                      | label, reaction and one reply |
+| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain                                                 | none (`contents: read`)       |
+| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | only the route's credential, plus `AGENT_CI_PROXY_BASE_URL` for a pool route                                              | none                          |
+| `adjudicate`                      | no checkout; sources come from the git database API                     | only the route's credential and pool-only origin, tool-free Claude/fake harness or exact Sol Low pool Responses transport | none                          |
+| `findings`                        | no checkout                                                             | none                                                                                                                      | none (read-only token)        |
+| `publish`                         | no checkout                                                             | none                                                                                                                      | review and summary comment    |
 
 The reviewer jobs call `review-pass.yml`; the adjudicator calls
 `review-adjudicate.yml`. Each child declares only `AGENT_CI_CREDENTIAL`
@@ -230,6 +230,18 @@ credential over the network.
   removed and may only drop or downgrade findings: it cannot add any or
   change protected ones (`high`, `critical`, or at or above
   `fail_on_severity`), and the findings gate enforces these limits again.
+- The direct adjudicator is limited to Sol 6.1 Low on the subscription pool.
+  It posts only to the selected proxy's `/v1/responses`, refuses redirects,
+  sends no tools, disables storage and streaming, and requests the strict
+  adjudication schema. A single deadline covers headers and body; response
+  and error bodies share the existing output bound. HTTP errors never
+  retain raw bodies, headers or fetch causes. Output credentials and private
+  origin/hostname echoes fail before any accepted answer is persisted,
+  including echoes in reasoning or fields semantic acceptance would strip.
+  Only bounded transient retries on the same route are allowed; auth errors
+  are never retried and there is no paid fallback. Response IDs never become
+  CLI session IDs; one repair uses bounded local prompt/answer context with
+  the same model, credential and posture. Claude remains Claude Code only.
 
 ## Verify-review
 

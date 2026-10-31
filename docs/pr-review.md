@@ -122,15 +122,17 @@ flowchart LR
    run commands in the checkout (see
    [Security model](security-model.md#residual-risk)).
 3. **Adjudicator** (`review sources`, then `review adjudicate`), when
-   `adjudicator` is on: a Claude route with every tool removed reads the
+   `adjudicator` is on: a tool-free Claude/fake harness or the narrow
+   Sol Low pool Responses transport reads the
    candidate findings and their cited source, fetched without a checkout,
    in an empty scratch directory. Its `review-adjudicate.yml` runner
    receives only the selected credential and pool-only origin. It may only
    drop or downgrade a finding. It cannot add findings or
    change protected ones (`high`, `critical`, or at or above
    `fail_on_severity`), and the findings gate enforces these limits again;
-   if adjudication fails, nothing from it is applied. It runs only on a
-   harness with a verified tool-free mode, which today is Claude.
+   if adjudication fails, nothing from it is applied. Sol Low uses native
+   fetch with no tools; it does not execute Codex CLI. See
+   [adjudicator routing](harnesses-and-routing.md#harnesses).
 4. **Findings gate** (`review findings`): a deterministic check over every
    pass and the adjudication. It drops findings whose quoted source does not
    match the file at the captured commits, whose line range or diff position
@@ -163,12 +165,15 @@ secrets. `runs_on` still defaults to `ubuntu-latest` and pool opt-in to
 `false`; leaving them unchanged refuses the pool route. The new routes
 remain unqualified until their live checks pass.
 
-Sol Low adjudication is the intended default but is not yet available: the
-pinned Codex harness has no verified tool-free mode, so enabling that pass
-currently fails closed. Leave `adjudicator: false` until a tool-free Sol
-transport is implemented and qualified. A personal caller can then enable
-it with `adjudicator: true`; keep `second_reviewer: false` so Opus runs only
-on request. The generic consumer template leaves both optional passes off.
+Sol Low adjudication uses the existing subscription pool directly through
+Responses, with `tools: []`, `tool_choice: none`, low effort and a strict
+adjudication schema. It retains the run supervisor, guarded artifacts and
+one structured repair opportunity using bounded local prompt/answer context;
+it never resumes a Codex CLI session. Local protocol tests cover the request
+and lifecycle; live proxy compatibility remains unqualified. A caller may
+explicitly enable it with `adjudicator: true`; keep
+`second_reviewer: false` so Opus runs only on request. The generic consumer
+template leaves both optional passes off.
 
 Selected `pr-review.yml` inputs; the workflow file has every input:
 
@@ -176,7 +181,7 @@ Selected `pr-review.yml` inputs; the workflow file has every input:
 | ------------------------------------------------------ | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `reviewer_model`                                       | `gpt-6.1-sol-high`                                            | Primary reviewer.                                                                                                           |
 | `second_reviewer`, `second_reviewer_model`             | `false`, `claude-opus-5-5-high`                               | Run an independent second pass on every request.                                                                            |
-| `adjudicator`, `adjudicator_model`                     | `false`, `gpt-6.1-sol-low`                                    | Run the adjudicator on every request (Claude routes only).                                                                  |
+| `adjudicator`, `adjudicator_model`                     | `false`, `gpt-6.1-sol-low`                                    | Run the adjudicator on every request (Claude or exact Sol Low pool route).                                                  |
 | `allowed_models`                                       | `gpt-6.1-sol-high`, `claude-opus-5-5-high`, `gpt-6.1-sol-low` | Models a request may select (newline- or comma-separated).                                                                  |
 | `allowed_pr_authors`                                   | empty                                                         | Bot logins whose pull requests may be reviewed.                                                                             |
 | `repo_guidance`, `repo_guidance_path`, `context_paths` | empty                                                         | Review guidance appended to agent-ci's baseline, a guidance file read from the PR head, and paths the reviewer reads first. |

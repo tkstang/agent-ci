@@ -287,6 +287,20 @@ export const ADJUDICATION_ANSWER_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+/** Responses strict schemas require every property, including nullable ones. */
+export const ADJUDICATION_RESPONSES_SCHEMA = {
+  ...ADJUDICATION_ANSWER_SCHEMA,
+  properties: {
+    operations: {
+      ...ADJUDICATION_ANSWER_SCHEMA.properties.operations,
+      items: {
+        ...ADJUDICATION_ANSWER_SCHEMA.properties.operations.items,
+        required: ['candidate_id', 'op', 'to_severity', 'reason', 'references'],
+      },
+    },
+  },
+} as const;
+
 /** Contract reason codes, explained for the adjudicator. */
 const PROBLEMS: Record<string, string> = {
   schema:

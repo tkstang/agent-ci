@@ -51,6 +51,7 @@ import {
   type ReviewPolicyInputs,
 } from '@agent-ci/review/trigger.js';
 import { runVerify } from '@agent-ci/review/verify.js';
+import { adjudicatorTransport } from '@agent-ci/routing/adjudicator.js';
 import { loadModelsFile } from '@agent-ci/routing/resolve.js';
 import { findWorkspaceRoot } from '@agent-ci/run/workspace.js';
 
@@ -275,23 +276,34 @@ async function localReview(
   let bridgePin: PinnedHarness | undefined;
   if (record.config.mode === 'verify-review') {
     const reviewModels = [
-      record.config.primary.model,
-      ...(record.config.second.enabled ? [record.config.second.model] : []),
+      { model: record.config.primary.model, adjudicator: false },
+      ...(record.config.second.enabled
+        ? [{ model: record.config.second.model, adjudicator: false }]
+        : []),
       ...(record.config.adjudicator.enabled
-        ? [record.config.adjudicator.model]
+        ? [{ model: record.config.adjudicator.model, adjudicator: true }]
         : []),
     ];
-    for (const model of reviewModels) {
+    for (const pass of reviewModels) {
       const resolved = await resolveReviewRoute({
-        model,
+        model: pass.model,
         allowPool: options.allowPool,
-        seedLogin: options.seedLogin,
+        seedLogin: pass.adjudicator ? false : options.seedLogin,
         modelsPath: options.modelsPath,
         env: options.env,
         credentialFromEnv: false,
         role: 'review model',
       });
       if (!resolved.ok) return resolved;
+      if (pass.adjudicator) {
+        const transport = adjudicatorTransport(resolved.value.route, {
+          allowPool: options.allowPool,
+          seedLogin: false,
+          env: resolved.value.env,
+        });
+        if (!transport.ok) return transport;
+        if (transport.value === 'adjudicator-responses') continue;
+      }
       const harness = resolved.value.route.harness;
       if (harness === 'fake' || pins.has(harness)) continue;
       const pinned = await pinHarness(
@@ -305,6 +317,7 @@ async function localReview(
   }
   const launchDeps = async (
     model: string,
+    adjudicator = false,
   ): Promise<Result<Parameters<typeof runReviewPass>[1]>> => {
     if (bridgePin !== undefined) {
       const bridge = await verifyPin(bridgePin);
@@ -313,13 +326,22 @@ async function localReview(
     const resolved = await resolveReviewRoute({
       model,
       allowPool: options.allowPool,
-      seedLogin: options.seedLogin,
+      seedLogin: adjudicator ? false : options.seedLogin,
       modelsPath: options.modelsPath,
       env: options.env,
       credentialFromEnv: false,
       role: 'review model',
     });
     if (!resolved.ok) return resolved;
+    if (adjudicator) {
+      const transport = adjudicatorTransport(resolved.value.route, {
+        allowPool: options.allowPool,
+        seedLogin: false,
+        env: resolved.value.env,
+      });
+      if (!transport.ok) return transport;
+      if (transport.value === 'adjudicator-responses') return success({});
+    }
     const pin = pins.get(resolved.value.route.harness);
     if (pin === undefined) return success({});
     const unchanged = await verifyPin(pin);
@@ -457,7 +479,7 @@ async function localReview(
   let adjudicatorRecord = null;
   if (record.config.adjudicator.enabled) {
     const adjudicationDir = path.join(outDir, 'adjudication');
-    const deps = await launchDeps(record.config.adjudicator.model);
+    const deps = await launchDeps(record.config.adjudicator.model, true);
     if (!deps.ok) return deps;
     const ran = await runAdjudicator(
       {

@@ -25,6 +25,7 @@ import {
   MODEL_NAME,
   type ResolvedRequestConfig,
 } from '@agent-ci/review/request.js';
+import { adjudicatorTransport } from '@agent-ci/routing/adjudicator.js';
 import { isCiEnvironment } from '@agent-ci/routing/policy.js';
 import { resolveRoute } from '@agent-ci/routing/resolve.js';
 import type { ModelsFile } from '@agent-ci/routing/schema.js';
@@ -39,8 +40,8 @@ import type { ModelsFile } from '@agent-ci/routing/schema.js';
  *    notice; lookup failures fail closed.
  * 2. `configureRequest`: parse the command, resolve each pass's model, and
  *    check every selected model against `allowed_models` and the routing
- *    table under this environment's policy (the adjudicator only on a
- *    harness with a verified tool-free posture).
+ *    table under this environment's policy (the adjudicator needs a
+ *    tool-free harness or the exact Sol Low pool Responses route).
  * 3. `acknowledgeRequest`: consume the trigger label, then either reply once
  *    and stop, or add `eyes` and bind the request.
  *
@@ -794,11 +795,16 @@ export function configureRequest(input: {
       );
     if (
       pass.adjudicator &&
-      !adapterFor(resolved.value.route.harness).supportsNoTools
+      !adjudicatorTransport(resolved.value.route, {
+        allowPool: input.allowPool === true,
+        seedLogin: false,
+        env: input.env,
+        requireCredentials: false,
+      }).ok
     )
       return fail(
         route,
-        `the adjudicator model ${shown} runs on ${resolved.value.route.harness}; the adjudicator runs only on a harness with a verified tool-free posture (Claude).`,
+        `the adjudicator model ${shown} runs on ${resolved.value.route.harness}; the adjudicator needs a tool-free Claude/fake harness or the exact Sol Low subscription pool route.`,
       );
   }
   return { status: 'planned', config };
