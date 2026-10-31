@@ -37,8 +37,8 @@
    Implemented original Git-context pinning and per-pass reviewer/adjudicator
    credential boundaries, shared severity/command rules and an early local
    trust check. All six areas have evidence-backed dispositions in the
-   archived record; no workflow inputs were removed. Pending independent
-   review and merge.
+   archived record; no workflow inputs were removed. Independently reviewed
+   and merged in PR #5.
 5. [**BL-261025-fleet-repositories-merged — Fleet repositories: merged target lists and protected artifacts**](../items/BL-261025-fleet-repositories-merged.md).
    Deliver validated file/JSON target merging, private-target log protection,
    optional authenticated encryption across every artifact path, and public
@@ -102,7 +102,9 @@ for Sol Low is prepared in [draft #7](https://github.com/tkstang/agent-ci/pull/7
 head `cf3b94da842345b6cd5da93b7790ae2285345362`, with shared eligibility gates,
 strict structured output, no tools, no redirects or paid fallback, bounded
 bodies/retries/deadlines, and existing artifact/leak guards. Its local worktree gate passed 1,034 tests and required checks; hosted verify
-and actionlint passed. Independent security/integration review is pending.
+and actionlint passed. Independent correctness/security review found no defects. Testing/docs review
+identified a credential-table correction and discarded-envelope leak regression
+coverage; both follow-ups are prepared for independent confirmation.
 No live transport proof is claimed. The operator's reviewer-plus-adjudicator caller still needs
 that delivery and live acceptance.
 
