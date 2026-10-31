@@ -182,7 +182,7 @@ A target may set `private` (default `false`), `base`, `model`, `harness`,
 (default: every preset) and `inputs` (`setupCommand`, `skillsOatPacks`,
 `timeoutMinutes` 1-360, `maxAttempts` 1-5, `oatCliVersion`,
 `dependencyPolicy`, `prTitle`, `publishBranch` under `agent-ci/`).
-`targets.example.yaml` shows every field. Validation does not check that the
+`targets.example.yaml` shows an expanded example. Validation does not check that the
 caller passes each route's model secret, so add one `secrets:` line per
 credential your targets' routes name. Validate a file locally:
 
