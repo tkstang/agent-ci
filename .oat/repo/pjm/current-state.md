@@ -57,3 +57,11 @@ does not admit the private fleet, so its existing pilot alone will not supply
 an agent-ci runner. Target-token provisioning and privileged host admission
 remain user-owned. Publisher-token support and native Codex persistent login
 remain Next, outside this delivery goal.
+
+Prepared 2026-10-31: reviewer defaults/Claude pool PR #3, runner labels/routing
+PR #4 and credential/Git simplification PR #5 are independently reviewed and
+await merge approval. Their implementation deliveries archive the Claude-only
+and simplification items. Fleet target merging/private-output controls are
+prepared next; encrypted artifacts, Sol tool-free adjudication and external
+runner/caller work remain gated. See the active goal for exact evidence and
+pending choices. No live runner/model acceptance is implied by local tests.

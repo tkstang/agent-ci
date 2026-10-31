@@ -1,6 +1,6 @@
 ---
 id: BL-261025-fleet-repositories-merged
-title: "Fleet repositories: merged target lists and protected artifacts"
+title: 'Fleet repositories: merged target lists and protected artifacts'
 status: open
 priority: high
 scope: feature
@@ -30,3 +30,13 @@ Support the two-fleet setup (public agent-ci-fleet on GitHub-hosted runners, pri
 ## Progress
 
 - 2026-10-30: the private fleet `tkstang/agent-ci-private-fleet` exists and runs `fan-out.yml` pinned to a commit SHA, on GitHub-hosted runners until a self-hosted runner is admitted. It uses `targets_file` only. `targets_json`, artifact encryption, private-target log suppression, the public fleet and the two templates are not started.
+
+- 2026-10-31: prepared ordered `targets_json` append with combined schema,
+  uniqueness, owner and bounds checks; explicit JSON-only mode; per-target
+  private-output controls across CLI payloads/errors, diagnostics, review step
+  summaries and setup stdout/stderr; public and private caller templates.
+  No target repositories were chosen or external callers changed. Artifacts
+  remain plaintext. The [transport choice](../reviews/fleet-confidentiality-design.md)
+  is pending because a shared key in PR/setup runners would alter their
+  credential boundary. Encryption and live acceptance remain open; this item
+  is not archived.
