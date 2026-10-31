@@ -21,8 +21,9 @@ copying their content here. -->
 ## What's Implemented
 
 Current baseline (2026-10-31): the public repository was recreated with root
-`8ecf26a`; `main` at `2c9c777` includes README/publishing PRs #1–#2 and
-reviewer, runner/routing, simplification and fleet/private-output PRs #3–#6.
+`8ecf26a`; `main` at `50d8e80` includes README/publishing PRs #1–#2,
+reviewer, runner/routing, simplification and fleet/private-output PRs #3–#6,
+and direct Sol Low adjudication PR #7.
 Public-source cleanup is complete. Earlier PR numbers and commit pins
 in the historical snapshot below belong to the previous repository history.
 
@@ -35,7 +36,7 @@ As of 2026-10-30. agent-ci-v1 (phases p01-p06) merged as PR #25 on 2026-10-26; P
 - **Routing** (`models.yaml`, `src/routing/`): explicit model `family`; cheap OpenCode Go routes (`deepseek-v4.1-flash-opencode`, `glm-5.3-flash-opencode`, `grok-4.7-opencode`) for fleets; an optional `AGENT_CI_PROXY_BASE_URL` secret replaces the loopback origin of every pool route (origin only, masked, passed only to pool-route agent and review steps); Claude only on the claude harness; no subscription-to-paid fallback or automatic fallback into account class `work` (`--route` is the only way to a paid route); pool routes need the opt-in and run in CI only on a self-hosted runner; Claude Code pool routes are now allowed by the operator's revised policy; login routes local only.
 - **Run core**: prompt builder, supervisor with per-attempt workspace copies for edit retries, Zod result contracts (report, changes, issues, verdict), secret guard, `run-result.json`, `run-log.jsonl`, `changes.json`.
 - **run-agent.yml** (p02): resolve, credential-free setup, agent (behind `agent-job.yml`, one route credential) and publish jobs; static-branch pull requests and PR comments without force pushes; optional webhook notification.
-- **PR review** (p03): `pr-review.yml` and `agent-ci review` stages; label, comment or dispatch behind the write-access gate (forks never reach a credential); one or two reviewer passes, tool-free adjudication (Claude/fake supported; direct Sol Low transport in progress), deterministic findings gate, one inline review plus an updatable summary; `agent-ci review run` locally.
+- **PR review** (p03): `pr-review.yml` and `agent-ci review` stages; label, comment or dispatch behind the write-access gate (forks never reach a credential); one or two reviewer passes, tool-free adjudication (Claude/fake supported; direct Sol Low pool transport implemented), deterministic findings gate, one inline review plus an updatable summary; `agent-ci review run` locally.
 - **verify-review** (p04): checks from `.github/agent-ci/checks.yaml` on the default branch (or `verify_config_ref`) run in a secret-free verify job (GitHub-hosted unless `verify_on_self_hosted`); reviewers read results through the `run_check` MCP bridge (Claude and Codex only) and cite evidence IDs the gate recomputes. Every local `--verify` run needs `--verify-trust-pr-code`.
 - **Wrappers and fan-out** (p05): `docs-update.yml`, `instructions-update.yml`, `tools-update.yml` with path policies; `fan-out.yml` over `targets.yaml` with scoped write and read target tokens; consumer and fleet templates.
 - **Documentation** (p06): `docs/` (plain Markdown, one grouped index) and `pnpm docs:check` in CI; README is a short entry point.
@@ -49,13 +50,13 @@ Track concrete items in pjm/backlog/ and sequencing in pjm/roadmap.md; keep this
 section to a short narrative pointer. -->
 
 The active [Review and fleet readiness goal](backlog/reviews/review-and-fleet-readiness-goal.md)
-records the merged #3–#6 stack and exact source commits. The selected defaults
+records the merged #3–#7 deliveries and exact source commits. The selected defaults
 and revised Claude-pool policy are in
 [Production reviews and pool CI](../reference/decisions/DR-261031-production-reviews-and-pool-ci.md).
 Sol High is the primary; Opus High is optional; Sol Low adjudication uses an
-approved direct pool transport prepared in
-[draft #7](https://github.com/tkstang/agent-ci/pull/7), pending independent review
-and merge. Generic defaults enable
+approved direct pool transport merged in
+[PR #7](https://github.com/tkstang/agent-ci/pull/7), after exact-head hosted CI
+and independent review. Generic defaults enable
 only the primary. New production routes are not live-qualified.
 
 **BL-261025-close-remaining-claude-only — Close remaining Claude-only policy
@@ -65,8 +66,9 @@ simplification pass** shipped in reviewed, merged source and are archived.
 remains open for approved host admission, live pool/JIT proof and versioned
 release. **BL-261025-fleet-repositories-merged — Fleet repositories: merged
 target lists and protected artifacts** remains open: merging and private-output
-controls shipped, but artifacts remain plaintext and encryption awaits the
-operator's boundary choice.
+controls shipped, but artifacts remain plaintext. The operator selected isolated
+transport for full support; the [proposed design](../reference/research/fleet-artifact-transport.md)
+retains platform qualification and service provisioning gates.
 
 External draft preparation is approved and underway: private-fleet
 [caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5) replaces the
