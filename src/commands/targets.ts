@@ -18,7 +18,7 @@ import { isWithin, resolvePhysical } from '@agent-ci/run/workspace.js';
 import { resolveTarget } from '@agent-ci/targets/resolve.js';
 import {
   MAX_TARGETS,
-  parseTargetsFile,
+  parseTargetsSources,
   type TargetsFile,
 } from '@agent-ci/targets/schema.js';
 import { selectTargets } from '@agent-ci/targets/select.js';
@@ -26,14 +26,15 @@ import { PRESET_NAMES, PRESETS } from '@agent-ci/use-cases/presets.js';
 
 const USAGE = `agent-ci targets — multi-repository fan-out targets.
 
-  agent-ci targets validate [--file targets.yaml] [--root <dir>] [--models <path>]
+  agent-ci targets validate [--file targets.yaml] [--targets-json <array>]
+                            [--root <dir>] [--models <path>]
                             [--allow-pool | --allow-pool-value <true|false>]
       Check targets.yaml: schema, unique ids and repositories, allowedOwners,
       and that every agent target's model resolves under the routing policy
       for each preset it takes part in.
 
   agent-ci targets matrix --preset <docs-update|instructions-update|tools-update>
-                          [--file targets.yaml] [--root <dir>]
+                          [--file targets.yaml] [--targets-json <array>] [--root <dir>]
                           [--target all|<id>|<owner/name>] [--reset <true|false>]
                           [--base <branch>] [--model <name>]
                           [--max-targets <n>] [--allow-pool-value <true|false>]
@@ -62,16 +63,29 @@ const USAGE = `agent-ci targets — multi-repository fan-out targets.
       --github-output writes repository, cross, sha, base, comment_pr and
       default_branch.
 
---root confines --file to a directory (the caller checkout in workflows).`;
+--root confines --file to a directory (the caller checkout in workflows).
+--targets-json appends a JSON array of targets after the file's targets,
+retaining its defaults and allowedOwners. Omitted --file reads targets.yaml;
+--file '' disables the file for JSON-only input. Both sources together must
+contain 1..${MAX_TARGETS} targets. JSON input is limited to 256 KiB.`;
 
 const MAX_FILE_BYTES = 256 * 1024;
 
 async function readTargets(
-  flags: { file?: string | undefined; root?: string | undefined },
+  flags: {
+    file?: string | undefined;
+    root?: string | undefined;
+    'targets-json'?: string | undefined;
+  },
   context: CommandContext,
 ): Promise<TargetsFile> {
+  if (flags.file === '') {
+    const parsed = parseTargetsSources(undefined, flags['targets-json']);
+    if (!parsed.ok) throw CliError.fromFailure(parsed);
+    return parsed.value;
+  }
   const root = path.resolve(context.cwd, optional(flags.root) ?? '.');
-  const file = path.resolve(root, optional(flags.file) ?? 'targets.yaml');
+  const file = path.resolve(root, flags.file ?? 'targets.yaml');
   let real: string;
   let realRoot: string;
   try {
@@ -104,6 +118,12 @@ async function readTargets(
         );
       }
       text = await handle.readFile('utf8');
+      if (Buffer.byteLength(text, 'utf8') > MAX_FILE_BYTES) {
+        throw new CliError(
+          'E_TARGETS_CONFIG',
+          `the targets file exceeds ${MAX_FILE_BYTES} bytes`,
+        );
+      }
     } finally {
       await handle.close();
     }
@@ -114,7 +134,7 @@ async function readTargets(
       `cannot read the targets file ${file}`,
     );
   }
-  const parsed = parseTargetsFile(text);
+  const parsed = parseTargetsSources(text, flags['targets-json']);
   if (!parsed.ok) throw CliError.fromFailure(parsed);
   return parsed.value;
 }
@@ -134,6 +154,7 @@ async function validate(argv: readonly string[], context: CommandContext) {
     argv,
     {
       file: { type: 'string' },
+      'targets-json': { type: 'string' },
       root: { type: 'string' },
       models: { type: 'string' },
       'allow-pool': { type: 'boolean' },
@@ -178,6 +199,7 @@ async function matrix(argv: readonly string[], context: CommandContext) {
     argv,
     {
       file: { type: 'string' },
+      'targets-json': { type: 'string' },
       root: { type: 'string' },
       preset: { type: 'string' },
       target: { type: 'string' },
