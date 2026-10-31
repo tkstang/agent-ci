@@ -86,6 +86,25 @@ const INVISIBLE =
   /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u{a0}\u{1680}\u{2000}-\u{200a}\u{202f}\u{205f}\u{3000}\u{feff}]/u;
 const SEPARATOR = /[ \t]+/u;
 
+/** Canonical command name, including malformed invisible-character suffixes. */
+function knownCommand(token: string): string | undefined {
+  if (Object.hasOwn(REVIEW_COMMANDS, token)) return token;
+  return Object.keys(REVIEW_COMMANDS).find((name) => {
+    const next = Array.from(token.slice(name.length))[0];
+    return token.startsWith(name) && next !== undefined && INVISIBLE.test(next);
+  });
+}
+
+/** First whitespace-delimited token of the first line, exactly. */
+export function commandToken(text: string): string {
+  return /^[^ \t\r\n]*/u.exec(text)?.[0] ?? '';
+}
+
+/** Recognize requests before authorization without parsing untrusted options. */
+export function isReviewCommand(text: string): boolean {
+  return knownCommand(commandToken(text)) !== undefined;
+}
+
 const PREVIEW_CODE_POINTS = 80;
 
 /**
@@ -144,28 +163,15 @@ export function parseReviewCommand(body: unknown): CommandParse {
   const newline = text.indexOf('\n');
   const first = newline === -1 ? text : text.slice(0, newline);
   const rest = newline === -1 ? '' : text.slice(newline + 1);
-  const commandMatch = /^[^ \t]*/u.exec(first)![0];
-  const mode = Object.hasOwn(REVIEW_COMMANDS, commandMatch)
-    ? REVIEW_COMMANDS[commandMatch]
-    : undefined;
-  if (mode === undefined) {
-    // A command fused to an invisible or control character (for example a
-    // no-break space) is a malformed command, answered rather than ignored.
-    const fused = Object.keys(REVIEW_COMMANDS).find((name) => {
-      const next = Array.from(commandMatch.slice(name.length))[0];
-      return (
-        commandMatch.startsWith(name) &&
-        next !== undefined &&
-        INVISIBLE.test(next)
-      );
-    });
-    if (fused !== undefined)
-      throw commandError(
-        fused,
-        `\`${fused}\` is followed by an invisible or control character (${inlineCode(Array.from(commandMatch.slice(fused.length)).slice(0, 2).join(''))}). Separate the command from its options with a plain space.`,
-      );
-    return { kind: 'not-command' };
-  }
+  const commandMatch = commandToken(first);
+  const known = knownCommand(commandMatch);
+  if (known === undefined) return { kind: 'not-command' };
+  if (known !== commandMatch)
+    throw commandError(
+      known,
+      `\`${known}\` is followed by an invisible or control character (${inlineCode(Array.from(commandMatch.slice(known.length)).slice(0, 2).join(''))}). Separate the command from its options with a plain space.`,
+    );
+  const mode = REVIEW_COMMANDS[known]!;
   const command = commandMatch;
 
   // Limits apply only once the text is a review command, so an unrelated

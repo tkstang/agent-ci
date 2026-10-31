@@ -33,6 +33,7 @@ interface Job {
   secrets?: Record<string, unknown> | string;
   steps?: Step[];
   concurrency?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
 }
 interface Workflow {
   on: Record<string, unknown>;
@@ -46,6 +47,10 @@ async function load(relative: string): Promise<Workflow> {
   ) as Workflow;
 }
 const review = () => load('.github/workflows/pr-review.yml');
+const reviewPass = () => load('.github/workflows/review-pass.yml');
+const adjudicate = () => load('.github/workflows/review-adjudicate.yml');
+const reviewWorkflows = () =>
+  Promise.all([review(), reviewPass(), adjudicate()]);
 
 const MODEL_SECRETS = [
   'CLAUDE_CODE_OAUTH_TOKEN',
@@ -55,11 +60,7 @@ const MODEL_SECRETS = [
   'CURSOR_API_KEY',
   'AGENT_CI_PROXY_API_KEY',
 ];
-const CREDENTIAL_STEPS = new Set([
-  'Run the primary reviewer',
-  'Run the second reviewer',
-  'Run the adjudicator',
-]);
+const CREDENTIAL_STEPS = new Set(['Run the reviewer', 'Run the adjudicator']);
 const TOKEN_STEPS = new Set([
   'Authorize the request',
   'Bind the review spec and diff',
@@ -88,10 +89,18 @@ describe('pr-review.yml', () => {
       'findings',
       'publish',
     ]);
-    for (const job of Object.values(workflow.jobs))
-      expect(job['runs-on']).toBe(
-        "${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}",
-      );
+    for (const entry of await reviewWorkflows()) {
+      for (const job of Object.values(entry.jobs)) {
+        if (job.uses !== undefined) {
+          expect(job.with?.runs_on).toBe('${{ inputs.runs_on }}');
+          expect(job['runs-on']).toBeUndefined();
+        } else {
+          expect(job['runs-on']).toBe(
+            "${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}",
+          );
+        }
+      }
+    }
   });
 
   it('defaults to Sol High with optional Opus High and Sol Low adjudication', async () => {
@@ -139,46 +148,108 @@ describe('pr-review.yml', () => {
     });
   });
 
-  it('gives the model credential only to the reviewer and adjudicator steps, by a static chain', async () => {
-    const chain = `\${{ ${MODEL_SECRETS.map(
-      (secret) =>
-        `(steps.route.outputs.credential == '${secret}' && secrets.${secret})`,
-    ).join(' || ')} || '' }}`;
-    for (const [, step] of steps(await review())) {
-      const text = JSON.stringify(step);
-      // Never a dynamic lookup: the runner would hold every secret.
-      expect(text, step.name).not.toContain('secrets[');
-      const holds = MODEL_SECRETS.some((secret) =>
-        text.includes(`secrets.${secret}`),
-      );
-      expect(holds, step.name).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
-      if (holds) {
-        expect(step.env?.AGENT_CI_CREDENTIAL).toBe(chain);
-        expect(step.run).toContain('--credential-from-env');
-        // A step with the model credential never holds a GitHub token.
-        expect(text).not.toContain('github.token');
-      }
-    }
-  });
-
-  it('declares the proxy origin and gives it only to the reviewer and adjudicator steps of a pool route', async () => {
+  it('selects one credential and a pool-only origin at each child workflow boundary', async () => {
     const workflow = await review();
-    const declared = (
-      workflow.on.workflow_call as { secrets: Record<string, unknown> }
-    ).secrets;
-    expect(declared.AGENT_CI_PROXY_BASE_URL).toMatchObject({ required: false });
-    const gated =
-      "${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}";
+    for (const [name, role, child] of [
+      ['review-primary', 'primary', 'review-pass'],
+      ['review-second', 'second', 'review-pass'],
+      ['adjudicate', 'adjudicator', 'review-adjudicate'],
+    ] as const) {
+      const job = workflow.jobs[name];
+      expect(job?.uses).toBe(`./.github/workflows/${child}.yml`);
+      expect(job?.steps).toBeUndefined();
+      expect(job?.with?.route_id).toBe(
+        `\${{ needs.gate.outputs.${role}_route_id }}`,
+      );
+      const chain = `\${{ ${MODEL_SECRETS.map(
+        (secret) =>
+          `(needs.gate.outputs.${role}_credential == '${secret}' && secrets.${secret})`,
+      ).join(' || ')} || '' }}`;
+      expect(job?.secrets).toEqual({
+        AGENT_CI_CREDENTIAL: chain,
+        AGENT_CI_PROXY_BASE_URL: `\${{ needs.gate.outputs.${role}_account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}`,
+      });
+      for (const key of ['route_id', 'credential', 'account']) {
+        expect(workflow.jobs.gate?.outputs?.[`${role}_${key}`]).toBe(
+          `\${{ steps.route-${role}.outputs.${key} }}`,
+        );
+      }
+      const route = workflow.jobs.gate?.steps?.find(
+        (entry) => entry.id === `route-${role}`,
+      );
+      expect(route?.if).toContain("steps.spec-upload.outcome == 'success'");
+      if (role !== 'primary')
+        expect(route?.if).toContain(
+          `steps.gate.outputs.${role === 'second' ? 'second' : 'adjudicator'}_enabled == 'true'`,
+        );
+      expect(route?.env?.MODEL).toBe(
+        `\${{ steps.gate.outputs.${role === 'primary' ? 'reviewer_model' : role === 'second' ? 'second_reviewer_model' : 'adjudicator_model'} }}`,
+      );
+      expect(route?.run).toContain('agent-ci route --model "$MODEL"');
+    }
     for (const [, step] of steps(workflow)) {
       const text = JSON.stringify(step);
-      const holds = text.includes('AGENT_CI_PROXY_BASE_URL');
-      expect(holds, step.name).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
-      if (holds) expect(step.env?.AGENT_CI_PROXY_BASE_URL).toBe(gated);
+      for (const secret of MODEL_SECRETS)
+        expect(text, step.name).not.toContain(`secrets.${secret}`);
+      expect(text, step.name).not.toContain('secrets.AGENT_CI_PROXY_BASE_URL');
+    }
+    for (const child of [await reviewPass(), await adjudicate()]) {
+      const call = child.on.workflow_call as {
+        secrets: Record<string, unknown>;
+        outputs: Record<string, { value: string }>;
+      };
+      expect(Object.keys(call.secrets)).toEqual([
+        'AGENT_CI_CREDENTIAL',
+        'AGENT_CI_PROXY_BASE_URL',
+      ]);
+      const [jobName, job] = Object.entries(child.jobs)[0] ?? [];
+      expect(call.outputs.artifact_id?.value).toBe(
+        `\${{ jobs.${jobName}.outputs.artifact_id }}`,
+      );
+      expect(call.outputs.digest?.value).toBe(
+        `\${{ jobs.${jobName}.outputs.digest }}`,
+      );
+      expect(job?.outputs).toEqual({
+        artifact_id: '${{ steps.upload.outputs.artifact-id }}',
+        digest: '${{ steps.digest.outputs.digest }}',
+      });
+      for (const [, step] of steps(child)) {
+        const text = JSON.stringify(step);
+        expect(text, step.name).not.toContain('secrets[');
+        const holds = text.includes('secrets.AGENT_CI_CREDENTIAL');
+        expect(
+          text.includes('secrets.AGENT_CI_PROXY_BASE_URL'),
+          step.name,
+        ).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
+        expect(holds, step.name).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
+        if (holds) {
+          expect(step.env?.AGENT_CI_CREDENTIAL).toBe(
+            '${{ secrets.AGENT_CI_CREDENTIAL }}',
+          );
+          expect(step.env?.AGENT_CI_PROXY_BASE_URL).toBe(
+            '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+          );
+          expect(step.run).toContain('--credential-from-env');
+          expect(text).not.toContain('github.token');
+        }
+      }
+      const route = job?.steps?.find((entry) => entry.id === 'route');
+      expect(route?.env?.ROUTE).toBe('${{ inputs.route_id }}');
+      expect(route?.run).toContain('agent-ci route --route "$ROUTE"');
+      expect(job?.steps?.find((entry) => entry.id === 'present')?.if).toBe(
+        'always()',
+      );
+      expect(job?.steps?.find((entry) => entry.id === 'digest')?.if).toBe(
+        "always() && steps.present.outputs.present == 'true'",
+      );
+      expect(
+        job?.steps?.find((entry) => entry.id === 'upload')?.with,
+      ).toMatchObject({ 'retention-days': 7, 'if-no-files-found': 'error' });
     }
   });
 
   it('passes a GitHub token only to the gate, spec, sources, findings and publish steps', async () => {
-    for (const [, step] of steps(await review())) {
+    for (const [, step] of (await reviewWorkflows()).flatMap(steps)) {
       const holds = step.env?.GITHUB_TOKEN !== undefined;
       expect(holds, step.name).toBe(TOKEN_STEPS.has(step.name ?? ''));
       if (holds) expect(step.env?.GITHUB_TOKEN).toBe('${{ github.token }}');
@@ -186,25 +257,32 @@ describe('pr-review.yml', () => {
   });
 
   it('checks out pull-request code only in the read-only reviewer jobs, without a persisted token', async () => {
-    const workflow = await review();
-    for (const [job, step] of steps(workflow)) {
-      if (step.uses?.startsWith('actions/checkout') !== true) continue;
-      if (step.with?.repository !== undefined) {
-        // The agent-ci helpers, at this workflow's own commit.
-        expect(step.with?.path).toBe('.agent-ci-src');
-        expect(step.with?.ref).toBe(
-          '${{ inputs.agent_ci_ref || job.workflow_sha }}',
-        );
-      } else {
-        expect(['verify', 'review-primary', 'review-second']).toContain(job);
-        expect(step.with?.ref).toBe('${{ needs.gate.outputs.head_sha }}');
+    for (const workflow of await reviewWorkflows()) {
+      for (const [job, step] of steps(workflow)) {
+        if (step.uses?.startsWith('actions/checkout') !== true) continue;
+        if (step.with?.repository !== undefined) {
+          expect(step.with?.path).toBe('.agent-ci-src');
+          expect(step.with?.ref).toBe(
+            '${{ inputs.agent_ci_ref || job.workflow_sha }}',
+          );
+        } else {
+          expect(['verify', 'review']).toContain(job);
+          expect(step.with?.ref).toBe(
+            job === 'verify'
+              ? '${{ needs.gate.outputs.head_sha }}'
+              : '${{ inputs.head_sha }}',
+          );
+        }
+        expect(step.with?.['persist-credentials']).toBe(false);
       }
-      expect(step.with?.['persist-credentials']).toBe(false);
     }
+    const adjudication = JSON.stringify(await adjudicate());
+    expect(adjudication).not.toContain('inputs.head_sha');
+    expect(adjudication).not.toContain('--cwd target');
   });
 
   it('never runs a setup command or installs skills for a review', async () => {
-    const text = JSON.stringify(await review());
+    const text = JSON.stringify(await reviewWorkflows());
     expect(text).not.toContain('setup_command');
     expect(text).not.toContain('skills install');
     expect(text).not.toContain('--seed-login');
@@ -221,7 +299,7 @@ describe('pr-review.yml', () => {
       'needs.findings.outputs.artifact_id',
     ])
       expect(text).toContain(id);
-    for (const [, step] of steps(await review()))
+    for (const [, step] of (await reviewWorkflows()).flatMap(steps))
       if (step.uses?.startsWith('actions/download-artifact'))
         expect(step.with?.['artifact-ids'], step.name).toBeDefined();
     const findings = JSON.stringify(jobs.findings?.steps);
@@ -336,21 +414,33 @@ describe('pr-review.yml verify-review', () => {
       const job = jobs[name] ?? {};
       expect(job.needs).toEqual(['gate', 'verify']);
       expect(job.if).toContain('!cancelled()');
-      const pass = (job.steps ?? []).find((s) =>
-        (s.run ?? '').includes('agent-ci review pass'),
-      );
-      expect(pass?.run).toContain(
-        '--checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"',
-      );
-      expect(pass?.env?.CHECKS_DIGEST).toBe(
+      expect(job.with?.checks_digest).toBe(
         '${{ needs.verify.outputs.digest }}',
       );
-      expect(
-        (job.steps ?? []).find((s) =>
-          s.name?.startsWith('Download the check results'),
-        )?.with?.['artifact-ids'],
-      ).toBe('${{ needs.verify.outputs.artifact_id }}');
+      expect(job.with?.checks_artifact_id).toBe(
+        '${{ needs.verify.outputs.artifact_id }}',
+      );
+      expect(job.with?.pass).toBe(
+        name === 'review-primary' ? 'primary' : 'second',
+      );
     }
+    const child = await reviewPass();
+    const pass = child.jobs.review?.steps?.find(
+      (entry) => entry.name === 'Run the reviewer',
+    );
+    expect(pass?.run).toContain(
+      '--checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"',
+    );
+    expect(pass?.env?.CHECKS_DIGEST).toBe('${{ inputs.checks_digest }}');
+    expect(
+      child.jobs.review?.steps?.find((entry) =>
+        entry.name?.startsWith('Download the check results'),
+      )?.with?.['artifact-ids'],
+    ).toBe('${{ inputs.checks_artifact_id }}');
+    expect(
+      child.jobs.review?.steps?.find((entry) => entry.id === 'upload')?.with
+        ?.name,
+    ).toBe('${{ inputs.artifact_scope }}-agent-ci-review-${{ inputs.pass }}');
   });
 });
 

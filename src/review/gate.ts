@@ -13,6 +13,7 @@ import {
   type GatedOperation,
   type GatedPass,
   type GatedReview,
+  isProtected,
   isSeverity,
   isSha,
   LIMITS,
@@ -254,16 +255,6 @@ function unsafeCharacters(
   return (text.match(INVISIBLE) ?? []).some((c) => !existing.has(c));
 }
 
-function protectedSeverity(
-  severity: Severity,
-  failOn: Severity | null,
-): boolean {
-  return (
-    severityRank(severity) >= severityRank('high') ||
-    (failOn !== null && severityRank(severity) >= severityRank(failOn))
-  );
-}
-
 function adjudicate(
   input: GateInput,
   candidates: Map<string, Candidate>,
@@ -334,7 +325,7 @@ function adjudicate(
     if (!candidate) return row('rejected:unknown_candidate');
     if ((perCandidate.get(op.candidate_id) ?? 0) > 1)
       return row('rejected:conflicting_operations');
-    if (protectedSeverity(candidate.finding.severity, failOn))
+    if (isProtected(candidate.finding.severity, failOn))
       return row('rejected:protected_severity');
     if (
       op.op === 'downgrade' &&

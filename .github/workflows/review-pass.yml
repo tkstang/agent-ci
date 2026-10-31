@@ -1,0 +1,183 @@
+# Internal reusable workflow: Execute review pass. Only the selected model credential and,
+# for a pool route, its private proxy origin cross this runner boundary.
+# Call pr-review.yml rather than this workflow directly.
+name: '[internal] Execute review pass'
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        type: string
+        required: true
+      job_timeout_minutes:
+        type: number
+        required: true
+      route_id:
+        type: string
+        required: true
+      spec_artifact_id:
+        type: string
+        required: true
+      spec_sha256:
+        type: string
+        required: true
+      artifact_scope:
+        type: string
+        required: true
+      timeout_minutes:
+        type: number
+        required: true
+      allow_pool:
+        type: boolean
+        default: false
+      agent_ci_repository:
+        type: string
+        default: ''
+      agent_ci_ref:
+        type: string
+        default: ''
+      head_sha:
+        type: string
+        required: true
+      checks_artifact_id:
+        type: string
+        default: ''
+      checks_digest:
+        type: string
+        default: ''
+      pass:
+        type: string
+        required: true
+    secrets:
+      AGENT_CI_CREDENTIAL:
+        description: The selected route credential, provided by pr-review.yml.
+        required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: Private proxy origin, provided only for a pool route.
+        required: false
+    outputs:
+      artifact_id:
+        description: Set only when the upload succeeded.
+        value: ${{ jobs.review.outputs.artifact_id }}
+      digest:
+        value: ${{ jobs.review.outputs.digest }}
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Reviewer (read-only)
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the pull request head
+        uses: actions/checkout@v5
+        with:
+          path: target
+          ref: ${{ inputs.head_sha }}
+          persist-credentials: false
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ inputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Download the check results (verify-review)
+        if: inputs.checks_artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ inputs.checks_artifact_id }}
+          path: ${{ runner.temp }}/review-checks
+          merge-multiple: true
+
+      - name: Resolve the route
+        id: route
+        env:
+          ROUTE: ${{ inputs.route_id }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Install the harness
+        env:
+          HARNESS: ${{ steps.route.outputs.harness }}
+        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
+
+      - name: Enable the Codex sandbox (GitHub-hosted Linux)
+        if: steps.route.outputs.harness == 'codex' && runner.os == 'Linux' && runner.environment == 'github-hosted'
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Check the Codex sandbox
+        if: steps.route.outputs.harness == 'codex'
+        run: agent-ci harness smoke --harness codex
+
+      - name: Trust the target checkout for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
+
+      - name: Run the reviewer
+        env:
+          AGENT_CI_CREDENTIAL: ${{ secrets.AGENT_CI_CREDENTIAL }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
+          PASS: ${{ inputs.pass }}
+          ROUTE_ID: ${{ steps.route.outputs.route_id }}
+          SPEC_SHA256: ${{ inputs.spec_sha256 }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+          CHECKS_DIR: ${{ inputs.checks_artifact_id != '' && format('{0}/review-checks', runner.temp) || '' }}
+          CHECKS_DIGEST: ${{ inputs.checks_digest }}
+        run: >-
+          agent-ci review pass --pass "$PASS" --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
+          --checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"
+          --allow-pool-value "$ALLOW_POOL"
+          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
+
+      - name: Check for pass outputs
+        id: present
+        if: always()
+        run: test -f "$RUNNER_TEMP/review-pass/pass.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
+
+      - name: Digest the pass outputs
+        id: digest
+        if: always() && steps.present.outputs.present == 'true'
+        run: agent-ci digest --dir "$RUNNER_TEMP/review-pass" --github-output
+
+      - name: Upload the pass outputs
+        id: upload
+        if: always() && steps.digest.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-${{ inputs.pass }}
+          path: ${{ runner.temp }}/review-pass
+          retention-days: 7
+          if-no-files-found: error

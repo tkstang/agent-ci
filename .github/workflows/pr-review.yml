@@ -19,13 +19,14 @@
 #                is untrusted and the reviewer passes validate it.
 # - review-*:    contents: read. The PR head checkout (no persisted token).
 #                The pass step gets only the route's model credential (and,
-#                for a pool route, AGENT_CI_PROXY_BASE_URL), but the runner
-#                holds every model secret the caller passes (step
-#                expressions are evaluated there). The harness runs
+#                for a pool route, AGENT_CI_PROXY_BASE_URL). Each runner
+#                is behind the review-pass.yml workflow_call boundary.
+#                The harness runs
 #                read-only: no setup command, no skills, no repository
 #                code. In verify-review it reads the
 #                recorded checks through the run_check MCP bridge.
-# - adjudicate:  contents: read. Sources come from the git database API (trees and blobs) in a
+# - adjudicate:  contents: read, isolated by review-adjudicate.yml with only
+#                its selected credential and pool origin. Sources come from the git database API (trees and blobs) in a
 #                step without the model credential; the adjudicator runs
 #                tool-free (Claude only) in an empty scratch directory. No
 #                PR checkout.
@@ -209,6 +210,15 @@ jobs:
       second_reviewer_model: ${{ steps.gate.outputs.second_reviewer_model }}
       adjudicator_enabled: ${{ steps.gate.outputs.adjudicator_enabled }}
       adjudicator_model: ${{ steps.gate.outputs.adjudicator_model }}
+      primary_route_id: ${{ steps.route-primary.outputs.route_id }}
+      primary_credential: ${{ steps.route-primary.outputs.credential }}
+      primary_account: ${{ steps.route-primary.outputs.account }}
+      second_route_id: ${{ steps.route-second.outputs.route_id }}
+      second_credential: ${{ steps.route-second.outputs.credential }}
+      second_account: ${{ steps.route-second.outputs.account }}
+      adjudicator_route_id: ${{ steps.route-adjudicator.outputs.route_id }}
+      adjudicator_credential: ${{ steps.route-adjudicator.outputs.credential }}
+      adjudicator_account: ${{ steps.route-adjudicator.outputs.account }}
       mode: ${{ steps.gate.outputs.mode }}
       spec_artifact_id: ${{ steps.spec-upload.outputs.artifact-id }}
       spec_sha256: ${{ steps.prepare.outputs.spec_sha256 }}
@@ -294,6 +304,32 @@ jobs:
           path: ${{ runner.temp }}/review-spec
           retention-days: 7
           if-no-files-found: error
+
+      # Resolve names only after authorization and spec binding; secrets are
+      # selected at the child workflow boundary, never on an agent runner.
+      - name: Resolve the primary route
+        id: route-primary
+        if: steps.spec-upload.outcome == 'success'
+        env:
+          MODEL: ${{ steps.gate.outputs.reviewer_model }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Resolve the second route
+        id: route-second
+        if: steps.spec-upload.outcome == 'success' && steps.gate.outputs.second_enabled == 'true'
+        env:
+          MODEL: ${{ steps.gate.outputs.second_reviewer_model }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Resolve the adjudicator route
+        id: route-adjudicator
+        if: steps.spec-upload.outcome == 'success' && steps.gate.outputs.adjudicator_enabled == 'true'
+        env:
+          MODEL: ${{ steps.gate.outputs.adjudicator_model }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       # verify-review: the built CLI for the verify job, which must not hold
       # model credentials (it runs pull-request code).
@@ -401,368 +437,80 @@ jobs:
     name: Primary reviewer (read-only)
     needs: [gate, verify]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' }}
-    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
-    timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
-    outputs:
-      artifact_id: ${{ steps.upload.outputs.artifact-id }}
-      digest: ${{ steps.digest.outputs.digest }}
-    steps:
-      - name: Require a resolvable helper ref
-        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
-        run: |
-          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
-          exit 1
-
-      - name: Check out the pull request head
-        uses: actions/checkout@v5
-        with:
-          path: target
-          ref: ${{ needs.gate.outputs.head_sha }}
-          persist-credentials: false
-
-      - name: Check out the agent-ci helpers
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
-          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ github.token }}
-          path: .agent-ci-src
-          persist-credentials: false
-
-      - name: Set up agent-ci
-        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
-        with:
-          path: .agent-ci-src
-
-      - name: Download the review spec
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
-          path: ${{ runner.temp }}/review-spec
-          merge-multiple: true
-
-      - name: Download the check results (verify-review)
-        if: needs.verify.outputs.artifact_id != ''
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
-          path: ${{ runner.temp }}/review-checks
-          merge-multiple: true
-
-      - name: Resolve the route
-        id: route
-        env:
-          MODEL: ${{ needs.gate.outputs.reviewer_model }}
-          ALLOW_POOL: ${{ inputs.allow_pool }}
-        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
-
-      - name: Install the harness
-        env:
-          HARNESS: ${{ steps.route.outputs.harness }}
-        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
-
-      - name: Enable the Codex sandbox (GitHub-hosted Linux)
-        if: steps.route.outputs.harness == 'codex' && runner.os == 'Linux' && runner.environment == 'github-hosted'
-        run: |
-          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-
-      - name: Check the Codex sandbox
-        if: steps.route.outputs.harness == 'codex'
-        run: agent-ci harness smoke --harness codex
-
-      - name: Trust the target checkout for git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
-
-      - name: Run the primary reviewer
-        env:
-          # The resolved route's credential (empty for fake), picked by a
-          # static chain. Step expressions are evaluated on the runner, so this
-          # job's runner still holds every model secret the caller passes:
-          # pass only the one your route uses (docs/security-model.md,
-          # Residual risk).
-          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'ANTHROPIC_AUTH_TOKEN' && secrets.ANTHROPIC_AUTH_TOKEN) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
-          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
-          ROUTE_ID: ${{ steps.route.outputs.route_id }}
-          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
-          TIMEOUT: ${{ inputs.timeout_minutes }}
-          ALLOW_POOL: ${{ inputs.allow_pool }}
-          CHECKS_DIR: ${{ needs.verify.outputs.artifact_id != '' && format('{0}/review-checks', runner.temp) || '' }}
-          CHECKS_DIGEST: ${{ needs.verify.outputs.digest }}
-        run: >-
-          agent-ci review pass --pass primary --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
-          --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
-          --checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"
-          --allow-pool-value "$ALLOW_POOL"
-          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
-
-      - name: Check for pass outputs
-        id: present
-        if: always()
-        run: test -f "$RUNNER_TEMP/review-pass/pass.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
-
-      - name: Digest the pass outputs
-        id: digest
-        if: always() && steps.present.outputs.present == 'true'
-        run: agent-ci digest --dir "$RUNNER_TEMP/review-pass" --github-output
-
-      - name: Upload the pass outputs
-        id: upload
-        if: always() && steps.digest.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ inputs.artifact_scope }}-agent-ci-review-primary
-          path: ${{ runner.temp }}/review-pass
-          retention-days: 7
-          if-no-files-found: error
+    uses: ./.github/workflows/review-pass.yml
+    with:
+      runs_on: ${{ inputs.runs_on }}
+      job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
+      artifact_scope: ${{ inputs.artifact_scope }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      allow_pool: ${{ inputs.allow_pool }}
+      agent_ci_repository: ${{ inputs.agent_ci_repository }}
+      agent_ci_ref: ${{ inputs.agent_ci_ref }}
+      route_id: ${{ needs.gate.outputs.primary_route_id }}
+      spec_artifact_id: ${{ needs.gate.outputs.spec_artifact_id }}
+      spec_sha256: ${{ needs.gate.outputs.spec_sha256 }}
+      pass: primary
+      head_sha: ${{ needs.gate.outputs.head_sha }}
+      checks_artifact_id: ${{ needs.verify.outputs.artifact_id }}
+      checks_digest: ${{ needs.verify.outputs.digest }}
+    secrets:
+      AGENT_CI_CREDENTIAL: ${{ (needs.gate.outputs.primary_credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (needs.gate.outputs.primary_credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (needs.gate.outputs.primary_credential == 'ANTHROPIC_AUTH_TOKEN' && secrets.ANTHROPIC_AUTH_TOKEN) || (needs.gate.outputs.primary_credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (needs.gate.outputs.primary_credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (needs.gate.outputs.primary_credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+      AGENT_CI_PROXY_BASE_URL: ${{ needs.gate.outputs.primary_account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
 
   review-second:
     name: Second reviewer (read-only)
     needs: [gate, verify]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.second_enabled == 'true' }}
-    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
-    timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
-    outputs:
-      artifact_id: ${{ steps.upload.outputs.artifact-id }}
-      digest: ${{ steps.digest.outputs.digest }}
-    steps:
-      - name: Require a resolvable helper ref
-        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
-        run: |
-          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
-          exit 1
-
-      - name: Check out the pull request head
-        uses: actions/checkout@v5
-        with:
-          path: target
-          ref: ${{ needs.gate.outputs.head_sha }}
-          persist-credentials: false
-
-      - name: Check out the agent-ci helpers
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
-          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ github.token }}
-          path: .agent-ci-src
-          persist-credentials: false
-
-      - name: Set up agent-ci
-        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
-        with:
-          path: .agent-ci-src
-
-      - name: Download the review spec
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
-          path: ${{ runner.temp }}/review-spec
-          merge-multiple: true
-
-      - name: Download the check results (verify-review)
-        if: needs.verify.outputs.artifact_id != ''
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
-          path: ${{ runner.temp }}/review-checks
-          merge-multiple: true
-
-      - name: Resolve the route
-        id: route
-        env:
-          MODEL: ${{ needs.gate.outputs.second_reviewer_model }}
-          ALLOW_POOL: ${{ inputs.allow_pool }}
-        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
-
-      - name: Install the harness
-        env:
-          HARNESS: ${{ steps.route.outputs.harness }}
-        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
-
-      - name: Enable the Codex sandbox (GitHub-hosted Linux)
-        if: steps.route.outputs.harness == 'codex' && runner.os == 'Linux' && runner.environment == 'github-hosted'
-        run: |
-          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-
-      - name: Check the Codex sandbox
-        if: steps.route.outputs.harness == 'codex'
-        run: agent-ci harness smoke --harness codex
-
-      - name: Trust the target checkout for git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE/target"
-
-      - name: Run the second reviewer
-        env:
-          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'ANTHROPIC_AUTH_TOKEN' && secrets.ANTHROPIC_AUTH_TOKEN) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
-          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
-          ROUTE_ID: ${{ steps.route.outputs.route_id }}
-          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
-          TIMEOUT: ${{ inputs.timeout_minutes }}
-          ALLOW_POOL: ${{ inputs.allow_pool }}
-          CHECKS_DIR: ${{ needs.verify.outputs.artifact_id != '' && format('{0}/review-checks', runner.temp) || '' }}
-          CHECKS_DIGEST: ${{ needs.verify.outputs.digest }}
-        run: >-
-          agent-ci review pass --pass second --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
-          --cwd target --out "$RUNNER_TEMP/review-pass" --route "$ROUTE_ID" --credential-from-env
-          --checks-dir "$CHECKS_DIR" --checks-digest "$CHECKS_DIGEST"
-          --allow-pool-value "$ALLOW_POOL"
-          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
-
-      - name: Check for pass outputs
-        id: present
-        if: always()
-        run: test -f "$RUNNER_TEMP/review-pass/pass.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
-
-      - name: Digest the pass outputs
-        id: digest
-        if: always() && steps.present.outputs.present == 'true'
-        run: agent-ci digest --dir "$RUNNER_TEMP/review-pass" --github-output
-
-      - name: Upload the pass outputs
-        id: upload
-        if: always() && steps.digest.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ inputs.artifact_scope }}-agent-ci-review-second
-          path: ${{ runner.temp }}/review-pass
-          retention-days: 7
-          if-no-files-found: error
+    uses: ./.github/workflows/review-pass.yml
+    with:
+      runs_on: ${{ inputs.runs_on }}
+      job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
+      artifact_scope: ${{ inputs.artifact_scope }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      allow_pool: ${{ inputs.allow_pool }}
+      agent_ci_repository: ${{ inputs.agent_ci_repository }}
+      agent_ci_ref: ${{ inputs.agent_ci_ref }}
+      route_id: ${{ needs.gate.outputs.second_route_id }}
+      spec_artifact_id: ${{ needs.gate.outputs.spec_artifact_id }}
+      spec_sha256: ${{ needs.gate.outputs.spec_sha256 }}
+      pass: second
+      head_sha: ${{ needs.gate.outputs.head_sha }}
+      checks_artifact_id: ${{ needs.verify.outputs.artifact_id }}
+      checks_digest: ${{ needs.verify.outputs.digest }}
+    secrets:
+      AGENT_CI_CREDENTIAL: ${{ (needs.gate.outputs.second_credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (needs.gate.outputs.second_credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (needs.gate.outputs.second_credential == 'ANTHROPIC_AUTH_TOKEN' && secrets.ANTHROPIC_AUTH_TOKEN) || (needs.gate.outputs.second_credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (needs.gate.outputs.second_credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (needs.gate.outputs.second_credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+      AGENT_CI_PROXY_BASE_URL: ${{ needs.gate.outputs.second_account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
 
   adjudicate:
     name: Adjudicate (tool-free)
     needs: [gate, review-primary, review-second]
     if: ${{ !cancelled() && needs.gate.outputs.should_run == 'true' && needs.gate.outputs.spec_artifact_id != '' && needs.gate.outputs.adjudicator_enabled == 'true' }}
-    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
-    timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
-    outputs:
-      artifact_id: ${{ steps.upload.outputs.artifact-id }}
-      digest: ${{ steps.digest.outputs.digest }}
-    steps:
-      - name: Require a resolvable helper ref
-        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
-        run: |
-          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
-          exit 1
-
-      - name: Check out the agent-ci helpers
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
-          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ github.token }}
-          path: .agent-ci-src
-          persist-credentials: false
-
-      - name: Set up agent-ci
-        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
-        with:
-          path: .agent-ci-src
-
-      - name: Download the review spec
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ needs.gate.outputs.spec_artifact_id }}
-          path: ${{ runner.temp }}/review-spec
-          merge-multiple: true
-
-      - name: Download the primary review
-        if: needs.review-primary.outputs.artifact_id != ''
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ needs.review-primary.outputs.artifact_id }}
-          path: ${{ runner.temp }}/review-primary
-          merge-multiple: true
-
-      - name: Download the second review
-        if: needs.review-second.outputs.artifact_id != ''
-        uses: actions/download-artifact@v8
-        with:
-          artifact-ids: ${{ needs.review-second.outputs.artifact_id }}
-          path: ${{ runner.temp }}/review-second
-          merge-multiple: true
-
-      # GitHub token, no model credential: the cited source at the captured
-      # SHAs from the git database API (trees and blobs).
-      - name: Fetch the cited source
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
-          PRIMARY_DIR: ${{ needs.review-primary.outputs.artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
-          PRIMARY_DIGEST: ${{ needs.review-primary.outputs.digest }}
-          SECOND_DIR: ${{ needs.review-second.outputs.artifact_id != '' && format('{0}/review-second', runner.temp) || '' }}
-          SECOND_DIGEST: ${{ needs.review-second.outputs.digest }}
-          FAIL_ON: ${{ inputs.fail_on_severity }}
-        run: >-
-          agent-ci review sources --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
-          --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
-          --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
-          --fail-on-severity "$FAIL_ON" --out "$RUNNER_TEMP/review-sources"
-
-      - name: Resolve the route
-        id: route
-        env:
-          MODEL: ${{ needs.gate.outputs.adjudicator_model }}
-          ALLOW_POOL: ${{ inputs.allow_pool }}
-        run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
-
-      - name: Install the harness
-        env:
-          HARNESS: ${{ steps.route.outputs.harness }}
-        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
-
-      # Model secrets only (every one the caller passes reaches this runner;
-      # the step gets the route's); no GitHub token.
-      - name: Run the adjudicator
-        env:
-          AGENT_CI_CREDENTIAL: ${{ (steps.route.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (steps.route.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (steps.route.outputs.credential == 'ANTHROPIC_AUTH_TOKEN' && secrets.ANTHROPIC_AUTH_TOKEN) || (steps.route.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (steps.route.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (steps.route.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
-          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
-          ROUTE_ID: ${{ steps.route.outputs.route_id }}
-          SPEC_SHA256: ${{ needs.gate.outputs.spec_sha256 }}
-          PRIMARY_DIR: ${{ needs.review-primary.outputs.artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
-          PRIMARY_DIGEST: ${{ needs.review-primary.outputs.digest }}
-          SECOND_DIR: ${{ needs.review-second.outputs.artifact_id != '' && format('{0}/review-second', runner.temp) || '' }}
-          SECOND_DIGEST: ${{ needs.review-second.outputs.digest }}
-          FAIL_ON: ${{ inputs.fail_on_severity }}
-          TIMEOUT: ${{ inputs.timeout_minutes }}
-          ALLOW_POOL: ${{ inputs.allow_pool }}
-        run: >-
-          agent-ci review adjudicate --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
-          --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
-          --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
-          --sources-dir "$RUNNER_TEMP/review-sources" --fail-on-severity "$FAIL_ON"
-          --out "$RUNNER_TEMP/review-adjudication" --route "$ROUTE_ID" --credential-from-env
-          --allow-pool-value "$ALLOW_POOL"
-          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
-
-      - name: Check for adjudication outputs
-        id: present
-        if: always()
-        run: test -f "$RUNNER_TEMP/review-adjudication/adjudication.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
-
-      - name: Digest the adjudication
-        id: digest
-        if: always() && steps.present.outputs.present == 'true'
-        run: agent-ci digest --dir "$RUNNER_TEMP/review-adjudication" --github-output
-
-      - name: Upload the adjudication
-        id: upload
-        if: always() && steps.digest.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ inputs.artifact_scope }}-agent-ci-review-adjudication
-          path: ${{ runner.temp }}/review-adjudication
-          retention-days: 7
-          if-no-files-found: error
+    uses: ./.github/workflows/review-adjudicate.yml
+    with:
+      runs_on: ${{ inputs.runs_on }}
+      job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
+      artifact_scope: ${{ inputs.artifact_scope }}
+      timeout_minutes: ${{ inputs.timeout_minutes }}
+      allow_pool: ${{ inputs.allow_pool }}
+      agent_ci_repository: ${{ inputs.agent_ci_repository }}
+      agent_ci_ref: ${{ inputs.agent_ci_ref }}
+      route_id: ${{ needs.gate.outputs.adjudicator_route_id }}
+      spec_artifact_id: ${{ needs.gate.outputs.spec_artifact_id }}
+      spec_sha256: ${{ needs.gate.outputs.spec_sha256 }}
+      primary_artifact_id: ${{ needs.review-primary.outputs.artifact_id }}
+      primary_digest: ${{ needs.review-primary.outputs.digest }}
+      second_artifact_id: ${{ needs.review-second.outputs.artifact_id }}
+      second_digest: ${{ needs.review-second.outputs.digest }}
+      fail_on_severity: ${{ inputs.fail_on_severity }}
+    secrets:
+      AGENT_CI_CREDENTIAL: ${{ (needs.gate.outputs.adjudicator_credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (needs.gate.outputs.adjudicator_credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (needs.gate.outputs.adjudicator_credential == 'ANTHROPIC_AUTH_TOKEN' && secrets.ANTHROPIC_AUTH_TOKEN) || (needs.gate.outputs.adjudicator_credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (needs.gate.outputs.adjudicator_credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (needs.gate.outputs.adjudicator_credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
+      AGENT_CI_PROXY_BASE_URL: ${{ needs.gate.outputs.adjudicator_account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
 
   findings:
     name: Gate the findings (deterministic)

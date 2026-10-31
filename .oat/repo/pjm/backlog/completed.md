@@ -8,6 +8,7 @@
 
 ## Completed Items
 
+- 2026-10-31 — BL-261025-post-v1-simplification-pass — Post-v1 simplification pass — Pin in-place Git observations, isolate reviewer/adjudicator credentials in reusable child workflows, consolidate shared review rules, and record evidence-backed dispositions for all six simplification areas; no inputs removed.
 - 2026-10-31 — BL-261025-close-remaining-claude-only — Close remaining Claude-only policy name-check gaps — Reject separator-less Claude model identifiers on other harnesses and Cursor automatic selectors; explicit Grok routes and Claude Code pool controls remain supported.
 - 2026-10-25 — BL-261025-documentation-tree-and-docs — Documentation tree and docs check — docs/ tree, pnpm docs:check, README and pjm state shipped in p06 (accepted at 3bdbff2)
 - 2026-10-25 — BL-261025-use-case-wrappers-and-multi — Use-case wrappers and multi-repo fan-out — Done in agent-ci-v1 p05 (accepted): docs-update, instructions-update and tools-update wrappers with path policies, targets.yaml with agent-ci targets validate/matrix/resolve, fan-out.yml with scoped target tokens, fleet template and a live fake-harness fan-out run; documented in docs/workflows.md and docs/fleet-repo.md.
