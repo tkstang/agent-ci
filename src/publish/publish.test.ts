@@ -208,6 +208,7 @@ describe('publishStaticBranch', () => {
     expect(git(remote, 'rev-parse', 'refs/heads/agent-ci/race')).toBe(foreign);
   });
 
+  // Multiple real Git fetch/publish cycles need headroom under suite contention.
   it('records a moved base, then refuses an older base that would undo it (gate M1 A/B/C, final H1)', async () => {
     const { remote, clone, seed } = await remoteAndClone();
     // Base A: README.md = old (seed has "# r\n"; set it explicitly).
@@ -329,7 +330,7 @@ describe('publishStaticBranch', () => {
     expect(
       git(remote, 'diff', '--name-status', `${d}...refs/heads/agent-ci/abc`),
     ).toBe('M\tREADME.md');
-  });
+  }, 15_000);
 
   it('refuses a base it cannot relate to the recorded one unless the branch is adopted', async () => {
     const { remote, clone, seed } = await remoteAndClone();
