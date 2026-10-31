@@ -210,7 +210,9 @@ The public fleet template supports schedules. The private fleet starter uses
 manual dispatch, explicit self-hosted labels, `allow_pool: true`,
 `private_target: true` and `max_parallel: 1`; review runner admission before
 adding schedules. It supplies no target list or credentials and enables no
-adjudicator (Sol adjudication is unsupported).
+adjudicator by default. A caller with authority may explicitly enable the
+Sol Low pool adjudicator after qualifying its proxy route; see
+[PR review](pr-review.md#inputs).
 
 For running a fleet from its own repository, see
 [Using agent-ci from another repository](fleet-repo.md).

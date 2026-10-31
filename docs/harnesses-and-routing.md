@@ -44,12 +44,23 @@ per-pass effort deterministic without relying on route order. Claude routes
 forward their effort as `--effort`; Codex routes use `model_reasoning_effort`.
 The new Sol and Opus review routes have not yet been qualified live.
 
-"Repair turn" is the one extra turn agent-ci takes, by resuming the same
-session, when a structured answer fails validation. Two review features
+"Repair turn" is the one extra turn agent-ci takes when a structured answer
+fails validation. CLI harnesses resume the same session where supported.
+The direct adjudicator uses stateless local prompt/previous-answer context. Two review features
 need more than the read-only posture:
 
-- The PR-review adjudicator needs a tool-free run. Only `claude` (with
-  `--tools ""`) offers one.
+- The PR-review adjudicator needs a tool-free run. Claude Code uses
+  `--tools ""`; the fake harness supports credential-free tests. The exact
+  `gpt-6.1-sol-low` pool route uses a dedicated Responses transport instead
+  of Codex CLI. It requires provider `gpt-6.1-sol`, effort `low`, harness
+  `codex`, family `openai`, subscription billing, pool account, no seeded
+  login, exactly `AGENT_CI_PROXY_API_KEY`, and a pool endpoint with `/v1`.
+  Other Codex aliases, efforts, accounts and paid API substitutions are
+  refused before spending. Planning, `route --purpose adjudicator`, local
+  binary pinning and runtime use the same eligibility function. Route
+  output reports `transport: adjudicator-responses` without the endpoint;
+  the adjudicator workflow skips CLI installation for that transport.
+  Ordinary Codex runs retain their CLI behavior and refuse tool-free mode.
 - The verify-review `run_check` tool needs an MCP bridge. Only `claude` and
   `codex` offer one.
 

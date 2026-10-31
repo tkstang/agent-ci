@@ -60,12 +60,17 @@ import {
   type Result,
 } from '@agent-ci/result.js';
 import {
+  adjudicatorTransport,
+  type AdjudicatorTransport,
+} from '@agent-ci/routing/adjudicator.js';
+import {
   loadModelsFile,
   type ResolveRequest,
   resolveRoute,
   type SkippedRoute,
 } from '@agent-ci/routing/resolve.js';
 import type { HarnessId, ModelsFile, Route } from '@agent-ci/routing/schema.js';
+import { runAdjudicatorResponses } from '@agent-ci/run/adjudicator-responses.js';
 import {
   copyIsolationProblem,
   createAttemptWorkspace,
@@ -132,8 +137,11 @@ export interface RunOptions {
  * `--output-schema`); the others are told the shape in the prompt and their
  * final text is parsed. An answer that `accept` rejects gets at most one
  * repair turn by session resume, on harnesses whose resume is verified.
+ * The internal direct adjudicator uses bounded local context instead.
  */
 export interface StructuredRunOptions {
+  /** Internal adjudicator-only dispatch; never a generic harness capability. */
+  readonly adjudicatorTransport?: 'adjudicator-responses';
   readonly schema: Record<string, unknown>;
   /**
    * Check the untrusted answer and return the value to keep. `final` is
@@ -150,7 +158,8 @@ export interface StructuredRunOptions {
   readonly describe: (value: unknown) => string;
   /**
    * Offer the agent no tools at all. Only harnesses with a verified
-   * tool-free posture (Claude; the fake harness) may run it.
+   * tool-free posture (Claude; the fake harness) may run it through runHarness.
+   * The internal adjudicator discriminator selects its separate HTTP transport.
    */
   readonly noTools?: boolean;
   /**
@@ -201,6 +210,7 @@ export interface RunSummary {
     'id' | 'model' | 'harness' | 'providerModel' | 'billing' | 'account'
   >;
   readonly attempts: number;
+  readonly transport: AdjudicatorTransport;
   readonly usage: Usage | null;
   /** The home root when it was kept (`--home-root`); temp roots are removed. */
   readonly homeRoot: string | null;
@@ -360,6 +370,11 @@ async function runInHome(
   workspacePin: GitPin | undefined,
 ): Promise<Result<RunSummary>> {
   const boundaryRoot = boundary.root;
+  const direct =
+    options.structured?.adjudicatorTransport === 'adjudicator-responses';
+  const transport: AdjudicatorTransport = direct
+    ? 'adjudicator-responses'
+    : 'harness';
   const now = deps.now ?? Date.now;
   // Baseline first: anything that lands in the workspace from here on,
   // including a seeded login, is a change the run reports, never hidden dirt.
@@ -423,6 +438,13 @@ async function runInHome(
       ...route.credentials,
     ]),
     ...seededSecrets,
+    ...(direct && route.baseUrl !== undefined
+      ? [
+          route.baseUrl,
+          new URL(route.baseUrl).origin,
+          new URL(route.baseUrl).hostname,
+        ]
+      : []),
   ];
   const log = new RunLog(secrets);
   // A harness may refresh its login mid-run: re-read the isolated stores and
@@ -525,6 +547,7 @@ async function runInHome(
     outputContract: options.outputContract,
     skippedRoutes: skipped,
     loginSeeded: route.login,
+    transport,
   });
 
   // Only changes made during the run count; pre-existing dirt does not.
@@ -597,7 +620,9 @@ async function runInHome(
             const scratchDir = await mkdtemp(
               path.join(homeRoot.root, `attempt-${attempt}-`),
             );
-            let run: Awaited<ReturnType<typeof runHarness>> | undefined;
+            let run:
+              | { outcome: HarnessOutcome; durationMs?: number }
+              | undefined;
             let outcome: HarnessOutcome;
             let copy =
               isolation?.mode === 'copy' && downgraded === undefined
@@ -648,29 +673,39 @@ async function runInHome(
             }
             const attemptCwd = copy?.value.cwd ?? options.cwd;
             try {
-              run = await runHarness(
-                adapter,
-                {
-                  route,
-                  prompt: promptText,
-                  cwd: attemptCwd,
-                  mode: options.mode,
-                  home: homeRoot,
-                  scratchDir,
-                  parentEnv: options.env,
-                  ...(options.structured === undefined
-                    ? {}
-                    : {
-                        jsonSchema: options.structured.schema,
-                        noTools: options.structured.noTools === true,
-                        ...(options.structured.toolBridge === undefined
-                          ? {}
-                          : { toolBridge: options.structured.toolBridge }),
-                      }),
-                },
-                { timeoutMs },
-                deps.harness,
-              );
+              run = direct
+                ? await runAdjudicatorResponses({
+                    route,
+                    allowPool: options.allowPool,
+                    seedLogin: options.seedLogin,
+                    env: options.env,
+                    prompt: promptText,
+                    timeoutMs,
+                    secrets,
+                  })
+                : await runHarness(
+                    adapter,
+                    {
+                      route,
+                      prompt: promptText,
+                      cwd: attemptCwd,
+                      mode: options.mode,
+                      home: homeRoot,
+                      scratchDir,
+                      parentEnv: options.env,
+                      ...(options.structured === undefined
+                        ? {}
+                        : {
+                            jsonSchema: options.structured.schema,
+                            noTools: options.structured.noTools === true,
+                            ...(options.structured.toolBridge === undefined
+                              ? {}
+                              : { toolBridge: options.structured.toolBridge }),
+                          }),
+                    },
+                    { timeoutMs },
+                    deps.harness,
+                  );
               outcome = run.outcome;
             } catch (err) {
               // A leak guard or an adapter I/O error: still a recorded, failed run.
@@ -762,6 +797,7 @@ async function runInHome(
             log.add('attempt', {
               attempt,
               harness: route.harness,
+              transport,
               ok: outcome.ok,
               ...(outcome.ok
                 ? {}
@@ -813,28 +849,41 @@ async function runInHome(
       const remaining = deadlineAtMs - now();
       const sessionId = outcome.sessionId;
       if (
-        adapter.supportsResume &&
-        sessionId !== undefined &&
+        (direct || (adapter.supportsResume && sessionId !== undefined)) &&
         remaining > 1_000 &&
         guardFailure === undefined
       ) {
-        const repaired = await repairTurn({
-          adapter,
-          route,
-          prompt: structured.repairPrompt(accepted.message),
-          sessionId,
-          cwd: options.cwd,
-          mode: options.mode,
-          homeRoot,
-          parentEnv: options.env,
-          schema: structured.schema,
-          noTools: structured.noTools === true,
-          ...(structured.toolBridge === undefined
-            ? {}
-            : { toolBridge: structured.toolBridge }),
-          timeoutMs: remaining,
-          ...(deps.harness === undefined ? {} : { harness: deps.harness }),
-        });
+        const repaired = direct
+          ? await runAdjudicatorResponses({
+              route,
+              allowPool: options.allowPool,
+              seedLogin: options.seedLogin,
+              env: options.env,
+              prompt: promptText,
+              secrets,
+              repair: {
+                previousAnswer: outcome.finalText,
+                instruction: structured.repairPrompt(accepted.message),
+              },
+              timeoutMs: remaining,
+            })
+          : await repairTurn({
+              adapter,
+              route,
+              prompt: structured.repairPrompt(accepted.message),
+              sessionId: sessionId!,
+              cwd: options.cwd,
+              mode: options.mode,
+              homeRoot,
+              parentEnv: options.env,
+              schema: structured.schema,
+              noTools: structured.noTools === true,
+              ...(structured.toolBridge === undefined
+                ? {}
+                : { toolBridge: structured.toolBridge }),
+              timeoutMs: remaining,
+              ...(deps.harness === undefined ? {} : { harness: deps.harness }),
+            });
         if (!(await refreshLoginSecrets())) {
           repaired.outcome = {
             ok: false,
@@ -846,10 +895,21 @@ async function runInHome(
               'credential guard incomplete',
           };
         }
+        if (
+          direct &&
+          !repaired.outcome.ok &&
+          repaired.outcome.code === 'E_CREDENTIAL_LEAK'
+        ) {
+          guardFailure = {
+            code: repaired.outcome.code,
+            message: repaired.outcome.message,
+          };
+        }
         // The repair turn had the same write access to its home.
         await checkHome();
         log.add('repair', {
           harness: route.harness,
+          transport,
           ok: repaired.outcome.ok,
           problem: maskSecrets(accepted.message, secrets),
           ...(repaired.outcome.ok
@@ -1074,6 +1134,7 @@ async function runInHome(
     changesPath: changeSet === undefined ? null : changesPath,
     route: routeInfo,
     attempts: supervised.attempts,
+    transport,
     usage: outcome.usage ?? null,
     homeRoot: options.homeRoot === undefined ? null : homeRoot.root,
     ...(error === undefined ? {} : { error }),
@@ -1115,7 +1176,23 @@ function checkStructured(
       `invalid structured output file name ${name}`,
     );
   }
+  if (structured.adjudicatorTransport !== undefined) {
+    const selected = adjudicatorTransport(route, options);
+    if (!selected.ok) return selected;
+    if (
+      selected.value !== structured.adjudicatorTransport ||
+      structured.noTools !== true ||
+      structured.toolBridge !== undefined ||
+      structured.outputFile !== 'adjudication-answer.json'
+    ) {
+      return failure(
+        'E_POLICY_HARNESS',
+        'invalid internal adjudicator transport posture',
+      );
+    }
+  }
   if (
+    structured.adjudicatorTransport === undefined &&
     structured.noTools === true &&
     !adapterFor(route.harness).supportsNoTools
   ) {

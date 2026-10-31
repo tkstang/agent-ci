@@ -151,9 +151,10 @@ jobs:
         env:
           ROUTE: ${{ inputs.route_id }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
-        run: agent-ci route --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
+        run: agent-ci route --purpose adjudicator --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Install the harness
+        if: steps.route.outputs.transport == 'harness'
         env:
           HARNESS: ${{ steps.route.outputs.harness }}
         run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path

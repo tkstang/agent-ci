@@ -7,6 +7,7 @@ import type { Usage } from '@agent-ci/harness/types.js';
 import { failure, type Result, success } from '@agent-ci/result.js';
 import {
   ADJUDICATION_ANSWER_SCHEMA,
+  ADJUDICATION_RESPONSES_SCHEMA,
   acceptAdjudicationAnswer,
   adjudicationRepairPrompt,
   type AdjudicatorPassInput,
@@ -20,6 +21,10 @@ import type { SourceReader } from '@agent-ci/review/diff-position.js';
 import { resolveReviewRoute } from '@agent-ci/review/pass.js';
 import type { ReviewSpecDocument } from '@agent-ci/review/prepare.js';
 import { USE_CASE } from '@agent-ci/review/prompt.js';
+import {
+  adjudicatorTransport,
+  type AdjudicatorTransport,
+} from '@agent-ci/routing/adjudicator.js';
 import type { HarnessId } from '@agent-ci/routing/schema.js';
 import {
   type RepairOutcome,
@@ -28,8 +33,8 @@ import {
 } from '@agent-ci/run/execute.js';
 
 /**
- * Run the adjudicator as a tool-free structured run (Claude only; the run
- * core refuses a tool-free run on any other harness before it starts) in a
+ * Run the adjudicator as a tool-free structured run (Claude/fake harness or
+ * the narrow Sol Low Responses transport) in a
  * fresh empty scratch directory outside every checkout. Writes
  * `adjudication.json` (always: `completed` with the kept operations, or
  * `failed` with none) and `adjudicator.json` into the output directory,
@@ -48,6 +53,7 @@ export type AdjudicatorRecord = {
   route: string | null;
   model: string;
   harness: HarnessId | null;
+  transport: AdjudicatorTransport | null;
   repair: RepairOutcome | null;
   usage: Usage | null;
 };
@@ -110,6 +116,7 @@ export async function runAdjudicator(
       route: null,
       model,
       harness: null,
+      transport: null,
       repair: null,
       usage: null,
     };
@@ -128,6 +135,13 @@ export async function runAdjudicator(
     role: 'adjudicator model',
   });
   if (!resolved.ok) return resolved;
+  const selected = adjudicatorTransport(resolved.value.route, {
+    allowPool: options.allowPool,
+    seedLogin: false,
+    env: resolved.value.env,
+  });
+  if (!selected.ok) return selected;
+  const transport = selected.value;
   const sources = buildAdjudicationSources(candidates, options.read);
   const { provided } = promptCandidates(candidates);
   // An empty scratch directory: no checkout, no project settings.
@@ -154,10 +168,12 @@ export async function runAdjudicator(
         modelsPath: options.modelsPath,
         env: resolved.value.env,
         structured: {
-          schema: ADJUDICATION_ANSWER_SCHEMA as unknown as Record<
-            string,
-            unknown
-          >,
+          ...(transport === 'adjudicator-responses'
+            ? { adjudicatorTransport: transport }
+            : {}),
+          schema: (transport === 'adjudicator-responses'
+            ? ADJUDICATION_RESPONSES_SCHEMA
+            : ADJUDICATION_ANSWER_SCHEMA) as unknown as Record<string, unknown>,
           accept: (candidate, final) =>
             acceptAdjudicationAnswer(
               candidate,
@@ -198,6 +214,7 @@ export async function runAdjudicator(
       route: summary.value.route.id,
       model: summary.value.route.model,
       harness: summary.value.route.harness,
+      transport: summary.value.transport,
       repair: summary.value.repair ?? null,
       usage: summary.value.usage,
     };

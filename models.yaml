@@ -115,7 +115,7 @@ routes:
     account: pool
     structuredOutput: output-schema
     qualified: null
-    notes: Low-effort model alias, distinct from the high-effort reviewer alias.
+    notes: Low-effort alias; only adjudication uses direct no-tools pool Responses.
   - id: gpt-5.6-luna-pool
     model: gpt-5.6-luna
     harness: codex

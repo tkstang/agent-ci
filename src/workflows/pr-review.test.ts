@@ -104,6 +104,23 @@ describe('pr-review.yml', () => {
     }
   });
 
+  it('revalidates adjudicator purpose and installs only the selected harness transport', async () => {
+    const workflow = await adjudicate();
+    const job = workflow.jobs.adjudicate;
+    expect(job?.steps?.find((step) => step.id === 'route')?.run).toContain(
+      'agent-ci route --purpose adjudicator',
+    );
+    expect(
+      job?.steps?.find((step) => step.name === 'Install the harness')?.if,
+    ).toBe("steps.route.outputs.transport == 'harness'");
+    const ordinary = await reviewPass();
+    expect(
+      ordinary.jobs.review?.steps?.find(
+        (step) => step.name === 'Install the harness',
+      )?.if,
+    ).toBeUndefined();
+  });
+
   it('forwards private output mode to every reviewer and adjudicator child', async () => {
     for (const workflow of await reviewWorkflows()) {
       const inputs = (
@@ -207,7 +224,11 @@ describe('pr-review.yml', () => {
       expect(route?.env?.MODEL).toBe(
         `\${{ steps.gate.outputs.${role === 'primary' ? 'reviewer_model' : role === 'second' ? 'second_reviewer_model' : 'adjudicator_model'} }}`,
       );
-      expect(route?.run).toContain('agent-ci route --model "$MODEL"');
+      expect(route?.run).toContain(
+        role === 'adjudicator'
+          ? 'agent-ci route --purpose adjudicator --model "$MODEL"'
+          : 'agent-ci route --model "$MODEL"',
+      );
     }
     for (const [, step] of steps(workflow)) {
       const text = JSON.stringify(step);
@@ -257,7 +278,11 @@ describe('pr-review.yml', () => {
       }
       const route = job?.steps?.find((entry) => entry.id === 'route');
       expect(route?.env?.ROUTE).toBe('${{ inputs.route_id }}');
-      expect(route?.run).toContain('agent-ci route --route "$ROUTE"');
+      expect(route?.run).toContain(
+        child.jobs.adjudicate !== undefined
+          ? 'agent-ci route --purpose adjudicator --route "$ROUTE"'
+          : 'agent-ci route --route "$ROUTE"',
+      );
       expect(job?.steps?.find((entry) => entry.id === 'present')?.if).toBe(
         'always()',
       );
