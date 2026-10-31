@@ -61,14 +61,24 @@ digest matches the one the agent job recorded.
 
 ### pr-review.yml
 
-| Job                               | Pull-request code                                                       | Model credential                                                                                                                               | GitHub write                  |
-| --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `gate`                            | no checkout                                                             | none                                                                                                                                           | label, reaction and one reply |
-| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain                                                                      | none (`contents: read`)       |
-| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | every model secret the caller passes is on the runner; only the route's reaches the pass step, plus `AGENT_CI_PROXY_BASE_URL` for a pool route | none                          |
-| `adjudicate`                      | no checkout; sources come from the git database API                     | the route's credential, tool-free Claude run                                                                                                   | none                          |
-| `findings`                        | no checkout                                                             | none                                                                                                                                           | none (read-only token)        |
-| `publish`                         | no checkout                                                             | none                                                                                                                                           | review and summary comment    |
+| Job                               | Pull-request code                                                       | Model credential                                                             | GitHub write                  |
+| --------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------- |
+| `gate`                            | no checkout                                                             | none                                                                         | label, reaction and one reply |
+| `verify` (verify-review only)     | runs the `setup` command (with network) and the configured checks on it | none; the job's read-only `GITHUB_TOKEN` and Actions runtime token remain    | none (`contents: read`)       |
+| `review-primary`, `review-second` | read-only checkout, no setup command, no repository skills              | only the route's credential, plus `AGENT_CI_PROXY_BASE_URL` for a pool route | none                          |
+| `adjudicate`                      | no checkout; sources come from the git database API                     | only the route's credential and pool-only origin, tool-free Claude run       | none                          |
+| `findings`                        | no checkout                                                             | none                                                                         | none (read-only token)        |
+| `publish`                         | no checkout                                                             | none                                                                         | review and summary comment    |
+
+The reviewer jobs call `review-pass.yml`; the adjudicator calls
+`review-adjudicate.yml`. Each child declares only `AGENT_CI_CREDENTIAL`
+and `AGENT_CI_PROXY_BASE_URL`. After authorization and spec binding, the
+gate resolves each enabled role to a route ID, credential name and account
+name. The caller selects one credential with static secret references and
+passes the origin only for a pool route. Each child re-resolves that exact
+route under its own runner policy; the review command checks it against
+the model bound in the spec. Other model credentials do not reach these
+runners.
 
 Every job except `verify` also checks out the public agent-ci helpers with
 the job's `GITHUB_TOKEN`.
@@ -254,14 +264,6 @@ These risks are accepted, with the conditions that would change that.
 
 **Secrets and tokens**
 
-- **Review jobs hold every model secret the caller passes.** The reviewer
-  and adjudicator steps select one credential, but each of those runners
-  receives every model secret the caller passes to `pr-review.yml`. The
-  shipped caller template passes two (`CLAUDE_CODE_OAUTH_TOKEN` and
-  `OPENCODE_API_KEY`). Pass only the secrets your review models use. The
-  same holds for `AGENT_CI_PROXY_BASE_URL`, which the template also passes:
-  every review and adjudicator runner holds it whatever the route, so pass
-  it only if a review model uses a pool route.
 - **One read token per fleet.** An agent on one target could read every
   private target the fleet's read token can read. The token's permissions
   beyond writing contents cannot be checked through the API, so a token with
@@ -313,11 +315,13 @@ These risks are accepted, with the conditions that would change that.
   `--ignore-scripts`; the Cursor tarball is sha256-pinned. Read-only
   guarantees were probed against the pinned versions and must be re-probed
   when a pin changes.
-- **Not exercised live yet:** a model-backed Actions run of `pr-review.yml`
+- **Not exercised live yet:** review child-workflow artifact ID and digest
+  propagation after a failed child job, a model-backed Actions run of `pr-review.yml`
   (a model-backed `fan-out.yml` docs-update run has passed), the
   default-branch review triggers,
   cross-repository fan-out with real target tokens, and a pool route on a
   self-hosted runner, including the Codex sandbox prerequisite on a
   self-hosted Linux host (see
   [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy)). These paths are covered by unit and workflow
-  structure tests.
+  structure tests; those checks do not prove hosted reusable-workflow output
+  propagation.

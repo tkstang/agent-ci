@@ -104,10 +104,16 @@ flowchart LR
 
 1. **Gate** (`agent-ci review gate`, then `prepare`): authorizes the request,
    checks the models, captures the head commit every later job uses, and
-   writes a digest-bound request, review spec and diff.
+   writes a digest-bound request, review spec and diff. After binding the
+   spec, it resolves each enabled role's route; only route IDs, credential
+   names and account names become job outputs.
 2. **Reviewer passes** (`review pass`): the primary reviewer, and the second
    reviewer when `second_reviewer` is on, read the pull request head
-   read-only. Claude and Codex return schema-constrained output
+   read-only. The separate `review-primary` and `review-second` calls use
+   `review-pass.yml`, whose runner receives only its selected model
+   credential and, for a pool route, the private proxy origin. It
+   re-resolves the exact route under its own runner policy. Claude and Codex
+   return schema-constrained output
    (`--json-schema`, `--output-schema`); OpenCode and Cursor return one JSON
    object in their final text. A pass whose answer fails validation gets one
    repair turn by resuming the session (Claude, Codex and OpenCode; not
@@ -118,7 +124,9 @@ flowchart LR
 3. **Adjudicator** (`review sources`, then `review adjudicate`), when
    `adjudicator` is on: a Claude route with every tool removed reads the
    candidate findings and their cited source, fetched without a checkout,
-   and may only drop or downgrade a finding. It cannot add findings or
+   in an empty scratch directory. Its `review-adjudicate.yml` runner
+   receives only the selected credential and pool-only origin. It may only
+   drop or downgrade a finding. It cannot add findings or
    change protected ones (`high`, `critical`, or at or above
    `fail_on_severity`), and the findings gate enforces these limits again;
    if adjudication fails, nothing from it is applied. It runs only on a

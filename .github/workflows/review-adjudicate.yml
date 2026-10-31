@@ -1,0 +1,195 @@
+# Internal reusable workflow: Adjudicate review. Only the selected model credential and,
+# for a pool route, its private proxy origin cross this runner boundary.
+# Call pr-review.yml rather than this workflow directly.
+name: '[internal] Adjudicate review'
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        type: string
+        required: true
+      job_timeout_minutes:
+        type: number
+        required: true
+      route_id:
+        type: string
+        required: true
+      spec_artifact_id:
+        type: string
+        required: true
+      spec_sha256:
+        type: string
+        required: true
+      artifact_scope:
+        type: string
+        required: true
+      timeout_minutes:
+        type: number
+        required: true
+      allow_pool:
+        type: boolean
+        default: false
+      agent_ci_repository:
+        type: string
+        default: ''
+      agent_ci_ref:
+        type: string
+        default: ''
+      primary_artifact_id:
+        type: string
+        default: ''
+      primary_digest:
+        type: string
+        default: ''
+      second_artifact_id:
+        type: string
+        default: ''
+      second_digest:
+        type: string
+        default: ''
+      fail_on_severity:
+        type: string
+        default: ''
+    secrets:
+      AGENT_CI_CREDENTIAL:
+        description: The selected route credential, provided by pr-review.yml.
+        required: false
+      AGENT_CI_PROXY_BASE_URL:
+        description: Private proxy origin, provided only for a pool route.
+        required: false
+    outputs:
+      artifact_id:
+        description: Set only when the upload succeeded.
+        value: ${{ jobs.adjudicate.outputs.artifact_id }}
+      digest:
+        value: ${{ jobs.adjudicate.outputs.digest }}
+
+permissions:
+  contents: read
+
+jobs:
+  adjudicate:
+    name: Adjudicate (tool-free)
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      digest: ${{ steps.digest.outputs.digest }}
+    steps:
+      - name: Require a resolvable helper ref
+        if: (inputs.agent_ci_ref || job.workflow_sha) == '' || (inputs.agent_ci_repository || job.workflow_repository) == ''
+        run: |
+          echo "::error::Cannot resolve the agent-ci helper repository and commit; set agent_ci_repository and agent_ci_ref."
+          exit 1
+
+      - name: Check out the agent-ci helpers
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
+          ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
+          token: ${{ github.token }}
+          path: .agent-ci-src
+          persist-credentials: false
+
+      - name: Set up agent-ci
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
+
+      - name: Download the review spec
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ inputs.spec_artifact_id }}
+          path: ${{ runner.temp }}/review-spec
+          merge-multiple: true
+
+      - name: Download the primary review
+        if: inputs.primary_artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ inputs.primary_artifact_id }}
+          path: ${{ runner.temp }}/review-primary
+          merge-multiple: true
+
+      - name: Download the second review
+        if: inputs.second_artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ inputs.second_artifact_id }}
+          path: ${{ runner.temp }}/review-second
+          merge-multiple: true
+
+      # GitHub token, no model credential: the cited source at the captured
+      # SHAs from the git database API (trees and blobs).
+      - name: Fetch the cited source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPEC_SHA256: ${{ inputs.spec_sha256 }}
+          PRIMARY_DIR: ${{ inputs.primary_artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
+          PRIMARY_DIGEST: ${{ inputs.primary_digest }}
+          SECOND_DIR: ${{ inputs.second_artifact_id != '' && format('{0}/review-second', runner.temp) || '' }}
+          SECOND_DIGEST: ${{ inputs.second_digest }}
+          FAIL_ON: ${{ inputs.fail_on_severity }}
+        run: >-
+          agent-ci review sources --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
+          --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
+          --fail-on-severity "$FAIL_ON" --out "$RUNNER_TEMP/review-sources"
+
+      - name: Resolve the route
+        id: route
+        env:
+          ROUTE: ${{ inputs.route_id }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: agent-ci route --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
+
+      - name: Install the harness
+        env:
+          HARNESS: ${{ steps.route.outputs.harness }}
+        run: agent-ci harness install --harness "$HARNESS" --prefix "$RUNNER_TEMP/agent-ci-harness" --github-path
+
+      # Only the selected model credential; no GitHub token in this step.
+      - name: Run the adjudicator
+        env:
+          AGENT_CI_CREDENTIAL: ${{ secrets.AGENT_CI_CREDENTIAL }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
+          ROUTE_ID: ${{ steps.route.outputs.route_id }}
+          SPEC_SHA256: ${{ inputs.spec_sha256 }}
+          PRIMARY_DIR: ${{ inputs.primary_artifact_id != '' && format('{0}/review-primary', runner.temp) || '' }}
+          PRIMARY_DIGEST: ${{ inputs.primary_digest }}
+          SECOND_DIR: ${{ inputs.second_artifact_id != '' && format('{0}/review-second', runner.temp) || '' }}
+          SECOND_DIGEST: ${{ inputs.second_digest }}
+          FAIL_ON: ${{ inputs.fail_on_severity }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: >-
+          agent-ci review adjudicate --spec-dir "$RUNNER_TEMP/review-spec" --spec-sha256 "$SPEC_SHA256"
+          --primary-dir "$PRIMARY_DIR" --primary-digest "$PRIMARY_DIGEST"
+          --second-dir "$SECOND_DIR" --second-digest "$SECOND_DIGEST"
+          --sources-dir "$RUNNER_TEMP/review-sources" --fail-on-severity "$FAIL_ON"
+          --out "$RUNNER_TEMP/review-adjudication" --route "$ROUTE_ID" --credential-from-env
+          --allow-pool-value "$ALLOW_POOL"
+          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT"
+
+      - name: Check for adjudication outputs
+        id: present
+        if: always()
+        run: test -f "$RUNNER_TEMP/review-adjudication/adjudication.json" && echo "present=true" >> "$GITHUB_OUTPUT" || echo "present=false" >> "$GITHUB_OUTPUT"
+
+      - name: Digest the adjudication
+        id: digest
+        if: always() && steps.present.outputs.present == 'true'
+        run: agent-ci digest --dir "$RUNNER_TEMP/review-adjudication" --github-output
+
+      - name: Upload the adjudication
+        id: upload
+        if: always() && steps.digest.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_scope }}-agent-ci-review-adjudication
+          path: ${{ runner.temp }}/review-adjudication
+          retention-days: 7
+          if-no-files-found: error

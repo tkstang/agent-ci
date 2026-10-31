@@ -511,7 +511,8 @@ describe('workflow class sweep', () => {
         '.github/workflows/agent-job.yml agent',
         '.github/workflows/run-agent.yml setup',
         '.github/workflows/tools-update.yml run',
-        '.github/workflows/pr-review.yml review-primary',
+        '.github/workflows/review-pass.yml review',
+        '.github/workflows/review-adjudicate.yml adjudicate',
       ]),
     );
   });
@@ -562,9 +563,13 @@ describe('workflow class sweep', () => {
     expect(seenRouting).toEqual(
       expect.arrayContaining([
         '.github/workflows/pr-review.yml gate/Authorize the request',
-        '.github/workflows/pr-review.yml review-primary/Resolve the route',
-        '.github/workflows/pr-review.yml review-primary/Run the primary reviewer',
-        '.github/workflows/pr-review.yml adjudicate/Run the adjudicator',
+        '.github/workflows/pr-review.yml gate/Resolve the primary route',
+        '.github/workflows/pr-review.yml gate/Resolve the second route',
+        '.github/workflows/pr-review.yml gate/Resolve the adjudicator route',
+        '.github/workflows/review-pass.yml review/Resolve the route',
+        '.github/workflows/review-pass.yml review/Run the reviewer',
+        '.github/workflows/review-adjudicate.yml adjudicate/Resolve the route',
+        '.github/workflows/review-adjudicate.yml adjudicate/Run the adjudicator',
         '.github/workflows/run-agent.yml resolve/Resolve the route',
         '.github/workflows/agent-job.yml agent/Run the agent',
         '.github/workflows/fan-out.yml targets/Select the target matrix',
