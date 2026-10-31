@@ -222,6 +222,8 @@ As of this commit (`agent-ci models` prints the live table):
 | `claude-haiku-4-5`     | `claude-haiku-4-5-personal`          | claude   | personal | subscription | `CLAUDE_CODE_OAUTH_TOKEN` | not yet    |
 | `claude-haiku-4-5`     | `claude-haiku-4-5-api`               | claude   | personal | paid-api     | `ANTHROPIC_API_KEY`       | not yet    |
 | `claude-haiku-5-5`     | `claude-haiku-5-5-pool`              | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | 2026-10-25 |
+| `claude-haiku-5-5`     | `claude-haiku-5-5-personal`          | claude   | personal | subscription | `CLAUDE_CODE_OAUTH_TOKEN` | not yet    |
+| `claude-haiku-5-5`     | `claude-haiku-5-5-api`               | claude   | personal | paid-api     | `ANTHROPIC_API_KEY`       | not yet    |
 | `gpt-6.1-sol-high`     | `gpt-6.1-sol-high-pool`              | codex    | pool     | subscription | `AGENT_CI_PROXY_API_KEY`  | not yet    |
 | `gpt-6.1-sol-low`      | `gpt-6.1-sol-low-pool`               | codex    | pool     | subscription | `AGENT_CI_PROXY_API_KEY`  | not yet    |
 | `claude-opus-5-5-high` | `claude-opus-5-5-high-pool`          | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | not yet    |
@@ -236,7 +238,8 @@ As of this commit (`agent-ci models` prints the live table):
 
 The five `fake-*` routes (harness `fake`, billing `none`) are omitted.
 
-The routes a hosted Actions runner can use are `claude-haiku-4-5-personal`,
+The routes a hosted Actions runner can use are `claude-haiku-5-5-personal`,
+`claude-haiku-5-5-api` (by `route` only), `claude-haiku-4-5-personal`,
 `claude-haiku-4-5-api` (by `route` only), the three `OPENCODE_API_KEY`
 routes (`grok-4.7-opencode`, `glm-5.3-flash-opencode`,
 `deepseek-v4.1-flash-opencode`) and `grok-4.7-cursor` (pinned). Of the key
@@ -251,7 +254,7 @@ and 06:00-10:00 UTC, Monday to Friday), so schedule it outside them.
 ```bash
 agent-ci models --model grok-4.7
 agent-ci route --model grok-4.7
-agent-ci route --model claude-haiku-4-5 --allow-pool
+agent-ci route --model claude-haiku-5-5 --allow-pool
 agent-ci doctor --allow-pool --seed-login
 ```
 

@@ -12,7 +12,7 @@ allowedOwners: [my-org]
 # Optional defaults; a target's own values win.
 defaults:
   base: main
-  model: claude-haiku-4-5 # a models.yaml model; pin with harness or route
+  model: claude-haiku-5-5 # a models.yaml model; pin with harness or route
   mode: edit # edit | read-only
   inputs:
     timeoutMinutes: 30

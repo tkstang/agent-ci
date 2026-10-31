@@ -36,7 +36,7 @@ on:
         required: true
       model:
         description: Qualified model (see agent-ci models).
-        default: claude-haiku-4-5
+        default: claude-haiku-5-5
 
 permissions:
   contents: read

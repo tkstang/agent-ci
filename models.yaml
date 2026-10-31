@@ -74,6 +74,28 @@ routes:
     structuredOutput: json-schema
     qualified: '2026-10-25'
     notes: CLIProxyAPI pool (loopback); CI requires self-hosted and allow_pool.
+  - id: claude-haiku-5-5-personal
+    model: claude-haiku-5-5
+    harness: claude
+    family: claude
+    providerModel: claude-haiku-5-5
+    credentials: [CLAUDE_CODE_OAUTH_TOKEN]
+    billing: subscription
+    account: personal
+    structuredOutput: json-schema
+    qualified: null
+    notes: Personal subscription token from `claude setup-token`; the CI route.
+  - id: claude-haiku-5-5-api
+    model: claude-haiku-5-5
+    harness: claude
+    family: claude
+    providerModel: claude-haiku-5-5
+    credentials: [ANTHROPIC_API_KEY]
+    billing: paid-api
+    account: personal
+    structuredOutput: json-schema
+    qualified: null
+    notes: Metered API key; never chosen automatically, select with --route.
 
   - id: claude-opus-5-5-high-pool
     model: claude-opus-5-5-high
