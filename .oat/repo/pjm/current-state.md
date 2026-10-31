@@ -64,16 +64,16 @@ only the primary. New production routes are not live-qualified.
 name-check gaps** and **BL-261025-post-v1-simplification-pass — Post-v1
 simplification pass** shipped in reviewed, merged source and are archived.
 **BL-261025-self-hosted-runner-and-proxy — Self-hosted runner and proxy readiness**
-remains open for approved host admission, live pool/JIT proof and versioned
-release. **BL-261025-fleet-repositories-merged — Fleet repositories: merged
+remains open for coherent runner upgrade/admission and live pool/JIT proof;
+source release publication is complete. **BL-261025-fleet-repositories-merged — Fleet repositories: merged
 target lists and protected artifacts** remains open: merging and private-output
 controls shipped, but artifacts remain plaintext. The operator selected isolated
 transport for full support; the [proposed design](../reference/research/fleet-artifact-transport.md)
 retains platform qualification and service provisioning gates.
 
-External draft preparation is approved and underway: private-fleet
-[caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5) replaces the
-retired source pin/token mapping and stays disabled/manual-only; runner
+Private-fleet [caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5)
+is merged, pins `v0.1.0`, removes the retired source-token mapping and stays
+disabled/manual-only. Runner
 [reservation #6](https://github.com/tkstang/actions-runner/pull/6) stacks on its
 existing PR #4 and refuses unqualified fleet starts. The operator subsequently preauthorized discussed merges, runner setup and
 bounded qualification, release publication and deletion of unnecessary secrets.

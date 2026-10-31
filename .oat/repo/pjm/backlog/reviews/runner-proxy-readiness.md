@@ -46,22 +46,21 @@ The runner's listener can take other matching jobs in its repository after
 registration. Review every workflow capable of using the admitted labels,
 not just the job that caused the controller to create the listener.
 
-The [private-fleet caller draft #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5)
-replaces the unavailable source pin with merged source
-`2c9c777dc8d2f54185f46eb8b46baaf741fe21c2`, removes the retired source-token
-input, requires the complete dedicated label array and `allow_pool`, and maps
-explicit route credentials. It preserves target membership and the maintenance
-DeepSeek default, serializes presets, sets private output and stays disabled
-behind `AGENT_CI_FLEET_ADMITTED`. The approved `v0.1.0` release now exists; a prepared follow-up replaces
-the interim SHA with that version while keeping the caller disabled. Do not delete the
-source secret until the migration merges and a fresh no-reader check passes.
-No new credential, secret deletion or target-repository selection is included.
+The [private-fleet caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5)
+merged as `fb62cc50ae1e2dbc08cded6bb8c73aba6be3229b`, pins `v0.1.0` at
+`50d8e809eb843c164988ff0cdc076d14aa604174`, and removes the source-token input.
+It preserves target membership and the DeepSeek maintenance default, requires
+the dedicated labels and private output, and remains manual-only/disabled behind
+`AGENT_CI_FLEET_ADMITTED`. The source secret was deleted after the fresh reader/
+active-run checks recorded below. This completed migration does not qualify or
+activate the fleet, add the selected pilot, or create its target PATs.
 
 ## Ordered acceptance
 
-1. Complete the existing runner pilot's reviewed recovery, fresh proof,
-   source upgrade, guest qualification and JIT lifecycle acceptance. Preserve
-   its pinned recovery evidence. Do not substitute a generic privileged rerun.
+1. Reconcile the reported completed recovery/JIT evidence with installed source
+   and the remaining lifecycle gates. Preserve pinned evidence and never replay
+   the consumed launchers. Reconcile the separate runner #5 corrections and
+   unfinished upgrade work before choosing a combined production source.
 2. Review the dormant reservation and subsequent exact-job admission change.
    The operator preauthorized the discussed merges and host setup/activation.
    Reconcile current source, the exact continuation and credential scope first.
@@ -89,15 +88,12 @@ No new credential, secret deletion or target-repository selection is included.
 
 ## Versioned delivery
 
-After the approved source PRs merge, prepare `v0.1.0` at the exact merged
-source revision, with release notes covering new review defaults, Claude pool
-support, label-array routing and the outstanding live/transport limits. Do not
-publish an absent tag in working caller references. The operator authorized publication; `v0.1.0` now exists at `50d8e80`. Caller edits remain prepared; no host activation has run here.
-
-Use a released version in consumer templates and migration PRs once the tag
-exists; helpers resolve from that workflow's own commit. Record the tag's
-commit and validation result so the operator can audit or roll back the pin.
-A release must not imply live qualification that has not occurred.
+Release `v0.1.0` is published at
+`50d8e809eb843c164988ff0cdc076d14aa604174`, with the live/transport limits
+stated in its notes. The private-fleet migration already uses that version;
+this change updates the public consumer templates too. Helpers resolve from
+the workflow's own commit. Preserve the recorded tag-to-commit mapping for
+review and rollback; publication does not imply live qualification.
 
 ## Release notes for v0.1.0
 
@@ -128,8 +124,10 @@ The release notes must carry these limits while they remain true.
 ## Remaining acceptance
 
 Proxy-origin override and label-array integration are merged.
-Runner admission, approved activation, the first live job and accepted versioned
-caller migration remain outstanding. Source release publication is complete. This backlog item stays open.
+A coherent reviewed runner upgrade, exact-job admission, compatibility,
+activation and live pool/lifecycle acceptance remain outstanding. Source release
+publication, private-caller migration and retired source-secret deletion are
+complete. This backlog item stays open.
 
 ## Later reconciliation: preserve current runner work
 
@@ -144,8 +142,8 @@ that other session's edits. Reconcile the combined reviewed source and current
 non-sudo production CI compatibility before preparing any new privileged tuple.
 
 Release `v0.1.0` has been published at `50d8e80` with explicit unqualified-route
-and plaintext-artifact limits. Update caller references to the existing version;
-keep fleet admission disabled until its remaining technical gates pass.
+and plaintext-artifact limits. Keep fleet admission disabled until its
+remaining technical gates pass.
 
 Private-fleet migration #5 is now merged as `fb62cc5`, pinned to `v0.1.0` and
 still disabled. The stale manual branch now has the same reviewed disabled

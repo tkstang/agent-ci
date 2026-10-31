@@ -117,7 +117,7 @@ follow-up confirmation, found no remaining findings. No live transport proof is
 claimed. The operator's reviewer-plus-adjudicator caller still needs preparation
 and live acceptance.
 
-External drafts prepared under the operator's PR-only approval:
+External integration history and current status:
 
 - [Private-fleet caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5),
   merged as `fb62cc50ae1e2dbc08cded6bb8c73aba6be3229b` after the independently
