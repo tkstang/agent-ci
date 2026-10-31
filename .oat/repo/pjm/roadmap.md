@@ -10,7 +10,7 @@ bullet lines over rewriting whole sections, and reference backlog records by ID
 <!-- Add active work here. Format:
 - **BL-YYMMDD-slug: {title}** — brief description. Project: {name} (if linked)
 -->
-- Make the repository public — complete and archive agent-ci-v1, flip visibility, then drop the "private" wording and the `AGENT_CI_SOURCE_TOKEN` requirement from `docs/`, `README.md` and `consumer-workflows/` and delete the fleet's copy of that secret.
+- Complete the public-source cleanup PR — the repository is public and agent-ci-v1 is archived. After the cleanup merges, verify fleet workflows no longer read `AGENT_CI_SOURCE_TOKEN` and obtain explicit approval before deleting the fleet secret.
 - **BL-261025-self-hosted-runner-and-proxy: Self-hosted runner and proxy readiness** — proxy origin override shipped (PR #29); runner admission (`tkstang/actions-runner`) and the first live `allow_pool` job remain, plus a release tag.
 - **BL-261030-make-the-moved-base-publish: Make the moved-base publish test deterministic** — intermittent CI failure on unrelated changes.
 

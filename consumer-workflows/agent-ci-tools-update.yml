@@ -20,5 +20,3 @@ jobs:
     with:
       oat_cli_version: 0.3.33 # an exact version keeps runs reproducible; latest also works
       dependency_policy: skills-only # include-lockfile also allows lockfile changes
-    secrets:
-      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}

@@ -10,7 +10,7 @@ legacy_id: null
 
 ## Context
 
-A p04 bridge probe on 2026-10-25 showed that headless Cursor agent -p runs on the work account are offered the account's cloud connector tools (mail- and calendar-style actions such as create_draft, trash_thread and create_event), whatever the isolated agent-ci home contains. This affects every Cursor run and review route, not only verify-review, where Cursor is refused. It was recorded as a deferred finding for an operator decision.
+A p04 bridge probe on 2026-10-25 showed that headless Cursor agent -p runs on the configured account are offered the account's cloud connector tools (mail- and calendar-style actions such as create_draft, trash_thread and create_event), whatever the isolated agent-ci home contains. This affects every Cursor run and review route, not only verify-review, where Cursor is refused. It was recorded as a deferred finding for an operator decision.
 
 ## Decision
 

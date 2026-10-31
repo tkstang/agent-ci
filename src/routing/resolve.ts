@@ -113,7 +113,7 @@ function resolveById(
  * Resolve a model (and optional harness pin) to one route. Candidates are
  * tried in file order; ineligible ones are skipped, but resolution never
  * falls back from a subscription route to a paid-api route, and never falls
- * back into a work account. An explicit `--route` is the only way to pick
+ * back into the `work` account class. An explicit `--route` is the only way to pick
  * such a route.
  *
  * After selection, a pool route's `baseUrl` takes the origin from
@@ -188,8 +188,8 @@ function selectRoute(
     ) {
       return failure(
         'E_POLICY_ACCOUNT_FALLBACK',
-        `refusing to fall back into work-account route ${route.id}`,
-        `Pin it with --harness ${route.harness} or --route ${route.id} if the work account is intended.`,
+        `refusing to fall back into account class work for route ${route.id}`,
+        `Pin it with --harness ${route.harness} or --route ${route.id} if account class work is intended.`,
       );
     }
     return success({

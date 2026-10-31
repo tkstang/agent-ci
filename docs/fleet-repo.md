@@ -21,15 +21,10 @@ refers to its secrets.
 
 ## 1. Let your repositories use agent-ci
 
-agent-ci is private, so two things are needed once:
-
-1. In `tkstang/agent-ci`, set Settings, Actions, General, Access to allow
-   repositories owned by the user. Without it, a `uses:` reference from
-   another repository fails.
-2. Create a fine-grained token with Contents: Read-only on
-   `tkstang/agent-ci` and store it as `AGENT_CI_SOURCE_TOKEN` in every
-   repository that calls agent-ci. Each job uses it to check out the
-   agent-ci helpers at the pinned commit.
+agent-ci is public. Call its reusable workflows with a commit SHA in the
+`uses:` reference. The helpers are checked out at that same commit with the
+job's `GITHUB_TOKEN`; no separate source token or agent-ci Actions access
+setting is needed.
 
 ## 2. Create the fleet repository
 
@@ -60,7 +55,6 @@ agent-ci is private, so two things are needed once:
    can be dispatched for one preset and one target. Replace the `@main` in
    its `uses:` line with an agent-ci commit SHA.
 4. Store the secrets in the fleet repository:
-   - `AGENT_CI_SOURCE_TOKEN` (step 1);
    - `AGENT_CI_TARGET_TOKEN`: Contents and Pull requests read and write on
      every target repository;
    - `AGENT_CI_TARGET_READ_TOKEN`: Contents read-only on every private
@@ -107,9 +101,8 @@ comment happens there. For each repository that wants reviews:
 1. Copy `consumer-workflows/agent-ci-pr-review.yml` to
    `.github/workflows/agent-ci-pr-review.yml` and pin its `uses:` ref to an
    agent-ci commit SHA.
-2. Store `AGENT_CI_SOURCE_TOKEN` and the reviewer model secrets the caller
-   passes (the template passes `CLAUDE_CODE_OAUTH_TOKEN` and
-   `OPENCODE_API_KEY`, plus the optional pool-route
+2. Store the reviewer model secrets the caller passes (the template passes
+   `CLAUDE_CODE_OAUTH_TOKEN` and `OPENCODE_API_KEY`, plus the optional pool-route
    `AGENT_CI_PROXY_BASE_URL`; remove the ones you do not use).
 3. Create the `agent-ci:review` label (and `agent-ci:verify-review` if you
    set `verify: true`).
@@ -124,9 +117,9 @@ Request a review as described in [PR review](pr-review.md#request-a-review).
 A repository that should maintain only itself can skip the fleet and copy
 `consumer-workflows/agent-ci-docs-update.yml` or
 `consumer-workflows/agent-ci-tools-update.yml` directly. Those run against
-the calling repository with `GITHUB_TOKEN`, so they need
-`AGENT_CI_SOURCE_TOKEN`, the model secret (docs update only) and the Actions
-setting that lets workflows create pull requests.
+the calling repository with `GITHUB_TOKEN`, so they need only the model
+secret (docs update only) and the Actions setting that lets workflows create
+pull requests.
 
 ## Updating agent-ci
 

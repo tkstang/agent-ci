@@ -50,7 +50,7 @@ describe('checked-in models.yaml', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('never selects the work account for grok-4.7 by fallback', async () => {
+  it('never selects account class work for grok-4.7 by fallback', async () => {
     const loaded = await loadModelsFile(DEFAULT_MODELS_PATH);
     if (!loaded.ok) throw new Error(loaded.message);
     const resolved = resolveRoute(

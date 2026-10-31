@@ -58,7 +58,6 @@ describe('tools-update.yml', () => {
     );
     expect(secrets.toSorted()).toEqual([
       'AGENT_CI_NOTIFY_WEBHOOK',
-      'AGENT_CI_SOURCE_TOKEN',
       'AGENT_CI_TARGET_READ_TOKEN',
       'AGENT_CI_TARGET_TOKEN',
     ]);
@@ -191,9 +190,7 @@ describe('fan-out.yml', () => {
         'persist-credentials'
       ],
     ).toBe(false);
-    for (const ref of secretRefs(targets)) {
-      expect(ref).toBe('AGENT_CI_SOURCE_TOKEN');
-    }
+    expect(secretRefs(targets)).toEqual([]);
   });
 
   it('calls run-agent.yml or tools-update.yml once per matrix entry, mapping every field to an input', async () => {
@@ -265,7 +262,6 @@ describe('fan-out.yml', () => {
     // The deterministic job gets no model credential.
     expect(Object.keys(tools.secrets ?? {}).toSorted()).toEqual([
       'AGENT_CI_NOTIFY_WEBHOOK',
-      'AGENT_CI_SOURCE_TOKEN',
       'AGENT_CI_TARGET_READ_TOKEN',
       'AGENT_CI_TARGET_TOKEN',
     ]);
@@ -346,7 +342,6 @@ describe('fleet and consumer templates', () => {
         'consumer-workflows/agent-ci-fleet.yml',
         'fan-out.yml',
         [
-          'AGENT_CI_SOURCE_TOKEN',
           'AGENT_CI_TARGET_TOKEN',
           'AGENT_CI_TARGET_READ_TOKEN',
           'CLAUDE_CODE_OAUTH_TOKEN',
@@ -356,13 +351,9 @@ describe('fleet and consumer templates', () => {
       [
         'consumer-workflows/agent-ci-docs-update.yml',
         'docs-update.yml',
-        ['AGENT_CI_SOURCE_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
+        ['CLAUDE_CODE_OAUTH_TOKEN'],
       ],
-      [
-        'consumer-workflows/agent-ci-tools-update.yml',
-        'tools-update.yml',
-        ['AGENT_CI_SOURCE_TOKEN'],
-      ],
+      ['consumer-workflows/agent-ci-tools-update.yml', 'tools-update.yml', []],
     ];
     for (const [file, called, secrets] of cases) {
       const workflow = await load(file);
@@ -474,6 +465,10 @@ describe('workflow class sweep', () => {
     for (const file of await allWorkflowFiles()) {
       const workflow = await load<Workflow>(file);
       expect(secretRefs(workflow), file).not.toContain('[dynamic]');
+      // Public helper checkouts require no separately provisioned token.
+      expect(JSON.stringify(workflow), file).not.toContain(
+        'AGENT_CI_SOURCE_TOKEN',
+      );
     }
   });
 

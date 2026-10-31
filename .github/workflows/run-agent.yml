@@ -196,9 +196,6 @@ on:
         type: string
         default: ''
     secrets:
-      AGENT_CI_SOURCE_TOKEN:
-        description: Contents read on the agent-ci repository (consumer repositories; it is private).
-        required: false
       AGENT_CI_TARGET_TOKEN:
         description: >-
           Contents and pull-requests write on target_repository when it is another
@@ -275,7 +272,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
@@ -413,7 +410,6 @@ jobs:
       agent_ci_ref: ${{ inputs.agent_ci_ref }}
     secrets:
       AGENT_CI_CREDENTIAL: ${{ (needs.resolve.outputs.credential == 'CLAUDE_CODE_OAUTH_TOKEN' && secrets.CLAUDE_CODE_OAUTH_TOKEN) || (needs.resolve.outputs.credential == 'ANTHROPIC_API_KEY' && secrets.ANTHROPIC_API_KEY) || (needs.resolve.outputs.credential == 'OPENCODE_API_KEY' && secrets.OPENCODE_API_KEY) || (needs.resolve.outputs.credential == 'CURSOR_API_KEY' && secrets.CURSOR_API_KEY) || (needs.resolve.outputs.credential == 'AGENT_CI_PROXY_API_KEY' && secrets.AGENT_CI_PROXY_API_KEY) || '' }}
-      AGENT_CI_SOURCE_TOKEN: ${{ secrets.AGENT_CI_SOURCE_TOKEN }}
       AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
       # The private proxy origin, only for a pool route (empty otherwise).
       AGENT_CI_PROXY_BASE_URL: ${{ needs.resolve.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
@@ -447,7 +443,7 @@ jobs:
         with:
           repository: ${{ inputs.agent_ci_repository || job.workflow_repository }}
           ref: ${{ inputs.agent_ci_ref || job.workflow_sha }}
-          token: ${{ secrets.AGENT_CI_SOURCE_TOKEN || github.token }}
+          token: ${{ github.token }}
           path: .agent-ci-src
           persist-credentials: false
 
