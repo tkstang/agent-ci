@@ -76,6 +76,37 @@ export async function run(
   context: CommandContext = defaultContext(),
   commands: readonly CommandSpec[] = COMMANDS,
 ): Promise<{ envelope: Envelope; exitCode: number }> {
+  const privateOutput = context.env.AGENT_CI_PRIVATE_TARGET === 'true';
+  const result = await dispatch(
+    argv,
+    privateOutput ? { ...context, log: () => {} } : context,
+    commands,
+  );
+  if (!privateOutput) return result;
+  const original = result.envelope;
+  const command =
+    original.command === 'help' ||
+    commands.some((spec) => spec.name === original.command)
+      ? original.command
+      : 'unknown';
+  return {
+    exitCode: result.exitCode,
+    envelope: original.ok
+      ? { ok: true, command, data: { private: true } }
+      : {
+          ok: false,
+          command,
+          code: original.code,
+          message: 'Command failed; private diagnostic output is suppressed.',
+        },
+  };
+}
+
+async function dispatch(
+  argv: readonly string[],
+  context: CommandContext,
+  commands: readonly CommandSpec[],
+): Promise<{ envelope: Envelope; exitCode: number }> {
   // `--json` is the house agent-first flag; output is always one JSON
   // envelope, so it is accepted anywhere and ignored.
   const [name, ...rest] = argv.filter((arg) => arg !== '--json');
