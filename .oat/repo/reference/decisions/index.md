@@ -9,6 +9,7 @@
 <!-- OAT DECISION-INDEX -->
 | ID | Date | Status | Title | Legacy |
 | --- | --- | --- | --- | --- |
+| DR-261031-production-reviews-and-pool-ci | 2026-10-31 | accepted | Production reviews and pool CI | - |
 | DR-261025-accept-cursor-connector-tools | 2026-10-25 | accepted | Accept Cursor connector tools on headless runs | - |
 | DR-261025-bridge-verify-review-run-check | 2026-10-25 | accepted | Bridge verify-review run_check through an agent-ci MCP server | - |
 | DR-261025-build-ai-pull-request-review | 2026-10-25 | accepted | Build AI pull-request review before the use-case wrappers | - |

@@ -26,7 +26,9 @@
 #   none.
 # - Optional, pool routes only: AGENT_CI_PROXY_BASE_URL replaces the loopback
 #   proxy origin with an https endpoint. A pool route also needs
-#   allow_pool: true, a self-hosted runs_on and AGENT_CI_PROXY_API_KEY.
+#   allow_pool: true, a self-hosted runs_on and the route's pool key.
+#   Claude Code uses ANTHROPIC_AUTH_TOKEN, which can map the existing
+#   AGENT_CI_PROXY_API_KEY secret; Codex uses AGENT_CI_PROXY_API_KEY directly.
 #
 # Targets in this repository are published with GITHUB_TOKEN: their
 # pull_request runs wait for approval and their pushes start no runs. Other
@@ -83,4 +85,5 @@ jobs:
       # Optional, pool routes only (see docs/configuration.md): takes effect
       # only with allow_pool: true, a self-hosted runs_on and the pool key.
       # AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+      # ANTHROPIC_AUTH_TOKEN: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
       AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}

@@ -30,12 +30,12 @@
 #    out at that same commit. agent-ci is public; the helper checkout uses
 #    the job's GITHUB_TOKEN.
 # 2. Add the model credential the chosen routes name (see `agent-ci models`),
-#    for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 or
-#    OPENCODE_API_KEY for grok-4.7. Only the reviewer and adjudicator steps
-#    receive it.
+#    AGENT_CI_PROXY_API_KEY for the default Sol reviewer. The default routes
+#    require an admitted self-hosted runner and explicit allow_pool below.
+#    Only the reviewer and adjudicator steps receive the model credential.
 # 3. Create the `agent-ci:review` label.
 #
-# Optional, pool routes only: AGENT_CI_PROXY_BASE_URL replaces the loopback
+# Pool routes: AGENT_CI_PROXY_BASE_URL optionally replaces the loopback
 # proxy origin with an https endpoint. A pool route also needs
 # `allow_pool: true`, a self-hosted `runs_on` and AGENT_CI_PROXY_API_KEY.
 # Without them it does not change routing, but every review and adjudicator
@@ -100,14 +100,24 @@ jobs:
     with:
       pr_number: ${{ inputs.pr_number || '' }}
       command: ${{ inputs.command || '' }}
-      reviewer_model: claude-haiku-4-5
+      reviewer_model: gpt-6.1-sol-high
+      second_reviewer: false
+      second_reviewer_model: claude-opus-5-5-high
+      adjudicator: false
+      adjudicator_model: gpt-6.1-sol-low
+      # For the default pool routes, explicitly configure your admitted runner:
+      # runs_on: self-hosted
+      # allow_pool: true
+      # Sol Low adjudication is pending a verified tool-free transport.
+      # Leave it off until available; personal callers can then enable it.
+      # Opus stays on request.
       verify: false # true allows verify-review (see above)
       allowed_models: |
-        claude-haiku-4-5
-        grok-4.7
+        gpt-6.1-sol-high
+        claude-opus-5-5-high
+        gpt-6.1-sol-low
     secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-      # Optional, pool routes only (see the header and docs/configuration.md).
-      # AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+      AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+      # Optional Opus second reviewer; map the existing pool key, not a new credential.
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
       AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}

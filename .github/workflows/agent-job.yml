@@ -170,7 +170,7 @@ jobs:
 
       # The route the resolve job selected the credential for, re-resolved
       # under this environment's policy (a pool route only with allow_pool on a
-      # self-hosted runner and never for a Claude model; login routes refused).
+      # self-hosted runner; login routes refused).
       - name: Resolve the route
         id: route
         env:

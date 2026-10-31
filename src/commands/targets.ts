@@ -44,7 +44,7 @@ const USAGE = `agent-ci targets — multi-repository fan-out targets.
       history kept) needs one selected target. --base and --model override
       every selected target. At most ${MAX_TARGETS} targets.
       --allow-pool-value true lets a pool route resolve (in CI only on a
-      self-hosted runner, never a Claude model).
+      self-hosted runner).
       --github-output writes matrix and count.
 
   agent-ci targets resolve [--repository <owner/name>] [--ref <ref>] [--base <branch>]

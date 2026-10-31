@@ -9,7 +9,7 @@ import type { Route } from '@agent-ci/routing/schema.js';
  * - No automatic fallback from a subscription route to paid API billing.
  * - No automatic fallback into the `work` account class.
  * - `pool` routes need an explicit opt-in; under CI they are allowed only on
- *   a self-hosted runner and never for a Claude model ({@link checkPoolPolicy}).
+ *   a self-hosted runner ({@link checkPoolPolicy}).
  * - Login-seeded routes are local only.
  */
 
@@ -48,24 +48,10 @@ export function isCiEnvironment(
 }
 
 /**
- * Whether a Claude-family pool route may run under CI. The single policy
- * point for that question: false by operator decision
- * (DR-261025-keep-claude-pool-routes; see DR-261025-use-the-local-proxy-pool).
- * Setting it to true is not enough by itself: the Claude pool routes name
- * `ANTHROPIC_AUTH_TOKEN`, which is outside `WORKFLOW_MODEL_SECRETS`
- * (`agent-ci route --github-output` refuses them with `E_ROUTE_CONFIG`) and
- * outside every workflow's static credential chain and secret declarations,
- * so those would need the credential wiring too.
- */
-export const CI_POOL_ALLOWS_CLAUDE = false;
-
-/**
  * The pool policy, in one place. A pool route spends the operator's local
  * CLIProxyAPI pool through a loopback `baseUrl`, so:
  * - it always needs the explicit opt-in (`--allow-pool`, or the workflows'
  *   `allow_pool` input);
- * - under CI, never for a Claude model (while {@link CI_POOL_ALLOWS_CLAUDE}
- *   is false);
  * - under CI, only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`,
  *   set by the Actions runner), whose host runs the proxy; a GitHub-hosted
  *   runner has no loopback proxy and would never reach it.
@@ -76,13 +62,6 @@ export function checkPoolPolicy(
 ): Result<void> {
   if (route.account !== 'pool') return success(undefined);
   if (isCiEnvironment(request.env)) {
-    if (isClaudeModel(route) && !CI_POOL_ALLOWS_CLAUDE) {
-      return failure(
-        'E_POLICY_POOL_CI',
-        `route ${route.id} spends the local proxy pool for a Claude model, which is refused when CI or GITHUB_ACTIONS is set`,
-        'Use a personal Claude route with its own credential in CI.',
-      );
-    }
     if (request.env.RUNNER_ENVIRONMENT !== 'self-hosted') {
       return failure(
         'E_POLICY_POOL_CI',

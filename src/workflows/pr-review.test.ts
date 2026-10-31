@@ -50,6 +50,7 @@ const review = () => load('.github/workflows/pr-review.yml');
 const MODEL_SECRETS = [
   'CLAUDE_CODE_OAUTH_TOKEN',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'OPENCODE_API_KEY',
   'CURSOR_API_KEY',
   'AGENT_CI_PROXY_API_KEY',
@@ -89,6 +90,26 @@ describe('pr-review.yml', () => {
     ]);
     for (const job of Object.values(workflow.jobs))
       expect(job['runs-on']).toBe('${{ inputs.runs_on }}');
+  });
+
+  it('defaults to Sol High with optional Opus High and Sol Low adjudication', async () => {
+    const workflow = await review();
+    const { inputs } = workflow.on.workflow_call as {
+      inputs: Record<string, { default?: unknown }>;
+    };
+    expect(inputs.reviewer_model?.default).toBe('gpt-6.1-sol-high');
+    expect(inputs.second_reviewer_model?.default).toBe('claude-opus-5-5-high');
+    expect(inputs.adjudicator_model?.default).toBe('gpt-6.1-sol-low');
+    expect(inputs.second_reviewer?.default).toBe(false);
+    expect(inputs.adjudicator?.default).toBe(false);
+    expect(inputs.allow_pool?.default).toBe(false);
+    expect(inputs.runs_on?.default).toBe('ubuntu-latest');
+    const allowed = String(inputs.allowed_models?.default).trim().split(/\s+/u);
+    expect(allowed).toEqual([
+      'gpt-6.1-sol-high',
+      'claude-opus-5-5-high',
+      'gpt-6.1-sol-low',
+    ]);
   });
 
   it('grants each job only the permissions its step needs', async () => {
@@ -379,14 +400,21 @@ describe('consumer PR review template', () => {
     expect(job.secrets).not.toBe('inherit');
     expect(Object.keys((job.secrets as Record<string, unknown>) ?? {})).toEqual(
       [
-        'CLAUDE_CODE_OAUTH_TOKEN',
-        'OPENCODE_API_KEY',
+        'AGENT_CI_PROXY_API_KEY',
+        'ANTHROPIC_AUTH_TOKEN',
         'AGENT_CI_PROXY_BASE_URL',
       ],
     );
     // The template itself has no steps: nothing runs outside the gate.
     expect(job.steps).toBeUndefined();
-    // verify-review stays off until the repository opts in.
+    // Optional passes and pool use stay off until the repository opts in.
     expect(job.with?.verify).toBe(false);
+    expect(job.with?.reviewer_model).toBe('gpt-6.1-sol-high');
+    expect(job.with?.second_reviewer).toBe(false);
+    expect(job.with?.adjudicator).toBe(false);
+    expect(job.with?.allow_pool).toBeUndefined();
+    expect((job.secrets as Record<string, unknown>).ANTHROPIC_AUTH_TOKEN).toBe(
+      '${{ secrets.AGENT_CI_PROXY_API_KEY }}',
+    );
   });
 });

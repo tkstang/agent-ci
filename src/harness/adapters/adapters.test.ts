@@ -302,6 +302,24 @@ describe('claude argv and posture', () => {
     expect(observed.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:8317');
   });
 
+  it.each([undefined, 'session-1'])(
+    'forwards explicit Claude effort on initial and resumed runs (%s)',
+    async (resumeSessionId) => {
+      const request = await makeRequest(
+        { ...route, effort: 'high' },
+        resumeSessionId === undefined ? {} : { resumeSessionId },
+      );
+      const { observed } = await replay(claudeAdapter, request, {
+        stdout: await fixture('claude-success.json'),
+      });
+      const effort = observed.argv.indexOf('--effort');
+      expect(effort).toBeGreaterThan(-1);
+      expect(observed.argv[effort + 1]).toBe('high');
+      expect(effort).toBeLessThan(observed.argv.indexOf('--'));
+      expect(observed.argv.filter((arg) => arg === '--effort')).toHaveLength(1);
+    },
+  );
+
   it('uses acceptEdits for edit runs and passes a JSON schema', async () => {
     const schema = { type: 'object', properties: { ok: { type: 'boolean' } } };
     const request = await makeRequest(route, {

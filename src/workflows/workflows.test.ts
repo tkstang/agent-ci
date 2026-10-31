@@ -3,7 +3,6 @@ import path from 'node:path';
 
 import { WORKFLOW_MODEL_SECRETS } from '@agent-ci/commands/route.js';
 import { PACKAGE_ROOT } from '@agent-ci/paths.js';
-import { isClaudeModel } from '@agent-ci/routing/policy.js';
 import { parseModelsFile } from '@agent-ci/routing/resolve.js';
 import {
   agentJob,
@@ -83,16 +82,13 @@ describe('run-agent.yml', () => {
       await readFile(path.join(PACKAGE_ROOT, 'models.yaml'), 'utf8'),
     );
     if (!models.ok) throw new Error(models.message);
-    // CI may use non-login routes, and pool routes only for non-Claude
-    // models (on self-hosted runners with allow_pool).
+    // CI may use non-login routes; pool routes need self-hosted runners
+    // with allow_pool, including Claude Code routes.
     const ciCredentials = models.value.routes
-      .filter(
-        (route) =>
-          !route.login && (route.account !== 'pool' || !isClaudeModel(route)),
-      )
+      .filter((route) => !route.login)
       .flatMap((route) => route.credentials);
     expect(ciCredentials).toContain('AGENT_CI_PROXY_API_KEY');
-    expect(ciCredentials).not.toContain('ANTHROPIC_AUTH_TOKEN');
+    expect(ciCredentials).toContain('ANTHROPIC_AUTH_TOKEN');
     for (const name of ciCredentials) {
       expect(declared).toContain(name);
       expect(WORKFLOW_MODEL_SECRETS).toContain(name);

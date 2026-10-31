@@ -642,28 +642,28 @@ describe('review gate pool opt-in (gate 2 H1)', () => {
     return { result, outputs: await t.outputs(), replies };
   }
 
-  it('plans a non-Claude pool review on a self-hosted runner with the opt-in', async () => {
-    const { result, outputs } = await gateWith(
-      'luna-pool',
-      'true',
-      'self-hosted',
-    );
-    expect(result).toMatchObject({
-      exitCode: 0,
-      envelope: { ok: true, data: { shouldRun: true } },
-    });
-    expect(outputs).toMatchObject({
-      should_run: 'true',
-      reviewer_model: 'luna-pool',
-    });
+  it('plans Claude and non-Claude pool reviews on a self-hosted runner with the opt-in', async () => {
+    for (const model of ['luna-pool', 'claude-pool']) {
+      const { result, outputs } = await gateWith(model, 'true', 'self-hosted');
+      expect(result, model).toMatchObject({
+        exitCode: 0,
+        envelope: { ok: true, data: { shouldRun: true } },
+      });
+      expect(outputs, model).toMatchObject({
+        should_run: 'true',
+        reviewer_model: model,
+      });
+    }
   });
 
-  it('refuses without the opt-in, on a GitHub-hosted runner, and for a Claude pool model', async () => {
+  it('refuses both harnesses without the opt-in or on a GitHub-hosted runner', async () => {
     for (const [model, allowPool, runner, code] of [
       ['luna-pool', '', 'self-hosted', 'E_POLICY_POOL'],
       ['luna-pool', 'false', 'self-hosted', 'E_POLICY_POOL'],
       ['luna-pool', 'true', 'github-hosted', 'E_POLICY_POOL_CI'],
-      ['claude-pool', 'true', 'self-hosted', 'E_POLICY_POOL_CI'],
+      ['claude-pool', '', 'self-hosted', 'E_POLICY_POOL'],
+      ['claude-pool', 'false', 'self-hosted', 'E_POLICY_POOL'],
+      ['claude-pool', 'true', 'github-hosted', 'E_POLICY_POOL_CI'],
     ] as const) {
       const { result, outputs } = await gateWith(model, allowPool, runner);
       const label = `${model} ${allowPool || '(empty)'} ${runner}`;

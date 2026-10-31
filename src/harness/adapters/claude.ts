@@ -92,6 +92,9 @@ export function claudeArgs(
     'user',
     '--strict-mcp-config',
   ];
+  if (request.route.effort !== undefined) {
+    args.push('--effort', request.route.effort);
+  }
   if (request.mode === 'read-only') {
     args.push(
       '--permission-mode',

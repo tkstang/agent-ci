@@ -5,7 +5,8 @@ description: How agent-ci turns a model name into a harness, credential and acco
 
 # Harnesses and routing
 
-A caller names a model, for example `claude-haiku-4-5` or `grok-4.7`.
+A caller names a model, for example `gpt-6.1-sol-high` or
+`claude-opus-5-5-high`.
 agent-ci looks the model up in `models.yaml`, picks one route under its
 routing policy, and runs that route's harness CLI with only the credential
 the route names. This page is the reference for harnesses, the routing
@@ -35,6 +36,13 @@ cannot relax the deny rules. Cursor refuses (`E_UNSAFE_WORKSPACE`) a
 workspace that carries project hooks or a `.cursor/cli.json` that grants
 permissions, because the Cursor agent runs project hooks even in read-only
 mode.
+
+Routes can fix a reasoning effort independently of the provider model. The
+`gpt-6.1-sol-high` and `gpt-6.1-sol-low` model keys both use provider model
+`gpt-6.1-sol`, with `high` and `low` effort respectively. Distinct keys keep
+per-pass effort deterministic without relying on route order. Claude routes
+forward their effort as `--effort`; Codex routes use `model_reasoning_effort`.
+The new Sol and Opus review routes have not yet been qualified live.
 
 "Repair turn" is the one extra turn agent-ci takes, by resuming the same
 session, when a structured answer fails validation. Two review features
@@ -123,14 +131,13 @@ deliberately.
 Each request is checked against the route and the environment
 (`src/routing/policy.ts`). CI means `CI` or `GITHUB_ACTIONS` is set.
 
-| Rule                                                                                                                                                                                                                                         | Code                                             |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| A `pool` route needs the opt-in: `--allow-pool` locally, the `allow_pool: true` workflow input in Actions (`--allow-pool-value true`).                                                                                                       | `E_POLICY_POOL`                                  |
-| In CI, a `pool` route runs only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`), by policy; by default the pool is a loopback address that a GitHub-hosted runner cannot reach.                                                   | `E_POLICY_POOL_CI`                               |
-| In CI, a Claude-family `pool` route is refused on every runner while `CI_POOL_ALLOWS_CLAUDE` is `false` in `src/routing/policy.ts`. Changing that constant alone would not let one run in a workflow; see [The proxy pool](#the-proxy-pool). | `E_POLICY_POOL_CI`                               |
-| A `login` route is local only, and needs `--seed-login`.                                                                                                                                                                                     | `E_POLICY_LOGIN_CI`, `E_CREDENTIAL_MISSING`      |
-| Every credential the route names must be set and non-empty. `agent-ci route`, the review gate and `targets` skip this check, because a workflow resolves the route before it maps the credential into the agent step.                        | `E_CREDENTIAL_MISSING`                           |
-| No fallback from subscription to paid billing, or into account class `work`.                                                                                                                                                                 | `E_POLICY_FALLBACK`, `E_POLICY_ACCOUNT_FALLBACK` |
+| Rule                                                                                                                                                                                                                  | Code                                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| A `pool` route needs the opt-in: `--allow-pool` locally, the `allow_pool: true` workflow input in Actions (`--allow-pool-value true`).                                                                                | `E_POLICY_POOL`                                  |
+| In CI, a `pool` route runs only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`), by policy; by default the pool is a loopback address that a GitHub-hosted runner cannot reach.                            | `E_POLICY_POOL_CI`                               |
+| A `login` route is local only, and needs `--seed-login`.                                                                                                                                                              | `E_POLICY_LOGIN_CI`, `E_CREDENTIAL_MISSING`      |
+| Every credential the route names must be set and non-empty. `agent-ci route`, the review gate and `targets` skip this check, because a workflow resolves the route before it maps the credential into the agent step. | `E_CREDENTIAL_MISSING`                           |
+| No fallback from subscription to paid billing, or into account class `work`.                                                                                                                                          | `E_POLICY_FALLBACK`, `E_POLICY_ACCOUNT_FALLBACK` |
 
 The child process receives only the route's named credential variables.
 Every other known credential variable in your environment
@@ -159,21 +166,25 @@ guard, so a run that echoes them fails.
 
 ### The proxy pool
 
-`account: pool` routes spend the operator's CLIProxyAPI pool through a
-loopback `baseUrl` (`http://127.0.0.1:8317`). Locally they need
-`--allow-pool` and the pool key: `ANTHROPIC_AUTH_TOKEN` for the Claude pool
-routes, `AGENT_CI_PROXY_API_KEY` for the Codex pool route. In Actions only
-the non-Claude pool route can run, on a self-hosted runner that can reach
-the proxy (on its host, or through `AGENT_CI_PROXY_BASE_URL`), with
-`allow_pool: true` and the `AGENT_CI_PROXY_API_KEY` secret;
-the workflows never pass `ANTHROPIC_AUTH_TOKEN`. Running a Claude pool route in
-Actions would need both a policy change (`CI_POOL_ALLOWS_CLAUDE`) and
-credential wiring: `ANTHROPIC_AUTH_TOKEN` is not among the credentials
-`agent-ci route --github-output` accepts (it refuses the Claude pool routes
-with `E_ROUTE_CONFIG`) and is in no workflow's credential chain. The operator
-decided to keep Claude pool routes refused in CI
-([DR-261025-keep-claude-pool-routes](../.oat/repo/reference/decisions/DR-261025-keep-claude-pool-routes.md)).
-Runner setup is in
+`account: pool` routes spend the operator's CLIProxyAPI subscription pool
+through a loopback `baseUrl` (`http://127.0.0.1:8317`). They need
+`--allow-pool` locally. In Actions, every pool route requires an admitted
+self-hosted runner that can reach the proxy and explicit `allow_pool: true`.
+Claude pool routes still run only through Claude Code; they use
+`ANTHROPIC_AUTH_TOKEN`. Codex pool routes use `AGENT_CI_PROXY_API_KEY`.
+
+Both credential names are selectable by the workflows' static secret chains.
+A caller can map its existing pool secret to the Claude credential name:
+
+```yaml
+secrets:
+  AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+  ANTHROPIC_AUTH_TOKEN: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+```
+
+The defaults do not enable pool spending or choose a self-hosted runner for
+you. Configure both explicitly before using the default Sol reviewer or the
+optional Opus reviewer. Runner setup is in
 [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy).
 
 When `AGENT_CI_PROXY_BASE_URL` is set, every pool route takes its origin
@@ -191,20 +202,23 @@ adjudicator steps of a pool route.
 
 As of this commit (`agent-ci models` prints the live table):
 
-| Model                 | Route                                | Harness  | Account  | Billing      | Credential                | Qualified  |
-| --------------------- | ------------------------------------ | -------- | -------- | ------------ | ------------------------- | ---------- |
-| `claude-haiku-4-5`    | `claude-haiku-4-5-pool`              | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | 2026-10-25 |
-| `claude-haiku-4-5`    | `claude-haiku-4-5-personal`          | claude   | personal | subscription | `CLAUDE_CODE_OAUTH_TOKEN` | not yet    |
-| `claude-haiku-4-5`    | `claude-haiku-4-5-api`               | claude   | personal | paid-api     | `ANTHROPIC_API_KEY`       | not yet    |
-| `claude-haiku-5-5`    | `claude-haiku-5-5-pool`              | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | 2026-10-25 |
-| `gpt-5.6-luna`        | `gpt-5.6-luna-pool`                  | codex    | pool     | subscription | `AGENT_CI_PROXY_API_KEY`  | 2026-10-25 |
-| `grok-4.7`            | `grok-4.7-opencode-login`            | opencode | personal | subscription | seeded login              | 2026-10-25 |
-| `grok-4.7`            | `grok-4.7-opencode`                  | opencode | personal | subscription | `OPENCODE_API_KEY`        | 2026-10-26 |
-| `glm-5.3-flash`       | `glm-5.3-flash-opencode-login`       | opencode | personal | subscription | seeded login              | 2026-10-25 |
-| `glm-5.3-flash`       | `glm-5.3-flash-opencode`             | opencode | personal | subscription | `OPENCODE_API_KEY`        | not yet    |
-| `deepseek-v4.1-flash` | `deepseek-v4.1-flash-opencode-login` | opencode | personal | subscription | seeded login              | 2026-10-26 |
-| `deepseek-v4.1-flash` | `deepseek-v4.1-flash-opencode`       | opencode | personal | subscription | `OPENCODE_API_KEY`        | 2026-10-30 |
-| `grok-4.7`            | `grok-4.7-cursor`                    | cursor   | work     | subscription | `CURSOR_API_KEY`          | 2026-10-25 |
+| Model                  | Route                                | Harness  | Account  | Billing      | Credential                | Qualified  |
+| ---------------------- | ------------------------------------ | -------- | -------- | ------------ | ------------------------- | ---------- |
+| `claude-haiku-4-5`     | `claude-haiku-4-5-pool`              | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | 2026-10-25 |
+| `claude-haiku-4-5`     | `claude-haiku-4-5-personal`          | claude   | personal | subscription | `CLAUDE_CODE_OAUTH_TOKEN` | not yet    |
+| `claude-haiku-4-5`     | `claude-haiku-4-5-api`               | claude   | personal | paid-api     | `ANTHROPIC_API_KEY`       | not yet    |
+| `claude-haiku-5-5`     | `claude-haiku-5-5-pool`              | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | 2026-10-25 |
+| `gpt-6.1-sol-high`     | `gpt-6.1-sol-high-pool`              | codex    | pool     | subscription | `AGENT_CI_PROXY_API_KEY`  | not yet    |
+| `gpt-6.1-sol-low`      | `gpt-6.1-sol-low-pool`               | codex    | pool     | subscription | `AGENT_CI_PROXY_API_KEY`  | not yet    |
+| `claude-opus-5-5-high` | `claude-opus-5-5-high-pool`          | claude   | pool     | subscription | `ANTHROPIC_AUTH_TOKEN`    | not yet    |
+| `gpt-5.6-luna`         | `gpt-5.6-luna-pool`                  | codex    | pool     | subscription | `AGENT_CI_PROXY_API_KEY`  | 2026-10-25 |
+| `grok-4.7`             | `grok-4.7-opencode-login`            | opencode | personal | subscription | seeded login              | 2026-10-25 |
+| `grok-4.7`             | `grok-4.7-opencode`                  | opencode | personal | subscription | `OPENCODE_API_KEY`        | 2026-10-26 |
+| `glm-5.3-flash`        | `glm-5.3-flash-opencode-login`       | opencode | personal | subscription | seeded login              | 2026-10-25 |
+| `glm-5.3-flash`        | `glm-5.3-flash-opencode`             | opencode | personal | subscription | `OPENCODE_API_KEY`        | not yet    |
+| `deepseek-v4.1-flash`  | `deepseek-v4.1-flash-opencode-login` | opencode | personal | subscription | seeded login              | 2026-10-26 |
+| `deepseek-v4.1-flash`  | `deepseek-v4.1-flash-opencode`       | opencode | personal | subscription | `OPENCODE_API_KEY`        | 2026-10-30 |
+| `grok-4.7`             | `grok-4.7-cursor`                    | cursor   | work     | subscription | `CURSOR_API_KEY`          | 2026-10-25 |
 
 The five `fake-*` routes (harness `fake`, billing `none`) are omitted.
 
@@ -230,6 +244,6 @@ agent-ci doctor --allow-pool --seed-login
 In a workflow, `agent-ci route --github-output` also writes `route_id`,
 `model`, `harness`, `account`, `billing` and `credential` for later steps,
 and refuses a route that names more than one credential or one outside
-`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENCODE_API_KEY`,
-`CURSOR_API_KEY` and `AGENT_CI_PROXY_API_KEY`, the secrets the workflows can
-pass.
+`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+`OPENCODE_API_KEY`, `CURSOR_API_KEY` and `AGENT_CI_PROXY_API_KEY`, the secrets
+the workflows can pass.
