@@ -22,7 +22,7 @@ that existing credential-free wording and guarantees do not include. It cannot
 be solved just by keeping the key out of the command's environment.
 
 The inventory after review-pass extraction has nine upload sites and
-seventeen download sites: prepared workspace, agent/tools results, review
+fifteen download sites: prepared workspace, agent/tools results, review
 spec, helper bundle, checks, reviewer passes, adjudication and gated findings.
 The helper bundle also needs a trusted decrypt bootstrap before the built CLI
 is available. Exempting an artifact silently would violate the requested
