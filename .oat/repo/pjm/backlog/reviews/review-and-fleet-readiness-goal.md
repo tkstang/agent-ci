@@ -28,9 +28,11 @@
    establish approved host admission, runner registration, proxy reachability
    and one live opt-in pool job. Prepare the agreed versioned release and
    consumer references. Host approval does not block independent code batches.
-3. [**BL-261025-close-remaining-claude-only — Close remaining Claude-only policy name-check gaps**](../items/BL-261025-close-remaining-claude-only.md).
-   Harden separator-less Claude names and ambiguous automatic routers while
-   preserving the explicit non-Claude control and Claude Code pool support.
+3. [**BL-261025-close-remaining-claude-only — Close remaining Claude-only policy name-check gaps**](../archived/BL-261025-close-remaining-claude-only.md).
+   Implemented load-time guards for separator-less Claude names and Cursor
+   automatic routers, with explicit Grok and Claude Code pool controls
+   preserved. Archived with the implementation delivery; independent review
+   and merge remain pending.
 4. [**BL-261025-post-v1-simplification-pass — Post-v1 simplification pass**](../items/BL-261025-post-v1-simplification-pass.md).
    Start with in-place Git-context protection and per-pass reviewer credential
    boundaries. Assess all six recorded areas; simplify or document an

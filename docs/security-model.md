@@ -295,11 +295,12 @@ These risks are accepted, with the conditions that would change that.
 
 **Policy gaps**
 
-- **Claude-only name check.** The Claude-only rule relies on each route's
-  `family`. The defense-in-depth name check misses separator-less IDs such
-  as `sonnet4.5`, and a Cursor `auto` route could select a Claude model.
-  No such route exists in `models.yaml`; closing the gap is tracked in the
-  project backlog, due before such a route is added.
+- **Model identity declarations.** Load-time guards reject known Claude
+  names (including separator-less IDs) on other harnesses and reject Cursor
+  automatic selectors. An arbitrary neutral provider alias can still conceal
+  its underlying model; route authors must declare the correct `family` and
+  review provider identity. Name matching is defense in depth, not proof of
+  a remote provider's behavior.
 - **Non-Claude skills access in edit mode.** Whether Codex, OpenCode and
   Cursor edit runs can write the installed skills was not probed. Any change
   to them fails the run through the skills fingerprint check.

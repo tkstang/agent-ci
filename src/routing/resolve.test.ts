@@ -156,6 +156,85 @@ describe('load-time policy', () => {
     }
   });
 
+  it.each([
+    ['sonnet4.5', 'model'],
+    ['sonnet4.5', 'providerModel'],
+    ['opus41', 'model'],
+    ['opus41', 'providerModel'],
+    ['haiku4', 'model'],
+    ['haiku4', 'providerModel'],
+    ['vendor_SoNnEt4.5', 'providerModel'],
+  ])('rejects separator-less Claude ID %s in %s', (name, field) => {
+    const parsed = one(
+      route({
+        id: 'mislabeled',
+        model: 'grok-4.7',
+        harness: 'cursor',
+        family: 'xai',
+        providerModel: 'grok-4.7-low',
+        credentials: ['CURSOR_API_KEY'],
+        [field]: name,
+      }),
+    );
+    expect(parsed).toMatchObject({ ok: false, code: 'E_POLICY_HARNESS' });
+  });
+
+  it.each([
+    'auto',
+    'auto-smart',
+    'default',
+    'auto(quality=high)',
+    'auto[quality=high]',
+    'auto:quality=high',
+    'auto/quality/high',
+    'auto?quality=high',
+    'auto_smart',
+    'auto-smart(quality=high)',
+    ' AUTO ',
+    '\tAuTo-SmArT\n',
+    ' DeFaUlT ',
+    ' AuTo (quality=high) ',
+  ])('rejects Cursor automatic provider selector %j', (providerModel) => {
+    const parsed = one(
+      route({
+        id: 'automatic',
+        model: 'fast-model',
+        harness: 'cursor',
+        family: 'xai',
+        providerModel,
+        credentials: ['CURSOR_API_KEY'],
+      }),
+    );
+    expect(parsed).toMatchObject({ ok: false, code: 'E_POLICY_HARNESS' });
+  });
+
+  it.each(['grok-4.7', 'auto'])(
+    'loads and resolves explicit Grok under model key %s',
+    (model) => {
+      const models = file([
+        route({
+          id: 'grok-4.7-cursor',
+          model,
+          harness: 'cursor',
+          family: 'xai',
+          providerModel: 'grok-4.7-low',
+          credentials: ['CURSOR_API_KEY'],
+        }),
+      ]);
+      const resolved = resolveRoute(
+        models,
+        request({ model, env: { CURSOR_API_KEY: PRESENT } }),
+      );
+      expect(resolved.ok && resolved.value.route).toMatchObject({
+        id: 'grok-4.7-cursor',
+        model,
+        harness: 'cursor',
+        family: 'xai',
+        providerModel: 'grok-4.7-low',
+      });
+    },
+  );
+
   it('rejects family claude under a neutral name on a non-Claude harness', () => {
     const parsed = one(
       route({
