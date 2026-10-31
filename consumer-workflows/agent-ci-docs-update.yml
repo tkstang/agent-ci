@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   docs-update:
-    uses: tkstang/agent-ci/.github/workflows/docs-update.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
+    uses: tkstang/agent-ci/.github/workflows/docs-update.yml@v0.1.0
     with:
       model: claude-haiku-4-5
       base: ${{ inputs.base || '' }}

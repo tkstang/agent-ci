@@ -96,7 +96,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    uses: tkstang/agent-ci/.github/workflows/pr-review.yml@main # no release tag exists yet: replace main with an agent-ci commit SHA
+    uses: tkstang/agent-ci/.github/workflows/pr-review.yml@v0.1.0
     with:
       pr_number: ${{ inputs.pr_number || '' }}
       command: ${{ inputs.command || '' }}

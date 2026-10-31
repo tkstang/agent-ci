@@ -1,8 +1,10 @@
 # Runner and proxy qualification packet
 
 Prepared 2026-10-31 for **BL-261025-self-hosted-runner-and-proxy — Self-hosted runner and proxy readiness**.
-External draft PR preparation is approved. This packet does not authorize
-external merges, activation, credentials, dispatch or release publication.
+Original packet: external draft PR preparation only. On 2026-10-31 the
+operator subsequently preauthorized the discussed merges, runner setup and
+bounded qualification, release publication and deletion of unnecessary secrets.
+The technical gates below still apply; target PAT creation remains user-owned.
 
 ## Source snapshot before external draft preparation
 
@@ -23,7 +25,8 @@ external merges, activation, credentials, dispatch or release publication.
 - The reusable agent-ci workflows previously accepted only one runner label.
   This delivery adds JSON label arrays while keeping existing label strings
   and hosted defaults. Nested calls forward the original string unchanged.
-- No release tag currently exists. The private fleet's previous source pin
+- Release `v0.1.0` now exists at `50d8e809eb843c164988ff0cdc076d14aa604174`.
+  The private fleet's previous source pin
   belongs to the retired history; its caller migration is now prepared in the approved draft below.
 
 ## Approved draft preparation and remaining admission
@@ -43,25 +46,24 @@ The runner's listener can take other matching jobs in its repository after
 registration. Review every workflow capable of using the admitted labels,
 not just the job that caused the controller to create the listener.
 
-The [private-fleet caller draft #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5)
-replaces the unavailable source pin with merged source
-`2c9c777dc8d2f54185f46eb8b46baaf741fe21c2`, removes the retired source-token
-input, requires the complete dedicated label array and `allow_pool`, and maps
-explicit route credentials. It preserves target membership and the maintenance
-DeepSeek default, serializes presets, sets private output and stays disabled
-behind `AGENT_CI_FLEET_ADMITTED`. A released version will replace the interim
-full SHA only after separate release approval and publication. Do not delete the
-source secret until the migration merges and a fresh no-reader check passes.
-No new credential, secret deletion or target-repository selection is included.
+The [private-fleet caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5)
+merged as `fb62cc50ae1e2dbc08cded6bb8c73aba6be3229b`, pins `v0.1.0` at
+`50d8e809eb843c164988ff0cdc076d14aa604174`, and removes the source-token input.
+It preserves target membership and the DeepSeek maintenance default, requires
+the dedicated labels and private output, and remains manual-only/disabled behind
+`AGENT_CI_FLEET_ADMITTED`. The source secret was deleted after the fresh reader/
+active-run checks recorded below. This completed migration does not qualify or
+activate the fleet, add the selected pilot, or create its target PATs.
 
 ## Ordered acceptance
 
-1. Complete the existing runner pilot's reviewed recovery, fresh proof,
-   source upgrade, guest qualification and JIT lifecycle acceptance. Preserve
-   its pinned recovery evidence. Do not substitute a generic privileged rerun.
+1. Reconcile the reported completed recovery/JIT evidence with installed source
+   and the remaining lifecycle gates. Preserve pinned evidence and never replay
+   the consumed launchers. Reconcile the separate runner #5 corrections and
+   unfinished upgrade work before choosing a combined production source.
 2. Review the dormant reservation and subsequent exact-job admission change.
-   External merges need separate approval, followed by separate permission for
-   host installation/activation and credential scope.
+   The operator preauthorized the discussed merges and host setup/activation.
+   Reconcile current source, the exact continuation and credential scope first.
 3. From the admitted guest identity, verify Node 24, pnpm 11 and the pinned
    agent harnesses on Linux ARM64. Qualify the frozen helper install/build
    and `agent-ci harness smoke --harness codex`. Any image/user-namespace
@@ -86,22 +88,18 @@ No new credential, secret deletion or target-repository selection is included.
 
 ## Versioned delivery
 
-After the approved source PRs merge, prepare `v0.1.0` at the exact merged
-source revision, with release notes covering new review defaults, Claude pool
-support, label-array routing and the outstanding live/transport limits. Do not
-publish an absent tag in working caller references. Tag/release publication remains separately gated. Caller edits are a prepared
-draft only; no external merge or activation has run here.
+Release `v0.1.0` is published at
+`50d8e809eb843c164988ff0cdc076d14aa604174`, with the live/transport limits
+stated in its notes. The private-fleet migration already uses that version;
+this change updates the public consumer templates too. Helpers resolve from
+the workflow's own commit. Preserve the recorded tag-to-commit mapping for
+review and rollback; publication does not imply live qualification.
 
-Use a released version in consumer templates and migration PRs once the tag
-exists; helpers resolve from that workflow's own commit. Record the tag's
-commit and validation result so the operator can audit or roll back the pin.
-A release must not imply live qualification that has not occurred.
+## Release notes for v0.1.0
 
-## Draft release notes for v0.1.0
-
-Not published. Select and record the final merged source commit after review
-of the direct Sol Low transport; do not create a tag from an open PR or update
-consumers to a version that does not exist.
+Published at `50d8e809eb843c164988ff0cdc076d14aa604174` after the operator
+authorized publication. The source revision has passing hosted verify/actionlint.
+The live and artifact limitations below remain true.
 
 - Sol 6.1 High primary review, optional Opus 5.5 High, and Sol 6.1 Low
   adjudicator configuration. Generic defaults run the primary only.
@@ -126,5 +124,30 @@ The release notes must carry these limits while they remain true.
 ## Remaining acceptance
 
 Proxy-origin override and label-array integration are merged.
-Runner admission, approved activation, the first live job and a published
-release remain outstanding. This backlog item stays open.
+A coherent reviewed runner upgrade, exact-job admission, compatibility,
+activation and live pool/lifecycle acceptance remain outstanding. Source release
+publication, private-caller migration and retired source-secret deletion are
+complete. This backlog item stays open.
+
+## Later reconciliation: preserve current runner work
+
+The old recovery/JIT launchers have been consumed; retained records report
+success. Root read-only checks confirmed the reviewed boot, installed source
+`4e72f1ddb41a07e68af40d2071cc7962fa014950`, and absent activation receipt/
+watcher plist. This is not fleet activation or full lifecycle acceptance.
+Runner PR #5 is a separate draft atop #4 and contains later runtime/JIT fixes;
+its owned checkout also has uncommitted upgrade edits. #6 diverges from that lane.
+Do not install #4/#6 as a replacement for the newer installed source or touch
+that other session's edits. Reconcile the combined reviewed source and current
+non-sudo production CI compatibility before preparing any new privileged tuple.
+
+Release `v0.1.0` has been published at `50d8e80` with explicit unqualified-route
+and plaintext-artifact limits. Keep fleet admission disabled until its
+remaining technical gates pass.
+
+Private-fleet migration #5 is now merged as `fb62cc5`, pinned to `v0.1.0` and
+still disabled. The stale manual branch now has the same reviewed disabled
+workflow. A fresh all-branch workflow/script reader scan and five active-run
+status checks passed before the approved source-token deletion; absence was
+verified afterward. Model/proxy credentials were preserved. No activation or
+new model qualification is claimed.

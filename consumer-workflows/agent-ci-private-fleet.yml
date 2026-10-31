@@ -1,5 +1,5 @@
 # Private fleet starter: copy into your fleet repository, review runner admission,
-# and replace @main with a released version or reviewed agent-ci commit SHA.
+# and review its pinned version before adopting a later release.
 # Manual dispatch only: add schedules after runner admission has been reviewed.
 #
 # Set the repository variable AGENT_CI_TARGETS_JSON to your own JSON target array
@@ -53,7 +53,7 @@ permissions:
 
 jobs:
   fan-out:
-    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # replace with a released version or reviewed commit SHA
+    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@v0.1.0
     with:
       preset: ${{ inputs.preset }}
       target: ${{ inputs.target || 'all' }}

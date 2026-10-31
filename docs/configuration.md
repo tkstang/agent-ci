@@ -38,6 +38,34 @@ Credentials reach agent-ci only through the environment. Never pass a token
 value as a flag or commit it to a file. `agent-ci doctor` reports each
 variable as present or absent without printing values.
 
+### Create target tokens for a private pilot
+
+Two distinct fine-grained GitHub personal access tokens are the simplest initial
+setup. GitHub App installation tokens are also supported. Public cross-repository
+targets still need the publisher token when publishing; the separate read token
+is needed for private targets.
+
+1. Open [GitHub fine-grained token settings](https://github.com/settings/personal-access-tokens/new).
+   Select the target repository's resource owner, an expiry, and **Only select
+   repositories**, limited to the chosen pilot repository.
+2. Create the read token with **Contents: Read-only** and no other optional
+   repository permissions. GitHub adds Metadata read access automatically.
+3. Create a different publisher token with **Contents: Read and write** and
+   **Pull requests: Read and write**. Leave unrelated permissions unset.
+4. Store recovery copies in your credential manager. Add the tokens as Actions
+   secrets in the **calling fleet repository**, not the public helper repository:
+
+   ```bash
+   gh secret set AGENT_CI_TARGET_READ_TOKEN --repo <owner>/<fleet-repository>
+   gh secret set AGENT_CI_TARGET_TOKEN --repo <owner>/<fleet-repository>
+   ```
+
+Each command prompts for its value; keep values out of command arguments and
+chat. Do not reuse the publisher token as the read token. For private targets,
+keep the caller private while artifacts remain plaintext. A token's existence
+does not establish that the target, runner or model route has passed live
+qualification.
+
 ### The read-token check
 
 Before any job uses `AGENT_CI_TARGET_READ_TOKEN`, the resolve job

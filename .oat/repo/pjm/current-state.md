@@ -21,9 +21,10 @@ copying their content here. -->
 ## What's Implemented
 
 Current baseline (2026-10-31): the public repository was recreated with root
-`8ecf26a`; `main` at `50d8e80` includes README/publishing PRs #1–#2,
+`8ecf26a`; `main` at `5673eeb` includes README/publishing PRs #1–#2,
 reviewer, runner/routing, simplification and fleet/private-output PRs #3–#6,
-and direct Sol Low adjudication PR #7.
+direct Sol Low adjudication PR #7, and the isolated transport design in #8.
+Release `v0.1.0` is published at `50d8e80`; it does not claim live qualification.
 Public-source cleanup is complete. Earlier PR numbers and commit pins
 in the historical snapshot below belong to the previous repository history.
 
@@ -63,20 +64,36 @@ only the primary. New production routes are not live-qualified.
 name-check gaps** and **BL-261025-post-v1-simplification-pass — Post-v1
 simplification pass** shipped in reviewed, merged source and are archived.
 **BL-261025-self-hosted-runner-and-proxy — Self-hosted runner and proxy readiness**
-remains open for approved host admission, live pool/JIT proof and versioned
-release. **BL-261025-fleet-repositories-merged — Fleet repositories: merged
+remains open for coherent runner upgrade/admission and live pool/JIT proof;
+source release publication is complete. **BL-261025-fleet-repositories-merged — Fleet repositories: merged
 target lists and protected artifacts** remains open: merging and private-output
 controls shipped, but artifacts remain plaintext. The operator selected isolated
 transport for full support; the [proposed design](../reference/research/fleet-artifact-transport.md)
 retains platform qualification and service provisioning gates.
 
-External draft preparation is approved and underway: private-fleet
-[caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5) replaces the
-retired source pin/token mapping and stays disabled/manual-only; runner
+Private-fleet [caller #5](https://github.com/tkstang/agent-ci-private-fleet/pull/5)
+is merged, pins `v0.1.0`, removes the retired source-token mapping and stays
+disabled/manual-only. Runner
 [reservation #6](https://github.com/tkstang/actions-runner/pull/6) stacks on its
-existing PR #4 and refuses unqualified fleet starts. No external merge, host
-activation, credential change or dispatch ran. The installed pilot remains
+existing PR #4 and refuses unqualified fleet starts. The operator subsequently preauthorized discussed merges, runner setup and
+bounded qualification, release publication and deletion of unnecessary secrets.
+No host activation or dispatch ran in this reconciliation. The source secret
+was subsequently deleted after the verified no-reader checks below. The installed pilot remains
 personal-skills-only. Target-token provisioning and privileged host admission
-remain user-owned. Retired secret deletion requires separate approval after the
-caller merge and a fresh no-reader check. Publisher-token support and native
+remain user-owned. Retired source-secret deletion is approved after the caller migration and a
+fresh no-reader/active-run check, including the stale manual branch. Publisher-token support and native
 Codex persistent login remain Next, outside this goal.
+
+Read-only setup reconciliation confirms installed runner source `4e72f1d`,
+unchanged reviewed boot, and no activation receipt or watcher plist. Later
+retained recovery/JIT success records supersede the old unexecuted-prompt
+assumption. Runner #5 has newer corrections and uncommitted upgrade work in a
+separate checkout; reconcile that lane before upgrading or activating #6.
+Target PAT creation remains user-owned; a private pilot is selected.
+
+The private-fleet migration #5 merged as `fb62cc5` with `v0.1.0` and stays
+disabled/manual-only. The old manual branch received the same reviewed disabled
+workflow without rewriting history. A fresh scan found no source-token readers
+at any of the three branch tips, no tags and no active runs; the retired
+`AGENT_CI_SOURCE_TOKEN` was deleted and absence verified. Model/proxy secrets
+remain. The target PATs were still absent at the latest metadata check.
