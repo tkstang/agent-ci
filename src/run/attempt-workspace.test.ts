@@ -15,6 +15,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
+import { parseChangeSet } from '@agent-ci/publish/changes.js';
 import {
   copyIsolationProblem,
   createAttemptWorkspace,
@@ -206,6 +207,160 @@ describe('edit-mode retries run in isolated attempt workspaces', () => {
     if (!summary.ok) return;
     const events = await logEvents(summary.value.logPath);
     expect(events.some((e) => e.event === 'attempt.isolation')).toBe(false);
+  });
+});
+
+describe('in-place Git context stays with the starting workspace', () => {
+  it('fails before running the harness when the starting Git directory cannot be resolved', async () => {
+    const repo = await scratchRepo();
+    const brokenGit = path.join(path.dirname(repo), 'broken-git-dir');
+    await writeFile(
+      brokenGit,
+      '#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = --absolute-git-dir ]; then\n    echo "cannot resolve git directory" >&2\n    exit 128\n  fi\ndone\nexec git "$@"\n',
+      { mode: 0o755 },
+    );
+    let spawned = false;
+    const summary = await runAgent(await runOptions(repo), {
+      git: brokenGit,
+      harness: {
+        spawn: async () => {
+          spawned = true;
+          throw new Error('the harness must not start');
+        },
+      },
+    });
+    expect(summary).toMatchObject({ ok: false, code: 'E_WORKSPACE_STATUS' });
+    expect(spawned).toBe(false);
+  });
+
+  it.each(['regular', 'linked'] as const)(
+    'captures only original edits when core.worktree redirects a %s checkout',
+    async (layout) => {
+      const repo = await scratchRepo();
+      const workspace =
+        layout === 'regular' ? repo : path.join(path.dirname(repo), 'linked');
+      if (layout === 'linked') {
+        git(repo, 'worktree', 'add', '-q', workspace);
+        git(repo, 'config', 'extensions.worktreeConfig', 'true');
+      }
+      const baseSha = git(workspace, 'rev-parse', 'HEAD').trim();
+      const decoy = path.join(path.dirname(repo), 'decoy');
+      git(repo, 'clone', '-q', repo, decoy);
+      await writeFile(path.join(decoy, 'README.md'), '# Decoy dirty\n');
+      await writeFile(path.join(decoy, 'notes.txt'), 'committed\n');
+      await writeFile(path.join(decoy, 'decoy-only.txt'), 'decoy\n');
+      await writeFile(path.join(workspace, 'notes.txt'), 'operator edit\n');
+      const opts = await runOptions(workspace, {
+        model: 'fake-edit',
+        maxAttempts: 1,
+      });
+      const summary = await runAgent(opts, {
+        harness: {
+          spawn: async (spec) => {
+            expect(spec.cwd).toBe(workspace);
+            await writeFile(path.join(workspace, 'notes.txt'), 'agent edit\n');
+            git(
+              workspace,
+              'config',
+              ...(layout === 'linked' ? ['--worktree'] : []),
+              'core.worktree',
+              decoy,
+            );
+            expect(git(workspace, 'rev-parse', '--show-toplevel').trim()).toBe(
+              decoy,
+            );
+            return {
+              started: true,
+              exitCode: 0,
+              signal: null,
+              stdout: JSON.stringify({
+                type: 'result',
+                result: JSON.stringify({ summary: 'Edited notes.' }),
+              }),
+              stderr: '',
+              timedOut: false,
+              outputLimitExceeded: false,
+              durationMs: 1,
+            };
+          },
+        },
+      });
+      expect(summary.ok).toBe(true);
+      if (!summary.ok) return;
+      expect(summary.value.error).toBeUndefined();
+      expect(summary.value.result).toMatchObject({
+        ok: true,
+        status: 'changed',
+        changedFiles: ['notes.txt'],
+      });
+      expect(summary.value.changesPath).not.toBeNull();
+      const changes = parseChangeSet(
+        await readFile(summary.value.changesPath ?? '', 'utf8'),
+      );
+      expect(changes.ok).toBe(true);
+      if (!changes.ok) return;
+      expect(changes.value.baseSha).toBe(baseSha);
+      expect(changes.value.files).toHaveLength(1);
+      expect(changes.value.files[0]).toMatchObject({
+        path: 'notes.txt',
+        action: 'write',
+        contentBase64: Buffer.from('agent edit\n').toString('base64'),
+      });
+    },
+  );
+
+  it('refuses a moved HEAD even when a linked checkout discovers an unchanged decoy repository', async () => {
+    const repo = await scratchRepo();
+    const workspace = path.join(path.dirname(repo), 'linked');
+    git(repo, 'worktree', 'add', '-q', workspace);
+    const baseSha = git(workspace, 'rev-parse', 'HEAD').trim();
+    const decoy = path.join(path.dirname(repo), 'decoy');
+    git(repo, 'clone', '-q', repo, decoy);
+    const summary = await runAgent(
+      await runOptions(workspace, { model: 'fake-edit', maxAttempts: 1 }),
+      {
+        harness: {
+          spawn: async () => {
+            await writeFile(
+              path.join(workspace, 'notes.txt'),
+              'committed edit\n',
+            );
+            git(workspace, 'add', 'notes.txt');
+            git(workspace, 'commit', '-qm', 'agent commit');
+            expect(git(workspace, 'rev-parse', 'HEAD').trim()).not.toBe(
+              baseSha,
+            );
+            await writeFile(
+              path.join(workspace, '.git'),
+              `gitdir: ${path.join(decoy, '.git')}\n`,
+            );
+            expect(git(workspace, 'rev-parse', 'HEAD').trim()).toBe(baseSha);
+            return {
+              started: true,
+              exitCode: 0,
+              signal: null,
+              stdout: JSON.stringify({
+                type: 'result',
+                result: JSON.stringify({ summary: 'Committed notes.' }),
+              }),
+              stderr: '',
+              timedOut: false,
+              outputLimitExceeded: false,
+              durationMs: 1,
+            };
+          },
+        },
+      },
+    );
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    expect(summary.value.error).toMatchObject({
+      code: 'E_WORKSPACE_STATUS',
+      message:
+        'the run moved HEAD; commits made by the agent are not published',
+    });
+    expect(summary.value.result).toMatchObject({ ok: false, status: 'failed' });
+    expect(summary.value.changesPath).toBeNull();
   });
 });
 

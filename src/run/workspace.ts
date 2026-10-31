@@ -134,6 +134,57 @@ export interface WorkspaceRoot {
 }
 
 /**
+ * Keep agent-ci's observations on the Git context discovered before the agent
+ * runs. Git resolves linked-worktree `.git` files; canonicalizing its answer
+ * also keeps later discovery changes from selecting different metadata.
+ * This pins paths, not the contents of the Git metadata at those paths.
+ */
+export function resolveWorkspaceGitPin(
+  cwd: string,
+  workTree: string,
+  git = 'git',
+): Promise<Result<GitPin>> {
+  return new Promise((resolve) => {
+    const child = execFile(
+      git,
+      safeGitArgs(['rev-parse', '--absolute-git-dir']),
+      {
+        cwd,
+        env: {
+          PATH: process.env.PATH ?? '/usr/bin:/bin',
+          ...SAFE_GIT_ENV,
+        },
+      },
+      (error, stdout, stderr) => {
+        void (async () => {
+          try {
+            const gitDir = String(stdout).trim();
+            if (error !== null || !path.isAbsolute(gitDir)) {
+              resolve(
+                failure(
+                  'E_WORKSPACE_STATUS',
+                  `could not resolve the workspace Git directory: ${String(stderr).trim().split('\n')[0] || error?.message || 'git did not return an absolute path'}`,
+                ),
+              );
+              return;
+            }
+            resolve(success({ gitDir: await realpath(gitDir), workTree }));
+          } catch (err) {
+            resolve(
+              failure(
+                'E_WORKSPACE_STATUS',
+                `could not resolve the workspace Git directory: ${err instanceof Error ? err.message : String(err)}`,
+              ),
+            );
+          }
+        })();
+      },
+    );
+    child.stdin?.end();
+  });
+}
+
+/**
  * The boundary a run works in. Inside a repository: its top level (git status
  * paths are relative to it). When git reports "not a git repository", the
  * nearest ancestor holding a `.git` entry still counts as the boundary

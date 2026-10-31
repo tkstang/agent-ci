@@ -19,6 +19,7 @@ import {
   secretValuesFromEnv,
 } from '@agent-ci/contracts/secret-guard.js';
 import { writeOwnedFile } from '@agent-ci/files.js';
+import type { GitPin } from '@agent-ci/git/safe-git.js';
 import { adapterFor } from '@agent-ci/harness/adapters/registry.js';
 import {
   CredentialLeakError,
@@ -84,6 +85,7 @@ import {
   isWithin,
   resolvePhysical,
   resolveRealPath,
+  resolveWorkspaceGitPin,
 } from '@agent-ci/run/workspace.js';
 
 export interface RunOptions {
@@ -280,6 +282,10 @@ export async function runAgent(
   const boundary = await findWorkspaceRoot(options.cwd, deps.git);
   if (!boundary.ok) return boundary;
   const boundaryRoot = boundary.value.root;
+  const pinned = boundary.value.git
+    ? await resolveWorkspaceGitPin(options.cwd, boundaryRoot, deps.git)
+    : success<GitPin | undefined>(undefined);
+  if (!pinned.ok) return pinned;
   const outputDir = await resolveOutputDir(
     options.cwd,
     options.outDir,
@@ -334,6 +340,7 @@ export async function runAgent(
       home.value,
       { root: boundaryRoot, git: boundary.value.git },
       outputDir.value,
+      pinned.value,
     );
   } finally {
     // A temp root may hold a seeded login; never leave it behind.
@@ -350,18 +357,24 @@ async function runInHome(
   homeRoot: HomeRoot,
   boundary: { readonly root: string; readonly git: boolean },
   outDir: string,
+  workspacePin: GitPin | undefined,
 ): Promise<Result<RunSummary>> {
   const boundaryRoot = boundary.root;
   const now = deps.now ?? Date.now;
   // Baseline first: anything that lands in the workspace from here on,
   // including a seeded login, is a change the run reports, never hidden dirt.
-  const baseline = await snapshotWorkspace(options.cwd, [outDir], deps.git);
+  const baseline = await snapshotWorkspace(
+    options.cwd,
+    [outDir],
+    deps.git,
+    workspacePin,
+  );
   // The commit an edit run starts from: the change set is based on it, and a
   // run that moves HEAD (commits) is refused, because commits are not
   // visible to change detection and would never be published.
   const baseHead =
     options.mode === 'edit'
-      ? await readHead(boundaryRoot, deps.git)
+      ? await readHead(boundaryRoot, deps.git, workspacePin)
       : success<string | null>(null);
   if (options.skillsDir !== undefined) {
     const seeded = await seedSkills(homeRoot, options.skillsDir);
@@ -919,7 +932,13 @@ async function runInHome(
         ? extractStructuredResult(outcome.finalText)
         : success(outcome.structured);
     const changed = baseline.ok
-      ? await changedSince(options.cwd, baseline.value, [outDir], deps.git)
+      ? await changedSince(
+          options.cwd,
+          baseline.value,
+          [outDir],
+          deps.git,
+          workspacePin,
+        )
       : baseline;
     if (!changed.ok && baseline.ok) {
       log.add('workspace.status', {
@@ -931,7 +950,7 @@ async function runInHome(
     if (changed.ok) detected = changed.value;
     const headAfter =
       options.mode === 'edit' && baseHead.ok
-        ? await readHead(boundaryRoot, deps.git)
+        ? await readHead(boundaryRoot, deps.git, workspacePin)
         : baseHead;
     const finalized = !candidate.ok
       ? candidate
