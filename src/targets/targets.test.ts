@@ -953,6 +953,42 @@ describe('agent-ci targets', () => {
     });
   });
 
+  it('refuses a merged matrix whose inherited settings exceed the output byte bound', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-matrix-bytes-'));
+    await writeFile(
+      path.join(dir, 'targets.yaml'),
+      JSON.stringify({
+        version: 1,
+        defaults: {
+          base: 'main',
+          model: 'fake-edit',
+          inputs: { skillsOatPacks: Array(3000).fill('core').join(',') },
+        },
+        targets: [{ id: 'a', repository: 'octo/a' }],
+      }),
+    );
+    const additions = Array.from({ length: 49 }, (_, i) => ({
+      id: `t${i}`,
+      repository: `octo/t${i}`,
+    }));
+    const args = [
+      'targets',
+      'matrix',
+      '--preset',
+      'docs-update',
+      '--targets-json',
+      JSON.stringify(additions),
+    ];
+    const ctx = { cwd: dir, env: {}, log: () => undefined };
+    const one = await run([...args, '--target', 'a'], ctx);
+    expect(one.envelope).toMatchObject({ ok: true, data: { count: 1 } });
+    const combined = await run(args, ctx);
+    expect(combined.envelope).toMatchObject({
+      ok: false,
+      code: 'E_TARGETS_LIMIT',
+    });
+  });
+
   it('writes the matrix as one step-output line and confines --file to --root', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-targets-'));
     const caller = path.join(dir, 'caller');
