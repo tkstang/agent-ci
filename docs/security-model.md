@@ -92,6 +92,31 @@ from npm (npm code) and holds the job's read-only `GITHUB_TOKEN` and, for a
 private target in another repository, `AGENT_CI_TARGET_READ_TOKEN`; it holds
 no write token. Its resolve and publish jobs match `run-agent.yml`'s.
 
+## Private target output
+
+Every reusable execution workflow accepts `private_target` (default `false`)
+and supplies `AGENT_CI_PRIVATE_TARGET` to its agent-ci commands. Wrappers and
+review parents forward the input explicitly because workflow-level environments
+do not propagate to called reusable workflows. Fan-out enables it when either
+the workflow input or a selected target's `private: true` is set. Selection
+always enables suppression to avoid echoing the full matrix before routing.
+
+Private mode replaces detailed CLI output with a compact JSON envelope, suppresses
+diagnostics and step summaries, and discards setup stdout/stderr from both
+`corepack enable` and `setup_command`. It retains machine-readable error codes, exit status and
+required workflow outputs. It still publishes the requested changes, pull
+requests, comments and notifications.
+
+This is output suppression only. Artifact transport is not encrypted:
+prepared working trees, run logs/results, changes and review artifacts can
+contain private source or generated content. GitHub Actions inputs,
+environments, job and matrix names, checkout output and artifact metadata can
+still reveal target configuration and identity. The flag provides no
+confidentiality or anonymity guarantee; review artifact access and runner
+admission before executing private code. The private fleet starter is manual
+only until its operator reviews runner admission and chooses to add schedules.
+See [Workflows](workflows.md#fan-outyml-and-targetsyaml).
+
 ## Token scoping
 
 - **Static secret references only.** Each workflow picks the model secret

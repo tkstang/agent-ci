@@ -45,6 +45,10 @@ name: '[agent-ci] Review pull request'
 on:
   workflow_call:
     inputs:
+      private_target:
+        description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
       pr_number:
         description: workflow_dispatch only. The pull request to review; ignored for label and comment events.
         type: string
@@ -188,6 +192,9 @@ on:
           pool routes. A secret so Actions masks it; passed to the reviewer and adjudicator
           steps only for a pool route.
         required: false
+
+env:
+  AGENT_CI_PRIVATE_TARGET: ${{ inputs.private_target }}
 
 permissions:
   contents: read
@@ -442,6 +449,7 @@ jobs:
     uses: ./.github/workflows/review-pass.yml
     with:
       runs_on: ${{ inputs.runs_on }}
+      private_target: ${{ inputs.private_target }}
       job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
       artifact_scope: ${{ inputs.artifact_scope }}
       timeout_minutes: ${{ inputs.timeout_minutes }}
@@ -468,6 +476,7 @@ jobs:
     uses: ./.github/workflows/review-pass.yml
     with:
       runs_on: ${{ inputs.runs_on }}
+      private_target: ${{ inputs.private_target }}
       job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
       artifact_scope: ${{ inputs.artifact_scope }}
       timeout_minutes: ${{ inputs.timeout_minutes }}
@@ -494,6 +503,7 @@ jobs:
     uses: ./.github/workflows/review-adjudicate.yml
     with:
       runs_on: ${{ inputs.runs_on }}
+      private_target: ${{ inputs.private_target }}
       job_timeout_minutes: ${{ inputs.job_timeout_minutes }}
       artifact_scope: ${{ inputs.artifact_scope }}
       timeout_minutes: ${{ inputs.timeout_minutes }}

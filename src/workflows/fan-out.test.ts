@@ -185,6 +185,9 @@ describe('fan-out.yml', () => {
     const select = step(targets, 'Select the target matrix');
     expect(select.run).toContain('agent-ci targets matrix --root caller');
     expect(select.run).toContain('--github-output');
+    expect(select.run).toContain('--targets-json "$TARGETS_JSON"');
+    expect(select.env?.TARGETS_JSON).toBe('${{ inputs.targets_json }}');
+    expect(select.env?.AGENT_CI_PRIVATE_TARGET).toBe('true');
     expect(
       step(targets, 'Check out the calling repository (targets file)').with?.[
         'persist-credentials'
@@ -203,6 +206,9 @@ describe('fan-out.yml', () => {
     expect(tools.if).toBe("inputs.preset == 'tools-update'");
     for (const job of [agent, tools]) {
       expect(job.needs).toBe('targets');
+      expect(job.with?.private_target).toBe(
+        '${{ inputs.private_target || matrix.private_target }}',
+      );
       expect(job.steps).toBeUndefined();
       expect(job.strategy).toMatchObject({
         'fail-fast': false,
@@ -240,6 +246,7 @@ describe('fan-out.yml', () => {
       'adopt_branch',
       'oat_cli_version',
       'dependency_policy',
+      'private_target',
     ];
     const text = JSON.stringify([agent, tools]);
     for (const match of text.matchAll(/(?<![\w.])matrix\.([a-z_]+)/gu)) {
@@ -374,6 +381,40 @@ describe('fleet and consumer templates', () => {
       );
       expect(Object.keys(job?.secrets ?? {}), file).toEqual(secrets);
     }
+  });
+
+  it('keeps private fleets manual and admitted explicitly with serial pool execution', async () => {
+    const workflow = await load(
+      'consumer-workflows/agent-ci-private-fleet.yml',
+    );
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
+    expect(workflow.permissions).toEqual({
+      contents: 'write',
+      'pull-requests': 'write',
+    });
+    const job = workflow.jobs['fan-out'];
+    expect(job?.uses).toMatch(
+      /^tkstang\/agent-ci\/\.github\/workflows\/fan-out\.yml@/u,
+    );
+    expect(job?.with).toMatchObject({
+      targets_file: '',
+      targets_json: '${{ vars.AGENT_CI_TARGETS_JSON }}',
+      runs_on: '["self-hosted","linux","ARM64","your-private-fleet-label"]',
+      allow_pool: true,
+      private_target: true,
+      max_parallel: 1,
+    });
+    expect(job?.secrets).toEqual({
+      AGENT_CI_TARGET_TOKEN: '${{ secrets.AGENT_CI_TARGET_TOKEN }}',
+      AGENT_CI_TARGET_READ_TOKEN: '${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}',
+      AGENT_CI_PROXY_API_KEY: '${{ secrets.AGENT_CI_PROXY_API_KEY }}',
+      ANTHROPIC_AUTH_TOKEN: '${{ secrets.AGENT_CI_PROXY_API_KEY }}',
+      AGENT_CI_PROXY_BASE_URL: '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+    });
+    const publicFleet = await load('consumer-workflows/agent-ci-fleet.yml');
+    expect(publicFleet.jobs['fan-out']?.with?.targets_json).toBe(
+      '${{ vars.AGENT_CI_TARGETS_JSON }}',
+    );
   });
 
   it('are all linted by CI', async () => {

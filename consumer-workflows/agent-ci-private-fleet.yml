@@ -1,0 +1,72 @@
+# Private fleet starter: copy into your fleet repository, review runner admission,
+# and replace @main with a released version or reviewed agent-ci commit SHA.
+# Manual dispatch only: add schedules after runner admission has been reviewed.
+#
+# Set the repository variable AGENT_CI_TARGETS_JSON to your own JSON target array
+# (each entry uses the targets.yaml target schema). This starter uses JSON only.
+# To combine sources, set targets_file to your own targets.yaml; JSON entries append
+# after its targets and inherit its defaults/allowedOwners. No targets or credentials
+# are supplied.
+# Variables and workflow inputs are visible configuration, not secret storage.
+#
+# private_target emits compact CLI envelopes and suppresses diagnostics, step
+# summaries and setup logs.
+# It does not encrypt artifacts or hide target identity: Actions inputs, env, jobs,
+# matrix, checkouts and artifact metadata can still reveal configuration and names.
+# Review the artifact contents and access before running private repository code;
+# encrypted artifact transport is not implemented yet. See docs/security-model.md.
+#
+# Provision these secrets yourself, with separate fleets for different trust:
+# - AGENT_CI_TARGET_TOKEN: contents and pull-requests write on other targets; used
+#   only by resolve/publish. Same-repository targets use GITHUB_TOKEN.
+# - AGENT_CI_TARGET_READ_TOKEN: contents read only on private targets; used for
+#   code/agent checkouts. Do not grant other write permissions. One token can read
+#   the whole fleet, including from any agent job that receives it.
+# - AGENT_CI_PROXY_API_KEY: your existing pool key, mapped directly for Codex and
+#   as ANTHROPIC_AUTH_TOKEN for Claude Code. Add other route credentials explicitly
+#   only if your target list uses them. No paid fallback is selected automatically.
+# - Optional AGENT_CI_PROXY_BASE_URL: https private proxy origin (http only for a
+#   loopback host). Pool opt-in and self-hosted admission remain required.
+# This maintenance caller enables no adjudicator; the Sol route is unsupported there.
+name: '[agent-ci] Run private fleet'
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: Use case to run.
+        type: choice
+        default: docs-update
+        options: [docs-update, instructions-update, tools-update]
+      target:
+        description: all, or one target id or owner/name from your target configuration.
+        type: string
+        default: all
+      reset:
+        description: Replace the selected target's static branch content (one target only).
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  fan-out:
+    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@main # replace with a released version or reviewed commit SHA
+    with:
+      preset: ${{ inputs.preset }}
+      target: ${{ inputs.target || 'all' }}
+      reset: ${{ inputs.reset || false }}
+      targets_file: ''
+      targets_json: ${{ vars.AGENT_CI_TARGETS_JSON }}
+      runs_on: '["self-hosted","linux","ARM64","your-private-fleet-label"]'
+      allow_pool: true
+      private_target: true
+      max_parallel: 1
+    secrets:
+      AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
+      AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
+      AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+      AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
