@@ -89,7 +89,9 @@ describe('pr-review.yml', () => {
       'publish',
     ]);
     for (const job of Object.values(workflow.jobs))
-      expect(job['runs-on']).toBe('${{ inputs.runs_on }}');
+      expect(job['runs-on']).toBe(
+        "${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}",
+      );
   });
 
   it('defaults to Sol High with optional Opus High and Sol Low adjudication', async () => {

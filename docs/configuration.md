@@ -97,26 +97,43 @@ repository's target: pass the token as `AGENT_CI_TARGET_TOKEN` and set
 ## Self-hosted runners and the proxy
 
 Every reusable workflow takes `runs_on` (default `ubuntu-latest`) and uses it
-for every job. A self-hosted runner is needed only for the proxy pool. A
+for every job. Pass either one label or a JSON array of labels. With an
+array, the runner must carry **all** labels:
+
+```yaml
+with:
+  runs_on: '["self-hosted", "linux", "ARM64", "your-private-fleet-label"]'
+  allow_pool: true
+```
+
+The array must start with `[` and contain valid JSON strings; malformed JSON
+fails workflow evaluation. Wrappers forward it unchanged to nested workflows.
+Use the exact labels admitted by your runner manager. A label selects a
+registered runner; it does not authorize registration or expand its admission
+policy. A self-hosted runner is needed only for the proxy pool. A
 pool route runs in CI only on a self-hosted runner
 (`RUNNER_ENVIRONMENT=self-hosted`); this is policy, not just reachability,
 and setting `AGENT_CI_PROXY_BASE_URL` does not lift it. By default a pool
 route uses the loopback address `http://127.0.0.1:8317`, so the runner must
 run on the proxy's host unless that secret points it at an https endpoint.
 
-1. Register the runner on each repository whose workflow runs on it
-   (repository Settings, Actions, Runners, New self-hosted runner). A
-   personal account has no account-level runners, so a fleet repository and
-   each reviewed repository register their own.
-2. Run the runner process on the host that serves the proxy, outside any
-   container or virtual machine with its own network namespace. Inside one,
-   `127.0.0.1` is the container's loopback and the proxy is unreachable.
-   Check it as the runner's user on that host with
-   `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8317/`: any
-   HTTP status means the proxy is reachable; a connection error means it is
-   not. A runner that cannot reach the host's loopback, such as one in a
-   virtual machine, can reach the proxy through its private HTTPS endpoint
-   instead: set the `AGENT_CI_PROXY_BASE_URL` secret.
+1. Admit the private calling repository through your runner manager's
+   reviewed repository, workflow and job policy, then register its runner
+   (repository Settings, Actions, Runners). A personal account has no
+   account-level runners. Keep the public agent-ci source repository on
+   hosted runners. A manager configured for another repository or one
+   `ci.yml` job does not automatically admit fleet or nested workflow jobs.
+2. Keep the runner in its approved isolation boundary. Inside a container
+   or virtual machine, `127.0.0.1` is the guest's loopback; it does not reach
+   a proxy running on the host. Set the `AGENT_CI_PROXY_BASE_URL` secret to
+   the admitted private HTTPS origin instead. Check connectivity from the
+   actual runner identity and network namespace, reporting only success or
+   failure. If the proxy is deliberately in the same namespace, a
+   credential-free loopback check is
+   `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8317/`:
+   any HTTP status proves transport reachability, not authentication or
+   model availability. Do not move a runner onto the proxy host just to
+   make loopback work.
 3. On a Linux host using a Codex route, let Codex create its sandbox. The
    Sol review routes use Codex, whose Linux sandbox (bubblewrap)
    needs unprivileged user namespaces. The workflows lift Ubuntu's AppArmor
@@ -132,7 +149,7 @@ run on the proxy's host unless that secret points it at an https endpoint.
    user, with `agent-ci harness smoke --harness codex` from an agent-ci
    checkout. A macOS host is not affected: Codex uses the macOS sandbox
    there.
-4. Give the runner a label and pass it as `runs_on`, with
+4. Pass the admitted label or JSON label array as `runs_on`, with
    `allow_pool: true` and the route's pool credential. The Sol reviewer uses
    `AGENT_CI_PROXY_API_KEY`; Claude Code routes use `ANTHROPIC_AUTH_TOKEN`,
    which the caller can map from the same pool secret.

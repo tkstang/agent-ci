@@ -80,7 +80,7 @@ on:
         type: boolean
         default: false
       runs_on:
-        description: Runner label for every job.
+        description: Runner label or JSON array of required labels for every job.
         type: string
         default: ubuntu-latest
       publisher_login:
@@ -136,7 +136,7 @@ jobs:
   targets:
     name: Select targets
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: 15
     permissions:
       contents: read

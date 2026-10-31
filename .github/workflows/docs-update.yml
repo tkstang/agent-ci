@@ -69,7 +69,7 @@ on:
         type: boolean
         default: false
       runs_on:
-        description: Runner label for every job.
+        description: Runner label or JSON array of required labels for every job.
         type: string
         default: ubuntu-latest
       timeout_minutes:

@@ -28,9 +28,11 @@
    establish approved host admission, runner registration, proxy reachability
    and one live opt-in pool job. Prepare the agreed versioned release and
    consumer references. Host approval does not block independent code batches.
-3. [**BL-261025-close-remaining-claude-only — Close remaining Claude-only policy name-check gaps**](../items/BL-261025-close-remaining-claude-only.md).
-   Harden separator-less Claude names and ambiguous automatic routers while
-   preserving the explicit non-Claude control and Claude Code pool support.
+3. [**BL-261025-close-remaining-claude-only — Close remaining Claude-only policy name-check gaps**](../archived/BL-261025-close-remaining-claude-only.md).
+   Implemented load-time guards for separator-less Claude names and Cursor
+   automatic routers, with explicit Grok and Claude Code pool controls
+   preserved. Archived with the implementation delivery; independent review
+   and merge remain pending.
 4. [**BL-261025-post-v1-simplification-pass — Post-v1 simplification pass**](../items/BL-261025-post-v1-simplification-pass.md).
    Start with in-place Git-context protection and per-pass reviewer credential
    boundaries. Assess all six recorded areas; simplify or document an
@@ -107,4 +109,8 @@
   delivery. Resolve the pending adjudicator transport choice separately;
   continue runner-readiness preparation and independent code batches when
   live acceptance depends on operator-owned setup.
-- Completion audit remains pending for every batch above.
+- Runner label-array support and the [qualification packet](runner-proxy-readiness.md)
+  are prepared. External admission/caller PRs, activation, a live pool run and
+  release publication remain separately gated. Claude-name policy gaps are
+  implemented and archived in the next delivery, pending review and merge.
+- Completion audit remains pending for the complete goal.

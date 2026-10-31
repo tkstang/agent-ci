@@ -97,7 +97,7 @@ on:
         type: boolean
         default: false
       runs_on:
-        description: Runner label for every job.
+        description: Runner label or JSON array of required labels for every job.
         type: string
         default: ubuntu-latest
       job_timeout_minutes:
@@ -248,7 +248,7 @@ jobs:
   # older prepared tree with a newer checkout.
   resolve:
     name: Resolve the target
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -325,7 +325,7 @@ jobs:
     name: Prepare workspace (no secrets)
     needs: resolve
     if: inputs.setup_command != ''
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
@@ -421,7 +421,7 @@ jobs:
     name: Publish
     needs: [resolve, agent]
     if: ${{ !cancelled() && needs.agent.outputs.result_artifact_id != '' }}
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: write

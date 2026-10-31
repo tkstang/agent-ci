@@ -29,6 +29,28 @@ import { describe, expect, it } from 'vitest';
  * shell; these pin the security-relevant structure.
  */
 
+describe('runner label selection', () => {
+  it('preserves label arrays through wrappers and every fleet/tools job', async () => {
+    for (const name of [
+      'fan-out',
+      'tools-update',
+      'docs-update',
+      'instructions-update',
+    ]) {
+      const workflow = await load(`.github/workflows/${name}.yml`);
+      for (const job of Object.values(workflow.jobs)) {
+        if (job.uses !== undefined) {
+          expect(job.with?.runs_on, name).toBe('${{ inputs.runs_on }}');
+        } else {
+          expect(job['runs-on'], name).toBe(
+            "${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}",
+          );
+        }
+      }
+    }
+  });
+});
+
 describe('run-agent.yml', () => {
   it('is a reusable workflow whose jobs run on the runs_on input', async () => {
     const workflow = await runAgent();
@@ -43,10 +65,14 @@ describe('run-agent.yml', () => {
       if (name === 'agent') {
         expect(job.with?.runs_on).toBe('${{ inputs.runs_on }}');
       } else {
-        expect(job['runs-on']).toBe('${{ inputs.runs_on }}');
+        expect(job['runs-on']).toBe(
+          "${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}",
+        );
       }
     }
-    expect((await agentJob())['runs-on']).toBe('${{ inputs.runs_on }}');
+    expect((await agentJob())['runs-on']).toBe(
+      "${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}",
+    );
     expect(workflow.permissions).toEqual({ contents: 'read' });
   });
 

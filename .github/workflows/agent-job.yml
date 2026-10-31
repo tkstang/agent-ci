@@ -109,7 +109,7 @@ permissions:
 jobs:
   agent:
     name: Run agent
-    runs-on: ${{ inputs.runs_on }}
+    runs-on: ${{ startsWith(inputs.runs_on, '[') && fromJSON(inputs.runs_on) || inputs.runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read

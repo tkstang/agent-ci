@@ -22,7 +22,11 @@ export const PAID_API_CREDENTIALS: readonly string[] = [
 ];
 
 /** Claude-looking model names, including Cursor's `sonnet`/`opus`/`haiku` IDs. */
-const CLAUDE_NAME = /claude|anthropic|\bsonnet\b|\bopus\b|\bhaiku\b/iu;
+const CLAUDE_NAME =
+  /claude|anthropic|(?:^|[^a-z0-9])(?:sonnet|opus|haiku)(?=$|[^a-z])/iu;
+
+/** Cursor selectors that may choose Claude instead of an explicit model. */
+const CURSOR_AUTOMATIC_MODEL = /^(?:auto|default)(?=$|[^a-z])/iu;
 
 /**
  * True for a Claude route: declared `family: claude`, or (defense in depth) a
@@ -88,6 +92,16 @@ export function checkRoutePolicy(route: Route): Result<Route> {
     return failure(
       'E_POLICY_HARNESS',
       `route ${route.id}: Claude models run only in the claude harness`,
+    );
+  }
+  if (
+    route.harness === 'cursor' &&
+    CURSOR_AUTOMATIC_MODEL.test(route.providerModel.trim())
+  ) {
+    return failure(
+      'E_POLICY_HARNESS',
+      `route ${route.id}: Cursor automatic model selection may choose Claude`,
+      'Set providerModel to an explicit non-Claude model ID.',
     );
   }
   if (route.harness === 'claude' && route.family !== 'claude') {
