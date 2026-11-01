@@ -196,9 +196,10 @@ Selected `pr-review.yml` inputs; the workflow file has every input:
 `agent-ci review run` runs the same stages on your machine for a repository
 you can push to:
 
-````bash
+```bash
 export GITHUB_TOKEN   # a token for a user with write access; set it first
-agent-ci review run --pr 42 --cwd /path/to/clone --model gpt-6.1-sol-high --allow-pool --publish```
+agent-ci review run --pr 42 --cwd /path/to/clone --model gpt-6.1-sol-high --allow-pool --publish
+```
 
 - `--cwd` is a local clone whose `origin` is the repository (default
   `$GITHUB_REPOSITORY` for `--repo`). Each reviewer pass runs in a detached
@@ -237,6 +238,8 @@ is off unless the caller sets `verify: true`.
        timeout_minutes: 10
      - name: unit-tests
        command: node_modules/.bin/vitest run
+   ```
+
 ````
 
 Limits: 1-10 checks with unique names matching `[a-z][a-z0-9-]{0,39}`, a
@@ -301,3 +304,4 @@ Use it only on pull requests whose code you would run yourself. agent-ci
 still applies the isolation the host offers (Linux namespaces with a
 read-only host, the macOS sandbox) and pins the harness binary, as hygiene.
 Details are in [Security model](security-model.md#verify-review).
+````
