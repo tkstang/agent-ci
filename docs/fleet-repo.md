@@ -41,7 +41,7 @@ setting is needed.
    allowedOwners: [<you>]
    defaults:
      base: main
-     model: claude-haiku-4-5
+     model: claude-haiku-5-5
    targets:
      - id: web-app
        repository: <you>/web-app
@@ -75,13 +75,12 @@ setting is needed.
    - `AGENT_CI_TARGET_READ_TOKEN`: Contents read-only on every private
      target;
    - the model secret of every route your targets use, for example
-     `CLAUDE_CODE_OAUTH_TOKEN` for `claude-haiku-4-5` and `OPENCODE_API_KEY`
+     `CLAUDE_CODE_OAUTH_TOKEN` for `claude-haiku-5-5` and `OPENCODE_API_KEY`
      for `grok-4.7`. The public template passes only
      `CLAUDE_CODE_OAUTH_TOKEN`; add each required credential explicitly
      (validation does not check presence). The private pool template maps
      `AGENT_CI_PROXY_API_KEY` for Codex and the same existing key into
-     `ANTHROPIC_AUTH_TOKEN` for Claude Code. `tools-update` needs none;
-   - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes (self-hosted
+     `ANTHROPIC_AUTH_TOKEN` for Claude Code. `tools-update` needs none; - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes (self-hosted
      runner, `allow_pool: true` and `AGENT_CI_PROXY_API_KEY`); see
      [Configuration and credentials](configuration.md).
 5. Allow GitHub Actions to create pull requests in the fleet repository's

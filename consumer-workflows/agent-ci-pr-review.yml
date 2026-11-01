@@ -33,8 +33,7 @@
 #    AGENT_CI_PROXY_API_KEY for the default Sol reviewer. The default routes
 #    require an admitted self-hosted runner and explicit allow_pool below.
 #    Only the reviewer and adjudicator steps receive the model credential.
-# 3. Create the `agent-ci:review` label.
-#
+# 3. Create the `agent-ci:review` label.#
 # Pool routes: AGENT_CI_PROXY_BASE_URL optionally replaces the loopback
 # proxy origin with an https endpoint. A pool route also needs
 # `allow_pool: true`, a self-hosted `runs_on` and AGENT_CI_PROXY_API_KEY.

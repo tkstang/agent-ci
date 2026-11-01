@@ -5,8 +5,7 @@
 #    helpers at that same commit (job.workflow_sha), so there is no second pin.
 #    agent-ci is public; the helper checkout uses the job's GITHUB_TOKEN.
 # 2. Add the ONE model credential the chosen route names (see `agent-ci models`
-#    in agent-ci), for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-4-5 or
-#    OPENCODE_API_KEY for grok-4.7. Only the agent step ever receives it.
+#    in agent-ci), for example CLAUDE_CODE_OAUTH_TOKEN for claude-haiku-5-5 or#    OPENCODE_API_KEY for grok-4.7. Only the agent step ever receives it.
 #    The template passes only CLAUDE_CODE_OAUTH_TOKEN: add a matching
 #    `secrets:` line for any other model you dispatch.
 # 3. Allow GitHub Actions to create pull requests (Settings > Actions >
@@ -36,7 +35,7 @@ on:
         required: true
       model:
         description: Qualified model (see agent-ci models).
-        default: claude-haiku-4-5
+        default: claude-haiku-5-5
 
 permissions:
   contents: read

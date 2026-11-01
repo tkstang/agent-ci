@@ -166,7 +166,7 @@ version: 1
 allowedOwners: [my-org]
 defaults:
   base: main
-  model: claude-haiku-4-5
+  model: claude-haiku-5-5
 targets:
   - id: web-app
     repository: my-org/web-app

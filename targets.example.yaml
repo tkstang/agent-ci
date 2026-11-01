@@ -12,7 +12,7 @@ allowedOwners: [my-org]
 # Optional defaults; a target's own values win.
 defaults:
   base: main
-  model: claude-haiku-4-5 # a models.yaml model; pin with harness or route
+  model: claude-haiku-5-5 # a models.yaml model; pin with harness or route
   mode: edit # edit | read-only
   inputs:
     timeoutMinutes: 30
@@ -25,7 +25,7 @@ targets:
     harness: claude # pin the harness for the model (agent presets only)
     # Or pick an exact route instead of model and harness; the only way to
     # pick a paid-api route (it needs ANTHROPIC_API_KEY):
-    # route: claude-haiku-4-5-api
+    # route: claude-haiku-5-5-api
     inputs:
       # Runs in run-agent.yml's credential-free setup job; only the resulting
       # working tree reaches the agent.

@@ -5,7 +5,7 @@ version: 1
 allowedOwners: [tkstang]
 defaults:
   base: main
-  model: claude-haiku-4-5
+  model: claude-haiku-5-5
 targets:
   - id: agent-ci
     repository: tkstang/agent-ci
