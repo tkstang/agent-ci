@@ -71,6 +71,12 @@ Start at the [documentation index](docs/index.md):
 | `pnpm docs:check`                   | Docs indexes, metadata and links         |
 | `pnpm check:agents`                 | Fail if any `CLAUDE.md` exists           |
 
+Normal CI verification and workflow linting run for ready PRs targeting `main`,
+including `ready_for_review` and later code updates. Draft PRs skip those jobs
+before runner allocation; pushes to `main` retain full validation. Explicit
+label/manual self-tests and reusable workflows keep their existing triggers.
+Local checks remain required before handoff.
+
 Conventions for agents and contributors are in [AGENTS.md](AGENTS.md);
 documentation conventions are in [docs/contributing.md](docs/contributing.md).
 

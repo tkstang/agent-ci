@@ -43,6 +43,12 @@ Run the narrowest sufficient checks - do not over-gate:
   (CI runs it from the pinned `rhysd/actionlint` image); workflow structure
   tests live in `src/workflows/`
 
+Normal CI verification and actionlint run for ready PRs targeting `main`,
+including `ready_for_review` and subsequent code updates. Draft PRs skip both
+jobs before runner allocation. Main-push validation and local checks stay the
+same. Explicit label/manual self-tests and reusable workflows retain their
+existing invocation and trust boundaries.
+
 There is never a CI coverage gate.
 
 ## Agent setup
