@@ -6,23 +6,22 @@ on:
       scope:
         required: true
         type: string
+      role:
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   capture:
-    name: Capture / ${{ inputs.scope }} / ${{ matrix.role }}
+    name: Capture / ${{ inputs.scope }} / ${{ inputs.role }}
     if: github.repository == 'tkstang/agent-ci' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        role: [producer, consumer]
     steps:
       - name: Check out only the reviewed collector
         uses: actions/checkout@v5
@@ -44,7 +43,7 @@ jobs:
         id: capture
         env:
           CONFORMANCE_SCOPE: ${{ inputs.scope }}
-          CONFORMANCE_ROLE: ${{ matrix.role }}
+          CONFORMANCE_ROLE: ${{ inputs.role }}
         run: node src/artifact-conformance/collect.ts
 
       - name: Upload only the diagnostic report

@@ -308,7 +308,7 @@ describe('synthetic OIDC conformance capture', () => {
     ).toBeUndefined();
   });
 
-  it('runs directly from a sparse Node 24 checkout and reports only a fixed refusal', async () => {
+  it('runs dependency-free from sparse source and reports only a fixed refusal', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-oidc-sparse-'));
     roots.push(root);
     const script = path.join(root, 'collect.ts');
