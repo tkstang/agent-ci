@@ -1,0 +1,56 @@
+name: 'CI: Artifact identity capture leaf'
+
+on:
+  workflow_call:
+    inputs:
+      scope:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture / ${{ inputs.scope }} / ${{ matrix.role }}
+    if: github.repository == 'tkstang/agent-ci' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [producer, consumer]
+    steps:
+      - name: Check out only the reviewed collector
+        uses: actions/checkout@v5
+        with:
+          repository: tkstang/agent-ci
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            package.json
+            src/artifact-conformance/collect.ts
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Capture allowlisted diagnostic claims
+        id: capture
+        env:
+          CONFORMANCE_SCOPE: ${{ inputs.scope }}
+          CONFORMANCE_ROLE: ${{ matrix.role }}
+        run: node src/artifact-conformance/collect.ts
+
+      - name: Upload only the diagnostic report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.capture.outputs.artifact_name }}
+          path: ${{ steps.capture.outputs.report_path }}
+          if-no-files-found: error
+          retention-days: 1

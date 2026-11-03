@@ -1,0 +1,49 @@
+# Preparation only: dispatch requires separate approval. This synthetic probe
+# does not enable artifact encryption, authorize jobs or call model providers.
+name: 'CI: Artifact identity conformance'
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_optional:
+        description: Include the optional synthetic invocation
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: Matrix / ${{ matrix.scope }}
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: [scope-a, scope-b]
+    # Reusable callees cannot elevate permissions. Only capture leaves have
+    # executable steps; call-chain jobs merely delegate this permission.
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/agent-ci-artifact-conformance-nested.yml
+    with:
+      scope: ${{ matrix.scope }}
+
+  repeated:
+    name: Repeated / scope-a
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/agent-ci-artifact-conformance-nested.yml
+    with:
+      scope: scope-a
+
+  optional:
+    name: Optional / scope-b
+    if: inputs.include_optional
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/agent-ci-artifact-conformance-nested.yml
+    with:
+      scope: scope-b

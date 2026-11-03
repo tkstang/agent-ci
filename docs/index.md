@@ -37,6 +37,7 @@ can reach.
 ### Concepts
 
 - [Security model](security-model.md) - Trust boundaries per job, token scoping, isolation, guards and residual risk.
+- [Artifact identity conformance](artifact-conformance.md) - Synthetic OIDC probe preparation and the remaining gates for isolated artifact transport.
 
 ### Contributing
 
