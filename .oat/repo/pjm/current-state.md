@@ -96,4 +96,34 @@ disabled/manual-only. The old manual branch received the same reviewed disabled
 workflow without rewriting history. A fresh scan found no source-token readers
 at any of the three branch tips, no tags and no active runs; the retired
 `AGENT_CI_SOURCE_TOKEN` was deleted and absence verified. Model/proxy secrets
-remain. The target PATs were still absent at the latest metadata check.
+remain. The dated reconciliation below supersedes this snapshot's target-token
+and runner setup status.
+
+## 2026-11-03 readiness continuation
+
+The source baseline for artifact-conformance preparation is `faf1fc8`, including
+merged versioned-consumer/status PR #9 and ready-PR CI trigger PR #10. The target
+write/read secret names are present in the private caller's metadata; the retired
+source-token secret is absent. Secret presence does not prove live target access.
+
+Runner reservation #6 merged as `587f79e` after runtime prerequisites #4/#5. Its
+integrated source passed 243 tests and 50 applicable Apple-Python checks. A later
+runner-owner report describes replacement/simplification in runner #8, installed
+VM-config and token-scope guards from #9 (`118a8b2`), successful personal-skills
+wake-on-demand and measured idle shutdown. Those live observations are reported
+by the owning runner thread, not independently re-proved here. The old launchers,
+six/seven-account assumptions and receipt checklist must not be replayed as current
+operating instructions. Agent-ci fleet admission remains unqualified. The owner
+confirmed the dormant fleet guards remain in current source and the installed
+configuration still contains personal-skills only. Its startup scope check
+requires the token's private-repository set to equal the configured set: changing
+only one side interrupts the pilot. Exact caller-job evidence and a reviewed
+admission change precede a coordinated token/configuration maintenance window.
+Live seventh-account provisioning and current bootstrap behavior remain unchecked.
+
+The [artifact identity conformance packet](../../../docs/artifact-conformance.md)
+prepares synthetic nested/matrix/repeated/optional workflow observations. No live
+probe, broker, encryption key, service provisioning or model dispatch is performed
+by this preparation. Diagnostic decoding does not verify JWT signatures or prove
+complete-graph assignment uniqueness. The delivery goal and both remaining
+backlog items stay open. Service packaging, hosting and key custody remain pending.

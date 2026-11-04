@@ -370,6 +370,11 @@ release publication. Local code/PR preparation remains within the active goal.
 The immediate next deliverable is a reviewed design and conformance packet.
 It is not evidence that production encryption or the model routes work live.
 
+The [synthetic conformance runbook](../../../../docs/artifact-conformance.md)
+describes the prepared manual-only probe, attempt-specific Jobs REST comparison
+and limits of decoded diagnostic claims. Preparation does not establish live
+platform binding, verify token signatures or prove complete-graph injectivity.
+
 ## Evidence
 
 Read-only research, 2026-10-31; documentation and discovery are not live workflow

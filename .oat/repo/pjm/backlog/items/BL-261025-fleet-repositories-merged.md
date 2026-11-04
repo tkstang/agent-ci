@@ -42,3 +42,9 @@ Support the two-fleet setup (public agent-ci-fleet on GitHub-hosted runners, pri
   is not archived.
 
 - 2026-10-31: isolated transport selected; the [proposed design and acceptance plan](../../../reference/research/fleet-artifact-transport.md) covers all nine upload/fifteen download sites. External broker, exact-job grants and bootstrap remain proposed and unqualified. No encryption or service has shipped.
+
+- 2026-11-03: [synthetic identity conformance preparation](../../../../../docs/artifact-conformance.md)
+  adds a manual-only nested/matrix probe and bounded diagnostic claim collection.
+  Local checks are not platform evidence. No dispatch, broker, shared key or
+  production encryption is introduced; live binding and complete-graph uniqueness
+  remain acceptance gates. This item stays open.

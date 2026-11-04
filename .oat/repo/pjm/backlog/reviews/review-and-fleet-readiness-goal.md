@@ -189,3 +189,29 @@ immediately before deleting `AGENT_CI_SOURCE_TOKEN`; a fresh secret-name listing
 confirmed absence. Proxy and model secrets were retained. Historical workflow
 reruns still refer to retired definitions/source history and are not a supported
 migration path. No runner, fleet admission variable or model job was activated.
+
+## 2026-11-03 continuation
+
+The operator requested continued execution under the existing boundaries.
+Runner #4/#5/#6 are merged; #6 landed as `587f79e` after 243 full-suite and
+50 applicable Apple-Python tests. The runner owner subsequently reports a
+simplified installed controller with VM-config and personal-skills-only token
+scope guards, working wake-on-demand and measured idle shutdown. These are
+personal-skills operating results, not agent-ci fleet or model-route acceptance.
+The old frozen-source instructions are historical; the owner retains current
+host, credential and deployment operations. The owner's current handoff confirms
+the dormant fleet guards remain in source. Admission needs exact current caller
+job identities, reviewed guard removal/list matching, and coordinated token plus
+configuration changes: the startup scope check requires exact set equality.
+Changing only token scope or only configuration interrupts the working pilot.
+The seventh guest account/bootstrap path remains unverified, and no maintenance
+window or credential mutation is performed by this preparation.
+
+Both target secret names are present and the retired source secret is absent
+at the read-only metadata check. Live access remains unverified. Preparation
+continues with the [synthetic artifact identity packet](../../../../../docs/artifact-conformance.md)
+and its manual-only workflows, without live dispatch or service provisioning.
+The candidate remains disabled pending signature verification, actual nested
+claims/attempt-specific Jobs evidence and complete-graph uniqueness proof.
+Packaging, hosting and key custody are still unresolved. No completion or
+encryption claim is made.

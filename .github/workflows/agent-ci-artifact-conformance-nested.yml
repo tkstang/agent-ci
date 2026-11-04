@@ -1,0 +1,26 @@
+name: 'CI: Nested artifact identity probe'
+
+on:
+  workflow_call:
+    inputs:
+      scope:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  nested:
+    name: Nested / ${{ inputs.scope }} / ${{ matrix.role }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [producer, consumer]
+    uses: ./.github/workflows/agent-ci-artifact-conformance-leaf.yml
+    with:
+      scope: ${{ inputs.scope }}
+      role: ${{ matrix.role }}
