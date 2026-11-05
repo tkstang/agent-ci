@@ -215,3 +215,51 @@ The candidate remains disabled pending signature verification, actual nested
 claims/attempt-specific Jobs evidence and complete-graph uniqueness proof.
 Packaging, hosting and key custody are still unresolved. No completion or
 encryption claim is made.
+
+## 2026-11-04 conformance execution and runner coordination
+
+The operator approved squash-merging [PR #12](https://github.com/tkstang/agent-ci/pull/12)
+and up to three synthetic attempts totaling at most 22 capture jobs. The merge
+is `7f94ad35d3100e5a4bd0e9779b061fe936e65290`; its tree is identical to reviewed
+head `3f56021e3fd20f8cbdc577ac8ae5b62539033c26`. Hosted verify/actionlint passed;
+the three label-gated self-tests were intentionally skipped. GitHub rejected a
+direct-SHA dispatch without creating a run, so an SSH push created the dedicated
+`probe/artifact-conformance-7f94ad3` branch at the approved merged commit.
+
+The optional-off [run 41902471583, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/41902471583/attempts/1)
+executed six captures. Optional-on [run 41902498611, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/41902498611/attempts/1)
+and its [complete rerun, attempt 2](https://github.com/tkstang/agent-ci/actions/runs/41902498611/attempts/2)
+executed eight captures each. Every caller and reusable revision matched the
+approved merged source. All 22 captures returned `E_INVALID_INPUT` before the
+OIDC request; zero artifacts were uploaded. Complete attempt-specific Jobs
+records, canonical check-run URL mappings and fixed error envelopes were saved
+privately. There are no claim reports to reconcile, and the existing grouped
+error cannot identify the exact rejected input. This is failed platform
+qualification, not evidence that a required claim is absent or a reason to
+weaken a refusal. The approved run budget is exhausted.
+
+The authorized follow-up prepares a reviewed diagnostic patch and focused tests
+for closed preflight refusal reasons without values, actual lengths, destinations
+or exception text. Existing validation and confidentiality boundaries remain.
+The patch's merge and any further bounded live probes require new approval.
+Signature verification, subject qualification, attempt-specific claim/Jobs
+binding and complete pinned-graph uniqueness proof remain open before key
+release. No broker or encryption implementation is accepted by this result.
+
+The runner owner reports synchronized token-scope and dormant fleet-config
+updates, successful deployment/startup checks and a healthy watcher. The fleet
+entry stays disabled with an empty exact job list, `workflow_dispatch` only,
+and one slot shared with the existing pilot. Runner PR #10 merged as `4c0f083`;
+installed runtime remains `118a8b2`, with the installer change pending the next
+owner-managed upgrade. These reported updates supersede the token/configuration
+dependency in the November 3 record; the owner says neither needs another
+change for the remaining admission sequence.
+
+Remaining runner work is separate: qualify exact expanded production job names
+against current caller/reusable revisions, review list matching and removal of
+the four dormant refusal boundaries, then let the owner drain/upgrade/reload
+and verify the fleet guest account and unit before one approved manual dispatch.
+Whether upgrade reruns guest bootstrap is still unverified. Host, service and
+credential operations remain with the owner; no such mutation is authorized by
+this informational update. The delivery goal and both open backlog items remain
+incomplete.

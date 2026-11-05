@@ -196,15 +196,30 @@ describe('synthetic OIDC conformance capture', () => {
   );
 
   it.each([
-    'http://pipelines.actions.githubusercontent.com/idtoken',
-    'https://pipelines.actions.githubusercontent.com.outside.invalid/idtoken',
-    'https://outside.invalid/idtoken',
-    'https://user:credential@pipelines.actions.githubusercontent.com/idtoken',
-    'https://pipelines.actions.githubusercontent.com:444/idtoken',
-    'https://pipelines.actions.githubusercontent.com/idtoken#fragment',
+    [
+      'http://pipelines.actions.githubusercontent.com/idtoken',
+      'request_protocol_refused',
+    ],
+    [
+      'https://pipelines.actions.githubusercontent.com.outside.invalid/idtoken',
+      'request_host_refused',
+    ],
+    ['https://outside.invalid/idtoken', 'request_host_refused'],
+    [
+      'https://user:credential@pipelines.actions.githubusercontent.com/idtoken',
+      'request_userinfo_refused',
+    ],
+    [
+      'https://pipelines.actions.githubusercontent.com:444/idtoken',
+      'request_port_refused',
+    ],
+    [
+      'https://pipelines.actions.githubusercontent.com/idtoken#fragment',
+      'request_fragment_refused',
+    ],
   ])(
     'refuses an untrusted credential destination before HTTP: %s',
-    async (url) => {
+    async (url, reason) => {
       const { root, env } = await runtime();
       const request = vi.fn<typeof fetch>();
       expect(
@@ -212,9 +227,57 @@ describe('synthetic OIDC conformance capture', () => {
           { ...env, ACTIONS_ID_TOKEN_REQUEST_URL: url },
           request,
         ),
-      ).toEqual({ ok: false, code: 'E_INVALID_INPUT' });
+      ).toEqual({ ok: false, code: 'E_INVALID_INPUT', reason });
       expect(request).not.toHaveBeenCalled();
       expect(await readdir(root)).toEqual(['github-output']);
+      expect(await readFile(env.GITHUB_OUTPUT, 'utf8')).toBe('');
+    },
+  );
+
+  it.each([
+    ['ACTIONS_ID_TOKEN_REQUEST_URL', undefined, 'request_url_missing'],
+    ['ACTIONS_ID_TOKEN_REQUEST_URL', 'x'.repeat(4097), 'request_url_too_long'],
+    ['ACTIONS_ID_TOKEN_REQUEST_URL', DISCARDED_SECRET, 'request_url_invalid'],
+    ['ACTIONS_ID_TOKEN_REQUEST_TOKEN', undefined, 'request_credential_missing'],
+    ['ACTIONS_ID_TOKEN_REQUEST_TOKEN', '', 'request_credential_missing'],
+    [
+      'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+      'x'.repeat(4097),
+      'request_credential_too_long',
+    ],
+    [
+      'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+      `${REQUEST_SECRET}\n`,
+      'request_credential_line_break',
+    ],
+    [
+      'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+      `${REQUEST_SECRET}\r`,
+      'request_credential_line_break',
+    ],
+    ['RUNNER_TEMP', undefined, 'runner_temp_invalid'],
+    ['RUNNER_TEMP', DISCARDED_SECRET, 'runner_temp_invalid'],
+    ['GITHUB_OUTPUT', undefined, 'github_output_invalid'],
+    ['GITHUB_OUTPUT', DISCARDED_SECRET, 'github_output_invalid'],
+  ] as const)(
+    'reports only a fixed preflight reason for %s (%#)',
+    async (key, value, reason) => {
+      const { root, env } = await runtime();
+      const request = vi.fn<typeof fetch>();
+      const result = await collectConformanceReport(
+        { ...env, [key]: value },
+        request,
+      );
+      expect(result).toEqual({ ok: false, code: 'E_INVALID_INPUT', reason });
+      for (const secret of [
+        REQUEST_SECRET,
+        DISCARDED_SECRET,
+        env.ACTIONS_ID_TOKEN_REQUEST_URL,
+      ])
+        expect(JSON.stringify(result)).not.toContain(secret);
+      expect(request).not.toHaveBeenCalled();
+      expect(await readdir(root)).toEqual(['github-output']);
+      expect(await readFile(env.GITHUB_OUTPUT, 'utf8')).toBe('');
     },
   );
 
@@ -320,22 +383,37 @@ describe('synthetic OIDC conformance capture', () => {
         'utf8',
       ),
     );
-    try {
-      execFileSync(process.execPath, [script], {
-        env: {},
-        encoding: 'utf8',
-        stdio: 'pipe',
-      });
-      throw new Error('expected refusal');
-    } catch (error) {
-      const result = error as {
-        status?: number;
-        stdout?: string;
-        stderr?: string;
-      };
-      expect(result.status).toBe(1);
-      expect(result.stdout).toBe('{"ok":false,"code":"E_INVALID_INPUT"}\n');
-      expect(result.stderr).toBe('');
+    const { env } = await runtime();
+    for (const [runtimeEnv, reason] of [
+      [{}, 'request_url_missing'],
+      [
+        { ...env, ACTIONS_ID_TOKEN_REQUEST_URL: DISCARDED_SECRET },
+        'request_url_invalid',
+      ],
+      [
+        { ...env, ACTIONS_ID_TOKEN_REQUEST_TOKEN: REQUEST_SECRET.repeat(200) },
+        'request_credential_too_long',
+      ],
+    ] as const) {
+      try {
+        execFileSync(process.execPath, [script], {
+          env: runtimeEnv,
+          encoding: 'utf8',
+          stdio: 'pipe',
+        });
+        throw new Error('expected refusal');
+      } catch (error) {
+        const result = error as {
+          status?: number;
+          stdout?: string;
+          stderr?: string;
+        };
+        expect(result.status).toBe(1);
+        expect(result.stdout).toBe(
+          `${JSON.stringify({ ok: false, code: 'E_INVALID_INPUT', reason })}\n`,
+        );
+        expect(result.stderr).toBe('');
+      }
     }
   });
 });

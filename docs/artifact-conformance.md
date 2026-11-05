@@ -16,6 +16,7 @@ by itself.
 - [Scope and authority](#scope-and-authority)
 - [Probe graph](#probe-graph)
 - [Collect the evidence](#collect-the-evidence)
+- [Diagnose a preflight refusal](#diagnose-a-preflight-refusal)
 - [Reconcile job identity](#reconcile-job-identity)
 - [Acceptance limits](#acceptance-limits)
 
@@ -82,6 +83,39 @@ separate pending check for the future broker. Treat reports as platform metadata
 identities are correlatable. Do not add private target names, contents or logs.
 Failures must produce a fixed diagnostic, without HTTP bodies or token dumps.
 Do not print raw OIDC tokens to diagnose a failed or missing claim.
+
+## Diagnose a preflight refusal
+
+An `E_INVALID_INPUT` result includes a closed `reason` identifying the first
+failed preflight check. These reasons describe the check only; they never include
+the input value, actual length, request destination or exception text.
+
+| Reason                          | Refusal                                                    |
+| ------------------------------- | ---------------------------------------------------------- |
+| `request_url_missing`           | The OIDC request URL is absent.                            |
+| `request_url_too_long`          | The request URL exceeds the existing bound.                |
+| `request_url_invalid`           | The request URL cannot be parsed.                          |
+| `request_protocol_refused`      | The request does not use HTTPS.                            |
+| `request_host_refused`          | The destination fails the GitHub Actions host rule.        |
+| `request_userinfo_refused`      | The URL contains user information.                         |
+| `request_port_refused`          | The URL specifies a disallowed port.                       |
+| `request_fragment_refused`      | The URL contains a fragment.                               |
+| `request_credential_missing`    | The OIDC request credential is absent or empty.            |
+| `request_credential_too_long`   | The request credential exceeds the existing bound.         |
+| `request_credential_line_break` | The request credential contains a line break.              |
+| `runner_temp_invalid`           | The runner temporary path is absent or not absolute.       |
+| `github_output_invalid`         | The GitHub output path is absent or not absolute.          |
+| `preflight_exception`           | An otherwise unclassified exception interrupted preflight. |
+
+These reasons do not change validation or authorize a destination. Preserve a
+refusal without printing environment variables, credentials, request URLs or raw
+exception messages. An older result containing only `E_INVALID_INPUT` does not
+identify which check failed; do not infer its reason from this table.
+
+Preflight refusals happen before the OIDC request and produce no claim report.
+Retain each attempt's Jobs REST evidence and the fixed failure result, but do not
+treat job records alone as OIDC identity qualification. Review any corrective
+source change and obtain new bounded dispatch approval before another live run.
 
 ## Reconcile job identity
 
