@@ -127,3 +127,36 @@ probe, broker, encryption key, service provisioning or model dispatch is perform
 by this preparation. Diagnostic decoding does not verify JWT signatures or prove
 complete-graph assignment uniqueness. The delivery goal and both remaining
 backlog items stay open. Service packaging, hosting and key custody remain pending.
+
+## 2026-11-04 conformance refusal and runner-owner update
+
+Artifact-conformance [PR #12](https://github.com/tkstang/agent-ci/pull/12) was
+squash-merged as `7f94ad35d3100e5a4bd0e9779b061fe936e65290` after fresh hosted
+verify/actionlint and the final review/comment sweep. Its tree matches the
+independently reviewed head `3f56021e3fd20f8cbdc577ac8ae5b62539033c26`.
+The operator approved three synthetic attempts, bounded to 22 capture jobs.
+The optional-off run [41902471583, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/41902471583/attempts/1)
+ran six captures; optional-on [41902498611, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/41902498611/attempts/1)
+and its [complete rerun, attempt 2](https://github.com/tkstang/agent-ci/actions/runs/41902498611/attempts/2)
+ran eight each. All caller and reusable revisions matched the merged source.
+Every capture failed with `E_INVALID_INPUT` before requesting OIDC, and no
+artifacts were uploaded. The grouped preflight result does not identify the
+exact failed check. Attempt-specific Jobs pages and fixed failure envelopes
+were retained privately; no claims were observed or identity qualification
+established. The approved execution budget is exhausted. A diagnostic follow-up
+adds closed refusal reasons without relaxing validation; its merge and further
+live probes require new approval.
+
+The runner owner reports that the token scope and dormant fleet configuration
+were updated together and passed deployment/startup scope checks. The fleet
+entry remains `enabled: false`, with `job_names: []`, manual dispatch only and
+one shared slot. The owner reports runner `main` at `4c0f083` after installer
+PR #10, while installed runtime remains `118a8b2`. These owner-reported facts
+supersede the prior token/configuration maintenance dependency; no further
+token or fleet-entry change is needed for the reported admission sequence.
+Exact current-source production nested job identities, reviewed list matching
+and removal of dormant refusals, the owner's maintenance window and guest
+account/unit verification, and one owner-approved manual dispatch remain.
+The synthetic OIDC packet does not supply the production admission list.
+Host, service and credential ownership stays with the runner owner. Artifact
+encryption, live model qualification and the delivery goal remain incomplete.

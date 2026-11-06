@@ -19,6 +19,21 @@ const WORKFLOW_REF =
 
 type Environment = Readonly<Record<string, string | undefined>>;
 type FailureCode = 'E_INVALID_INPUT' | 'E_GITHUB_API' | 'E_OUTPUT_PATH';
+type PreflightReason =
+  | 'request_url_missing'
+  | 'request_url_too_long'
+  | 'request_url_invalid'
+  | 'request_protocol_refused'
+  | 'request_host_refused'
+  | 'request_userinfo_refused'
+  | 'request_port_refused'
+  | 'request_fragment_refused'
+  | 'request_credential_missing'
+  | 'request_credential_too_long'
+  | 'request_credential_line_break'
+  | 'runner_temp_invalid'
+  | 'github_output_invalid'
+  | 'preflight_exception';
 type CaptureResult =
   | {
       readonly ok: true;
@@ -27,7 +42,19 @@ type CaptureResult =
         readonly artifactName: string;
       };
     }
-  | { readonly ok: false; readonly code: FailureCode };
+  | {
+      readonly ok: false;
+      readonly code: 'E_INVALID_INPUT';
+      readonly reason: PreflightReason;
+    }
+  | {
+      readonly ok: false;
+      readonly code: Exclude<FailureCode, 'E_INVALID_INPUT'>;
+    };
+
+function invalidInput(reason: PreflightReason): CaptureResult {
+  return { ok: false, code: 'E_INVALID_INPUT', reason };
+}
 
 export interface ConformanceReport {
   readonly version: 1;
@@ -191,29 +218,33 @@ export async function collectConformanceReport(
     const credential = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
     const temp = env.RUNNER_TEMP;
     const output = env.GITHUB_OUTPUT;
-    if (
-      rawUrl === undefined ||
-      rawUrl.length > 4096 ||
-      credential === undefined ||
-      credential.length === 0 ||
-      credential.length > 4096 ||
-      /[\r\n]/u.test(credential) ||
-      temp === undefined ||
-      !path.isAbsolute(temp) ||
-      output === undefined ||
-      !path.isAbsolute(output)
-    )
-      return { ok: false, code };
-    const url = new URL(rawUrl);
-    if (
-      url.protocol !== 'https:' ||
-      !url.hostname.endsWith('.actions.githubusercontent.com') ||
-      url.username !== '' ||
-      url.password !== '' ||
-      (url.port !== '' && url.port !== '443') ||
-      url.hash !== ''
-    )
-      return { ok: false, code };
+    if (rawUrl === undefined) return invalidInput('request_url_missing');
+    if (rawUrl.length > 4096) return invalidInput('request_url_too_long');
+    if (credential === undefined || credential.length === 0)
+      return invalidInput('request_credential_missing');
+    if (credential.length > 4096)
+      return invalidInput('request_credential_too_long');
+    if (/[\r\n]/u.test(credential))
+      return invalidInput('request_credential_line_break');
+    if (temp === undefined || !path.isAbsolute(temp))
+      return invalidInput('runner_temp_invalid');
+    if (output === undefined || !path.isAbsolute(output))
+      return invalidInput('github_output_invalid');
+    let url: URL;
+    try {
+      url = new URL(rawUrl);
+    } catch {
+      return invalidInput('request_url_invalid');
+    }
+    if (url.protocol !== 'https:')
+      return invalidInput('request_protocol_refused');
+    if (!url.hostname.endsWith('.actions.githubusercontent.com'))
+      return invalidInput('request_host_refused');
+    if (url.username !== '' || url.password !== '')
+      return invalidInput('request_userinfo_refused');
+    if (url.port !== '' && url.port !== '443')
+      return invalidInput('request_port_refused');
+    if (url.hash !== '') return invalidInput('request_fragment_refused');
     url.searchParams.set('audience', AUDIENCE);
     code = 'E_GITHUB_API';
     const response = await request(url, {
@@ -247,7 +278,9 @@ export async function collectConformanceReport(
   } catch {
     if (stage !== undefined)
       await rm(stage, { recursive: true, force: true }).catch(() => undefined);
-    return { ok: false, code };
+    return code === 'E_INVALID_INPUT'
+      ? invalidInput('preflight_exception')
+      : { ok: false, code };
   }
 }
 
