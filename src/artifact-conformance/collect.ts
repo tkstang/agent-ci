@@ -10,6 +10,9 @@ import { pathToFileURL } from 'node:url';
 
 const AUDIENCE = 'urn:agent-ci:artifact-conformance:v1';
 const ISSUER = 'https://token.actions.githubusercontent.com';
+// Local resource cap with headroom over the observed 4 Ki-character refusal;
+// this is not a GitHub token-size guarantee. Keep it separate from JWT limits.
+const REQUEST_CREDENTIAL_LIMIT = 16 * 1024;
 const RESPONSE_LIMIT = 32 * 1024;
 const TOKEN_LIMIT = 24 * 1024;
 const DECIMAL = /^[1-9][0-9]{0,19}$/u;
@@ -222,7 +225,7 @@ export async function collectConformanceReport(
     if (rawUrl.length > 4096) return invalidInput('request_url_too_long');
     if (credential === undefined || credential.length === 0)
       return invalidInput('request_credential_missing');
-    if (credential.length > 4096)
+    if (credential.length > REQUEST_CREDENTIAL_LIMIT)
       return invalidInput('request_credential_too_long');
     if (/[\r\n]/u.test(credential))
       return invalidInput('request_credential_line_break');

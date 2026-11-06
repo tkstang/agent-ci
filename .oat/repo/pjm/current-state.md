@@ -160,3 +160,23 @@ account/unit verification, and one owner-approved manual dispatch remain.
 The synthetic OIDC packet does not supply the production admission list.
 Host, service and credential ownership stays with the runner owner. Artifact
 encryption, live model qualification and the delivery goal remain incomplete.
+
+## 2026-11-06 request-credential bound follow-up
+
+Diagnostic [PR #13](https://github.com/tkstang/agent-ci/pull/13) merged as
+`c3d87280dc418ef7894b16f6ff058f023d58dc6a`. Its approved optional-off
+[run 42279537227, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/42279537227/attempts/1)
+matched that caller/reusable source and executed six captures. All returned
+`E_INVALID_INPUT` with `request_credential_too_long` before HTTP; zero artifacts
+were uploaded. This identifies the credential-size guard for this attempt only;
+the earlier 22 captures' exact refusal cause remains unknown. No credential value
+or actual length was exposed, and the single-attempt allowance is exhausted.
+
+The narrow follow-up raises only the request-credential cap from 4,096 to 16,384
+JavaScript string characters, a finite local limit chosen for headroom rather
+than a GitHub maximum or compatibility guarantee. URL, response and returned-JWT
+bounds and destination/confidentiality controls remain unchanged. The operator
+separately preauthorized merging this fix after independent review and hosted CI,
+then one optional-off probe of at most six capture jobs followed by inspection
+and stop. That new source has not run live. No host or credential change is
+included, and identity/encryption qualification remains incomplete.

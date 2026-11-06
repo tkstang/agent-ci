@@ -90,6 +90,13 @@ An `E_INVALID_INPUT` result includes a closed `reason` identifying the first
 failed preflight check. These reasons describe the check only; they never include
 the input value, actual length, request destination or exception text.
 
+The request credential has an independent cap of 16,384 JavaScript string
+characters. This finite local resource limit gives headroom above the former
+4,096-character cap; it is not a documented GitHub maximum or a guarantee that
+every future credential fits. The request URL remains capped at 4,096 characters,
+the response body at 32 KiB and the returned JWT at 24 KiB. None of these limits
+authorizes printing a value or its actual length.
+
 | Reason                          | Refusal                                                    |
 | ------------------------------- | ---------------------------------------------------------- |
 | `request_url_missing`           | The OIDC request URL is absent.                            |

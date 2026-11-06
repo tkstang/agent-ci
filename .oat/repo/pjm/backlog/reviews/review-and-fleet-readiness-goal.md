@@ -263,3 +263,27 @@ Whether upgrade reruns guest bootstrap is still unverified. Host, service and
 credential operations remain with the owner; no such mutation is authorized by
 this informational update. The delivery goal and both open backlog items remain
 incomplete.
+
+## 2026-11-06 request-credential bound follow-up
+
+Diagnostic [PR #13](https://github.com/tkstang/agent-ci/pull/13) merged as
+`c3d87280dc418ef7894b16f6ff058f023d58dc6a`. The approved optional-off
+[run 42279537227, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/42279537227/attempts/1)
+used that caller/reusable revision and exhausted its one-attempt, six-capture
+allowance. Every capture refused before HTTP with `E_INVALID_INPUT` and
+`request_credential_too_long`; zero artifacts were uploaded. The observed
+credential exceeded the former 4,096-character cap without exposing its value or
+actual length. This does not determine the exact cause of the earlier 22 failures
+or establish any OIDC claim qualification.
+
+The next narrow fix sets an independent 16,384-JavaScript-string-character
+request-credential cap, retaining a finite local bound with headroom. This is
+not a documented GitHub maximum or a compatibility guarantee. Request URL,
+response-body and returned-JWT limits, destination restrictions and secret
+suppression remain unchanged. The operator separately approved this fix's merge
+after independent review and hosted CI, followed by exactly one optional-off
+probe of at most six capture jobs, inspection and stop. This is a new bounded
+allowance; it does not renew the exhausted earlier probes or authorize reruns.
+No live run of this source, host operation or credential mutation has occurred.
+The remaining identity, artifact-encryption and integrated-acceptance gates stay
+open.
