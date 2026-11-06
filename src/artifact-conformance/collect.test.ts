@@ -160,6 +160,34 @@ describe('synthetic OIDC conformance capture', () => {
     }
   });
 
+  it.each([4097, 16384])(
+    'passes a synthetic %i-character request credential unchanged without persisting it',
+    async (length) => {
+      const { root, env } = await runtime();
+      const credential = 'x'.repeat(length);
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json({ value: token() }));
+      const result = await collectConformanceReport(
+        { ...env, ACTIONS_ID_TOKEN_REQUEST_TOKEN: credential },
+        request,
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('expected capture');
+      expect(request).toHaveBeenCalledOnce();
+      expect(request.mock.calls[0]?.[1]?.headers).toEqual({
+        Authorization: `Bearer ${credential}`,
+      });
+      expect(await readFile(result.value.reportPath, 'utf8')).not.toContain(
+        credential,
+      );
+      expect(await readFile(env.GITHUB_OUTPUT, 'utf8')).not.toContain(
+        credential,
+      );
+      expect(await readdir(root)).toHaveLength(2);
+    },
+  );
+
   it.each([
     { check_run_id: undefined },
     { check_run_id: '000303' },
@@ -242,7 +270,7 @@ describe('synthetic OIDC conformance capture', () => {
     ['ACTIONS_ID_TOKEN_REQUEST_TOKEN', '', 'request_credential_missing'],
     [
       'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
-      'x'.repeat(4097),
+      'x'.repeat(16385),
       'request_credential_too_long',
     ],
     [
@@ -391,7 +419,7 @@ describe('synthetic OIDC conformance capture', () => {
         'request_url_invalid',
       ],
       [
-        { ...env, ACTIONS_ID_TOKEN_REQUEST_TOKEN: REQUEST_SECRET.repeat(200) },
+        { ...env, ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'x'.repeat(16385) },
         'request_credential_too_long',
       ],
     ] as const) {
