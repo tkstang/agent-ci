@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { constants, generateKeyPairSync, sign } from 'node:crypto';
 import {
   mkdtemp,
   readFile,
@@ -22,6 +23,19 @@ const SHA = 'a'.repeat(40);
 const REF = 'synthetic/probe/.github/workflows/caller.yml@refs/heads/probe';
 const REQUEST_SECRET = 'synthetic-request-credential-do-not-export';
 const DISCARDED_SECRET = 'synthetic-discarded-credential-do-not-export';
+const SUBJECT = 'repo:tkstang@505/agent-ci@404:ref:refs/heads/probe';
+const JWKS_URL = 'https://token.actions.githubusercontent.com/.well-known/jwks';
+const KEYS = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const JWKS = {
+  keys: [
+    {
+      ...KEYS.publicKey.export({ format: 'jwk' }),
+      kid: 'synthetic',
+      alg: 'RS256',
+      use: 'sig',
+    },
+  ],
+};
 const CLAIMS = {
   iss: 'https://token.actions.githubusercontent.com',
   aud: 'urn:agent-ci:artifact-conformance:v1',
@@ -45,13 +59,30 @@ afterEach(async () => {
 });
 
 function token(changes: Record<string, unknown> = {}): string {
-  return [
-    Buffer.from('{"alg":"RS256","typ":"JWT"}').toString('base64url'),
-    Buffer.from(JSON.stringify({ ...CLAIMS, ...changes })).toString(
-      'base64url',
-    ),
-    Buffer.from('synthetic-not-a-signature').toString('base64url'),
-  ].join('.');
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(
+    '{"alg":"RS256","typ":"JWT","kid":"synthetic"}',
+  ).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({
+      ...CLAIMS,
+      sub: SUBJECT,
+      iat: now,
+      nbf: now,
+      exp: now + 300,
+      ...changes,
+    }),
+  ).toString('base64url');
+  const input = `${header}.${payload}`;
+  return `${input}.${sign('RSA-SHA256', Buffer.from(input), { key: KEYS.privateKey, padding: constants.RSA_PKCS1_PADDING }).toString('base64url')}`;
+}
+
+function oidcRequest(body: unknown) {
+  return vi
+    .fn<typeof fetch>()
+    .mockImplementation(async (url) =>
+      Response.json(String(url) === JWKS_URL ? JWKS : body),
+    );
 }
 
 async function runtime() {
@@ -77,6 +108,7 @@ async function runtime() {
       GITHUB_JOB: 'capture',
       GITHUB_WORKFLOW_REF: REF,
       GITHUB_WORKFLOW_SHA: SHA,
+      GITHUB_REF: 'refs/heads/probe',
       CONFORMANCE_SCOPE: 'scope-a',
       CONFORMANCE_ROLE: 'producer',
     },
@@ -87,23 +119,21 @@ describe('synthetic OIDC conformance capture', () => {
   it('persists only allowlisted diagnostics in private staging and exports distinct artifact selectors', async () => {
     const { root, env } = await runtime();
     const jwt = token({
-      sub: DISCARDED_SECRET,
       arbitrary_claim: DISCARDED_SECRET,
       nested: { credential: DISCARDED_SECRET },
     });
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        Response.json({ value: jwt, credential: DISCARDED_SECRET }),
-      );
+    const request = oidcRequest({ value: jwt, credential: DISCARDED_SECRET });
     const result = await collectConformanceReport(env, request);
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected capture');
     const text = await readFile(result.value.reportPath, 'utf8');
     expect(JSON.parse(text)).toEqual({
-      version: 1,
+      version: 2,
       diagnostic_only: true,
-      signature_verified: false,
+      signature_verified: true,
+      subject_policy_verified: true,
+      validity_verified: true,
+      subject_policy: 'immutable_repository_branch_v1',
       selectors_are_grants: false,
       selector: { scope: 'scope-a', role: 'producer' },
       context: { event_name: 'workflow_dispatch', job_id: 'capture' },
@@ -114,6 +144,7 @@ describe('synthetic OIDC conformance capture', () => {
       REQUEST_SECRET,
       DISCARDED_SECRET,
       env.ACTIONS_ID_TOKEN_REQUEST_URL,
+      SUBJECT,
     ])
       expect(text).not.toContain(secret);
     expect((await stat(result.value.reportPath)).mode & 0o777).toBe(0o600);
@@ -134,24 +165,59 @@ describe('synthetic OIDC conformance capture', () => {
       Authorization: `Bearer ${REQUEST_SECRET}`,
     });
     expect(call?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(request.mock.calls[1]?.[0]).toBe(JWKS_URL);
+    expect(request.mock.calls[1]?.[1]?.headers).toEqual({
+      accept: 'application/json',
+    });
+    expect(request.mock.calls[1]?.[1]?.credentials).toBe('omit');
     expect(await readdir(root)).toHaveLength(2);
   });
+
+  it.each([
+    ['tampered signature', {}, 'invalid_signature'],
+    [
+      'legacy subject',
+      { sub: 'repo:tkstang/agent-ci:ref:refs/heads/probe' },
+      'invalid_claims',
+    ],
+    ['custom subject', { sub: 'custom:synthetic' }, 'invalid_claims'],
+    ['expired token', { iat: 1, nbf: 1, exp: 301 }, 'invalid_claims'],
+    ['branch mismatch', {}, 'invalid_claims'],
+  ] as const)(
+    'never stages a report or publishes selectors for %s',
+    async (name, changes, reason) => {
+      const { root, env } = await runtime();
+      let jwt = token(changes);
+      if (name === 'tampered signature') {
+        const parts = jwt.split('.');
+        const signature = Buffer.from(parts[2]!, 'base64url');
+        signature[0] = signature[0]! ^ 1;
+        jwt = `${parts[0]}.${parts[1]}.${signature.toString('base64url')}`;
+      }
+      const request = oidcRequest({ value: jwt });
+      const result = await collectConformanceReport(
+        name === 'branch mismatch'
+          ? { ...env, GITHUB_REF: 'refs/heads/other' }
+          : env,
+        request,
+      );
+      expect(result).toEqual({ ok: false, code: 'E_OIDC_VERIFY', reason });
+      expect(request).toHaveBeenCalledTimes(name === 'branch mismatch' ? 1 : 2);
+      expect(await readdir(root)).toEqual(['github-output']);
+      expect(await readFile(env.GITHUB_OUTPUT, 'utf8')).toBe('');
+      expect(JSON.stringify(result)).not.toContain(jwt);
+    },
+  );
 
   it('keeps repeated scope/role captures separate using each check-run identity', async () => {
     const { env } = await runtime();
     const a = await collectConformanceReport(
       env,
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(Response.json({ value: token() })),
+      oidcRequest({ value: token() }),
     );
     const b = await collectConformanceReport(
       env,
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(
-          Response.json({ value: token({ check_run_id: '304' }) }),
-        ),
+      oidcRequest({ value: token({ check_run_id: '304' }) }),
     );
     expect(a.ok && b.ok).toBe(true);
     if (a.ok && b.ok) {
@@ -165,16 +231,14 @@ describe('synthetic OIDC conformance capture', () => {
     async (length) => {
       const { root, env } = await runtime();
       const credential = 'x'.repeat(length);
-      const request = vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(Response.json({ value: token() }));
+      const request = oidcRequest({ value: token() });
       const result = await collectConformanceReport(
         { ...env, ACTIONS_ID_TOKEN_REQUEST_TOKEN: credential },
         request,
       );
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error('expected capture');
-      expect(request).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenCalledTimes(2);
       expect(request.mock.calls[0]?.[1]?.headers).toEqual({
         Authorization: `Bearer ${credential}`,
       });
@@ -363,9 +427,7 @@ describe('synthetic OIDC conformance capture', () => {
     expect(thrown).toEqual({ ok: false, code: 'E_GITHUB_API' });
     const failed = await collectConformanceReport(
       { ...env, GITHUB_OUTPUT: root },
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(Response.json({ value: token() })),
+      oidcRequest({ value: token() }),
     );
     expect(failed).toEqual({ ok: false, code: 'E_OUTPUT_PATH' });
     expect(await readdir(root)).toEqual(['github-output']);
@@ -408,6 +470,13 @@ describe('synthetic OIDC conformance capture', () => {
       script,
       await readFile(
         fileURLToPath(new URL('./collect.ts', import.meta.url)),
+        'utf8',
+      ),
+    );
+    await writeFile(
+      path.join(root, 'verify.ts'),
+      await readFile(
+        fileURLToPath(new URL('./verify.ts', import.meta.url)),
         'utf8',
       ),
     );

@@ -2,7 +2,8 @@
 
 **Status:** proposed design, 2026-10-31. The operator selected isolated transport
 for full support. No broker, encryption, key, deployment or live qualification
-exists. Reviewed source baseline: `50d8e809eb843c164988ff0cdc076d14aa604174`.
+exists. This dated design is supplemented by the November 7 platform evidence
+below; the authenticated collector remains unqualified live. Reviewed source baseline: `50d8e809eb843c164988ff0cdc076d14aa604174`.
 
 Supports **BL-261025-fleet-repositories-merged — Fleet repositories: merged target
 lists and protected artifacts**. Operational status and authorization remain in
@@ -73,8 +74,22 @@ the CLI. A monorepo or second repository is not implied or authorized.
 
 GitHub documents signed `check_run_id` as the current job's check-run ID, and its
 live OIDC discovery advertises it. This corrects the earlier feasibility note's
-uncertainty about whether any per-job identity exists. No actual nested-job token
-has been minted in this investigation.
+uncertainty about whether any per-job identity exists. The initial investigation
+minted no nested-job tokens. Subsequent approved synthetic runs at
+`f8de84e84cc9c182f30ac3ca5fb223a33d128c7b` yielded six optional-off reports and
+eight optional-on reports in each of two complete attempts. Allowlisted
+`check_run_id` values matched canonical attempt-specific Jobs REST check-run URLs
+one-to-one, and the rerun used distinct job/check-run IDs with unchanged names.
+Those version-1 reports are decode-only: no signature was verified. They do not
+qualify broker authorization or production assignments.
+
+The November 7 preparation adds a signature/immutable-subject/time-verifying
+collector and a complete pinned-source recognizer for only the three synthetic
+workflows. Read-only repository settings confirmed the immutable-ID branch
+subject policy. Neither new code nor local tests authenticate the historical
+reports, and no live run of the new collector is authorized. See the
+[conformance runbook](../../../../docs/artifact-conformance.md) for the exact
+bounds, graph command and remaining live acceptance.
 
 Recommended candidate: signed check-run identity reconciled against broker-owned
 Jobs REST data and a pre-registered, pinned workflow graph. Exact job names are
@@ -371,9 +386,11 @@ The immediate next deliverable is a reviewed design and conformance packet.
 It is not evidence that production encryption or the model routes work live.
 
 The [synthetic conformance runbook](../../../../docs/artifact-conformance.md)
-describes the prepared manual-only probe, attempt-specific Jobs REST comparison
-and limits of decoded diagnostic claims. Preparation does not establish live
-platform binding, verify token signatures or prove complete-graph injectivity.
+describes the manual-only probe, attempt-specific Jobs REST comparison,
+authenticated version-2 capture and commit-pinned proof of the complete synthetic
+graph. Historical version-1 observations remain decode-only. Preparation does not
+establish live acceptance of the new collector, production assignment uniqueness
+or any broker/key-release authorization.
 
 ## Evidence
 

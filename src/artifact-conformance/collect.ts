@@ -1,12 +1,15 @@
 import { realpathSync } from 'node:fs';
 /**
- * Synthetic OIDC diagnostics only. Decoding a JWT is NOT signature verification
- * and this report confers no authority, grants or artifact-decryption access.
+ * Synthetic OIDC diagnostics only. Persisted v2 reports require signature,
+ * subject and time verification; they confer no grants or decryption access.
  * Keep this file stdlib-only so Node 24 can execute its TypeScript source.
  */
 import { appendFile, mkdtemp, open, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+import { verifyConformanceToken } from './verify.ts';
+import type { TokenVerificationResult } from './verify.ts';
 
 const AUDIENCE = 'urn:agent-ci:artifact-conformance:v1';
 const ISSUER = 'https://token.actions.githubusercontent.com';
@@ -53,6 +56,14 @@ type CaptureResult =
   | {
       readonly ok: false;
       readonly code: Exclude<FailureCode, 'E_INVALID_INPUT'>;
+    }
+  | {
+      readonly ok: false;
+      readonly code: 'E_OIDC_VERIFY';
+      readonly reason: Extract<
+        TokenVerificationResult,
+        { ok: false }
+      >['reason'];
     };
 
 function invalidInput(reason: PreflightReason): CaptureResult {
@@ -86,6 +97,17 @@ export interface ConformanceReport {
     readonly job_workflow_sha: string;
   };
 }
+
+export type AuthenticatedConformanceReport = Omit<
+  ConformanceReport,
+  'version' | 'signature_verified'
+> & {
+  readonly version: 2;
+  readonly signature_verified: true;
+  readonly subject_policy_verified: true;
+  readonly validity_verified: true;
+  readonly subject_policy: 'immutable_repository_branch_v1';
+};
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -261,8 +283,32 @@ export async function collectConformanceReport(
     const parsed: unknown = JSON.parse(body);
     if (!object(parsed) || typeof parsed.value !== 'string')
       return { ok: false, code };
-    const report = inspectConformanceClaims(parsed.value, env);
-    if (report === undefined) return { ok: false, code };
+    const inspected = inspectConformanceClaims(parsed.value, env);
+    if (inspected === undefined) return { ok: false, code };
+    const ref = env.GITHUB_REF;
+    if (
+      !match(ref, /^refs\/heads\/[A-Za-z0-9_./-]{1,200}$/u) ||
+      !inspected.claims.workflow_ref.endsWith(`@${ref}`)
+    )
+      return { ok: false, code: 'E_OIDC_VERIFY', reason: 'invalid_claims' };
+    // This probe supports only the repository's reviewed immutable-ID branch
+    // subject policy. No legacy/custom/environment-subject fallback or export.
+    const subject = `repo:tkstang@${inspected.claims.repository_owner_id}/agent-ci@${inspected.claims.repository_id}:ref:${ref}`;
+    const verified = await verifyConformanceToken(
+      parsed.value,
+      subject,
+      request,
+    );
+    if (!verified.ok)
+      return { ok: false, code: 'E_OIDC_VERIFY', reason: verified.reason };
+    const report: AuthenticatedConformanceReport = {
+      ...inspected,
+      version: 2,
+      signature_verified: true,
+      subject_policy_verified: true,
+      validity_verified: true,
+      subject_policy: 'immutable_repository_branch_v1',
+    };
     code = 'E_OUTPUT_PATH';
     stage = await mkdtemp(path.join(temp, 'agent-ci-oidc-'));
     const reportPath = path.join(stage, 'report.json');

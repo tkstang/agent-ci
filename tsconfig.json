@@ -20,6 +20,7 @@
 
     // --- ESM hygiene: keep `import type` honest, ensure single-file transpile safety ---
     "verbatimModuleSyntax": true,
+    "rewriteRelativeImportExtensions": true,
     "isolatedModules": true,
 
     // --- Checker config: this base config is type-check only (no emit). ---
