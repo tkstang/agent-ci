@@ -287,3 +287,32 @@ allowance; it does not renew the exhausted earlier probes or authorize reruns.
 No live run of this source, host operation or credential mutation has occurred.
 The remaining identity, artifact-encryption and integrated-acceptance gates stay
 open.
+
+
+## 2026-11-07 authenticated conformance preparation
+
+Request-bound [PR #14](https://github.com/tkstang/agent-ci/pull/14) merged as
+`f8de84e84cc9c182f30ac3ca5fb223a33d128c7b` after independent review and hosted
+verify/actionlint; the three label-gated self-tests were skipped. Its approved
+optional-off [run 42293959035, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/42293959035/attempts/1)
+yielded six reports. Separately approved optional-on
+[run 42296000371, attempt 1](https://github.com/tkstang/agent-ci/actions/runs/42296000371/attempts/1)
+and its [complete rerun, attempt 2](https://github.com/tkstang/agent-ci/actions/runs/42296000371/attempts/2)
+yielded eight reports each. Caller/reusable source matched the merged revision.
+Every report mapped one-to-one to an attempt-specific canonical check-run URL;
+the rerun preserved names/selectors/source with zero shared job/check-run IDs.
+Evidence remains in private local staging. These are version-1 decode-only
+observations, not authenticated identity or production qualification. Both
+bounded allowances are exhausted; no further probe is approved.
+
+The authorized next packet prepares RS256 signature, exact immutable-ID branch
+subject and time verification before any report/selector persistence, plus a
+commit-pinned complete-graph proof for the three synthetic workflows. Read-only
+repository OIDC settings confirmed the immutable subject policy. The constrained
+recognizer enumerates all eight assignments, including optional jobs, and binds
+source digests; it never qualifies a production graph or releases keys. See the
+[conformance runbook](../../../../../docs/artifact-conformance.md) for bounds and the proof command. This packet's merge and any live
+acceptance need new approval. No broker, key, deployment, host/service operation,
+credential mutation or production admission is performed. Packaging, hosting,
+key custody, production assignment proof, encryption and integrated acceptance
+remain open; the delivery goal and both remaining backlog items are incomplete.
