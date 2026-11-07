@@ -270,7 +270,15 @@ describe('synthetic conformance token authentication', () => {
       }),
       vi.fn<typeof fetch>(async () => new Response('{')),
       vi.fn<typeof fetch>(async () => new Response('{"keys":[],"keys":[]}')),
-      vi.fn<typeof fetch>(async () => new Response('x'.repeat(64 * 1024 + 1))),
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({
+              keys: [publicKey],
+              padding: 'x'.repeat(64 * 1024),
+            }),
+          ),
+      ),
       vi.fn<typeof fetch>(
         async () =>
           new Response('{}', { headers: { 'content-length': '65537' } }),

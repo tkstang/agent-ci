@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,8 +33,15 @@ async function repository() {
     }).trim();
   git(['init', '--quiet']);
   await mkdir(path.join(root, '.github/workflows'), { recursive: true });
-  for (const file of FILES)
-    await writeFile(path.join(root, file), await readFile(file));
+  for (const file of FILES) {
+    const bytes = await readFile(file);
+    await writeFile(
+      path.join(root, file),
+      file === ENTRY
+        ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), bytes])
+        : bytes,
+    );
+  }
   git(['add', '.github']);
   git([
     '-c',
@@ -58,8 +66,11 @@ function run(root: string, args: string[]) {
   });
 }
 
-it('proves the pinned commit despite a changed worktree and disabled Git replacement objects', async () => {
+it('preserves raw-byte digests from the pinned commit despite changed checkout and replacement objects', async () => {
   const { root, sha, git } = await repository();
+  const expectedDigest = createHash('sha256')
+    .update(await readFile(path.join(root, ENTRY)))
+    .digest('hex');
   await writeFile(path.join(root, ENTRY), 'untrusted-worktree-sentinel');
   git(['add', ENTRY]);
   git([
@@ -85,6 +96,10 @@ it('proves the pinned commit despite a changed worktree and disabled Git replace
     productionQualified: false,
   });
   expect(proof.assignments).toHaveLength(8);
+  expect(proof.workflowDigests[0]).toEqual({
+    path: ENTRY,
+    sha256: expectedDigest,
+  });
   expect(
     proof.workflowDigests.map((entry: { path: string }) => entry.path),
   ).toEqual(FILES);

@@ -28,7 +28,7 @@ try {
       '.github/workflows/agent-ci-artifact-conformance-leaf.yml',
     ].map((file) => [
       file,
-      new TextDecoder('utf-8', { fatal: true }).decode(
+      new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
         git(['show', `${revision}:${file}`]),
       ),
     ]),

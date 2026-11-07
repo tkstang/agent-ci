@@ -386,9 +386,11 @@ The immediate next deliverable is a reviewed design and conformance packet.
 It is not evidence that production encryption or the model routes work live.
 
 The [synthetic conformance runbook](../../../../docs/artifact-conformance.md)
-describes the prepared manual-only probe, attempt-specific Jobs REST comparison
-and limits of decoded diagnostic claims. Preparation does not establish live
-platform binding, verify token signatures or prove complete-graph injectivity.
+describes the manual-only probe, attempt-specific Jobs REST comparison,
+authenticated version-2 capture and commit-pinned proof of the complete synthetic
+graph. Historical version-1 observations remain decode-only. Preparation does not
+establish live acceptance of the new collector, production assignment uniqueness
+or any broker/key-release authorization.
 
 ## Evidence
 
