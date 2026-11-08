@@ -32,6 +32,7 @@ jobs:
           sparse-checkout: |
             package.json
             src/artifact-conformance/collect.ts
+            src/artifact-conformance/verify.ts
           sparse-checkout-cone-mode: false
 
       - name: Set up Node
