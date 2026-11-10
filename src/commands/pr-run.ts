@@ -3,6 +3,7 @@ import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  oneOf,
   optional,
   parseFlags,
   poolOptIn,
@@ -11,11 +12,16 @@ import {
 } from '@agent-ci/commands/flags.js';
 import { appendGithubOutput } from '@agent-ci/commands/github.js';
 import { runUrlFromEnv } from '@agent-ci/commands/publish.js';
+import { WORKFLOW_MODEL_SECRETS } from '@agent-ci/commands/route.js';
 import type { CommandContext, CommandSpec } from '@agent-ci/commands/types.js';
 import { CliError } from '@agent-ci/errors.js';
 import { DEFAULT_MODELS_PATH } from '@agent-ci/paths.js';
 import { resolvePrRun } from '@agent-ci/pr-run/gate.js';
 import { computePrMerge } from '@agent-ci/pr-run/merge.js';
+import {
+  parsePrRunModelProfiles,
+  selectPrRunModel,
+} from '@agent-ci/pr-run/profiles.js';
 import { buildPrRunTree, publishPrRun } from '@agent-ci/pr-run/publish.js';
 import {
   parsePrRunRequest,
@@ -29,6 +35,8 @@ import {
   GithubClient,
   GithubError,
 } from '@agent-ci/review/github.js';
+import { loadModelsFile, resolveRoute } from '@agent-ci/routing/resolve.js';
+import { HARNESS_IDS } from '@agent-ci/routing/schema.js';
 import { runAgent } from '@agent-ci/run/execute.js';
 
 const USAGE = `agent-ci pr-run <gate|execute|materialize|publish>
@@ -40,7 +48,10 @@ Tasks and review context travel in a digest-bound request artifact, never
 shell source or job outputs. Skills use the selected harness's native syntax.
 
 gate: --out <dir> [--comment-id <id>] [--allowed-pr-authors <lines>]
-      --model <key> --allowed-models <lines> [--github-output]
+      --model <key> --allowed-models <lines> [--model-profiles <yaml>]
+      [--harness <id>] [--route <id>] [--models <path>]
+      [--allow-pool-value <bool>] [--github-output]
+      Comments may select a configured --model-profile, not an exact model.
 execute: --request-dir <dir> --request-digest <hex> --cwd <checkout>
          --out <dir> --route <id> --home-root <dir> [--credential-from-env]
          [--timeout-minutes <n>] [--max-attempts <n>] [--allow-pool-value <bool>]
@@ -55,6 +66,9 @@ const FLAGS = {
   'comment-id': { type: 'string' },
   'allowed-pr-authors': { type: 'string' },
   model: { type: 'string' },
+  harness: { type: 'string' },
+  models: { type: 'string' },
+  'model-profiles': { type: 'string' },
   'allowed-models': { type: 'string' },
   'request-dir': { type: 'string' },
   'request-digest': { type: 'string' },
@@ -112,6 +126,7 @@ export const prRunCommand: CommandSpec = {
     if (!['gate', 'execute', 'materialize', 'publish'].includes(stage ?? ''))
       throw new CliError('E_INVALID_INPUT', USAGE);
     const flags = parseFlags(rest, FLAGS, USAGE);
+    const allowPool = poolOptIn(flags);
     const resolve = (value: string | undefined, flag: string) =>
       path.resolve(context.cwd, required(value, flag));
     if (stage === 'gate') {
@@ -119,11 +134,6 @@ export const prRunCommand: CommandSpec = {
       const allowed = required(flags['allowed-models'], '--allowed-models')
         .split(/[\s,]+/u)
         .filter(Boolean);
-      if (!allowed.includes(model))
-        throw new CliError(
-          'E_PR_RUN_REQUEST',
-          'the configured model is not allowed',
-        );
       const eventFile = required(
         context.env.GITHUB_EVENT_PATH,
         'GITHUB_EVENT_PATH',
@@ -151,6 +161,47 @@ export const prRunCommand: CommandSpec = {
           await appendGithubOutput(context.env, { status: 'ignored' });
         return result.value;
       }
+      const profiles = parsePrRunModelProfiles(flags['model-profiles']);
+      if (!profiles.ok) throw CliError.fromFailure(profiles);
+      const selection = selectPrRunModel({
+        defaultModel: {
+          model,
+          harness: oneOf(optional(flags.harness), '--harness', HARNESS_IDS),
+          route: optional(flags.route),
+        },
+        profiles: profiles.value,
+        requestedProfile: result.value.request.modelProfile,
+        allowedModels: allowed,
+      });
+      if (!selection.ok) throw CliError.fromFailure(selection);
+      const models = await loadModelsFile(
+        optional(flags.models) === undefined
+          ? DEFAULT_MODELS_PATH
+          : path.resolve(context.cwd, flags.models ?? ''),
+      );
+      if (!models.ok) throw CliError.fromFailure(models);
+      const resolved = resolveRoute(models.value, {
+        model: selection.value.model,
+        harness: selection.value.harness,
+        routeId: selection.value.route,
+        allowPool,
+        seedLogin: false,
+        requireCredentials: false,
+        env: context.env,
+      });
+      if (!resolved.ok) throw CliError.fromFailure(resolved);
+      const { route } = resolved.value;
+      if (
+        route.credentials.length > 1 ||
+        route.credentials.some(
+          (credential) =>
+            !(WORKFLOW_MODEL_SECRETS as readonly string[]).includes(credential),
+        )
+      )
+        throw new CliError(
+          'E_ROUTE_CONFIG',
+          'a PR run route must name at most one workflow-supported credential',
+        );
       const dir = resolve(flags.out, '--out');
       await mkdir(dir, { recursive: true });
       await writeFile(
@@ -186,11 +237,18 @@ export const prRunCommand: CommandSpec = {
           base_sha: request.baseSha,
           pr_number: String(request.prNumber),
           repository: request.repository,
+          model: route.model,
+          harness: route.harness,
+          route_id: route.id,
+          account: route.account,
+          credential: route.credentials[0] ?? '',
         });
       return {
         status: 'ready',
         prNumber: request.prNumber,
         headSha: request.headSha,
+        model: route.model,
+        routeId: route.id,
       };
     }
     const request = await readRequest(
@@ -245,7 +303,7 @@ export const prRunCommand: CommandSpec = {
         outputContract: 'changes',
         useCase: 'pr-comment',
         targetRepo: request.repository,
-        allowPool: poolOptIn(flags),
+        allowPool,
         seedLogin: false,
         homeRoot: resolve(flags['home-root'], '--home-root'),
         timeoutMs:

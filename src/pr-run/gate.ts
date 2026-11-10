@@ -11,6 +11,7 @@ import {
   readPullRequest,
 } from '@agent-ci/review/trigger.js';
 
+import { parsePrRunCommand } from './command.js';
 import { readPrBranchTip } from './refs.js';
 import {
   parsePrRunRequest,
@@ -293,6 +294,10 @@ async function resolve(
       'the PR head must not be its base or the repository default branch',
     );
 
+  const parsedCommand = parsePrRunCommand(body);
+  if (!parsedCommand.ok) return parsedCommand;
+  if (parsedCommand.value === null) return ignored('not-a-command');
+
   const [head, base] = await Promise.all([
     readPrBranchTip(github, repository, headRef),
     readPrBranchTip(github, repository, pr.baseRef),
@@ -316,7 +321,7 @@ async function resolve(
     headRef,
     baseSha: base.value,
     baseRef: pr.baseRef,
-    prompt,
+    ...parsedCommand.value,
     context: observations,
     prUrl: field(rawPr, 'html_url'),
   });

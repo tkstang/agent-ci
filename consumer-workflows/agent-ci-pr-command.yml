@@ -31,6 +31,11 @@ jobs:
       comment_id: ${{ inputs.comment_id || '' }}
       model: claude-haiku-5-5
       allowed_models: claude-haiku-5-5
+      # Optional aliases are configured here; comments select only these mappings.
+      model_profiles: |
+        balance:
+          model: claude-haiku-5-5
+          harness: claude
       # Set the directory containing <skill-name>/SKILL.md in the PR checkout.
       # skills_source: .github/agent-ci/skills
       setup_command: pnpm install --frozen-lockfile

@@ -18,7 +18,8 @@ summary on that PR and does not open another pull request.
    its `uses:` ref with a reviewed agent-ci commit SHA or released version,
    then merge the caller into the repository's default branch.
 2. Configure `model` and `allowed_models`, and pass only the credential
-   that model's route needs. A comment cannot choose a different model.
+   the configured routes need. Optional `model_profiles` let comments choose
+   among caller-defined mappings; they cannot supply arbitrary routes or credentials.
    See [Configuration and credentials](configuration.md).
 3. Set `setup_command` if the agent needs dependency preparation. It runs
    in a separate job and must leave tracked files unchanged. Ignored
@@ -76,6 +77,64 @@ discussion, submitted reviews and inline review comments. This context is
 bounded and supplied as untrusted observations. The REST comment listing
 includes both resolved and unresolved feedback; it does not identify thread
 resolution state. The command does not automatically resolve review threads.
+
+## Choose a model profile
+
+Agent-ci defines the profile configuration and resolves it. Each consumer
+passes its required default `model` and optional `model_profiles` YAML to
+`pr-agent.yml`. The supported profile names are `cost`, `balance` and
+`intelligence`. Each configured profile requires `model` and may pin
+`harness` or `route` using agent-ci's existing routing table.
+
+For example, a consumer using Sol 6.1 High through Codex can configure:
+
+```yaml
+with:
+  model: gpt-6.1-sol-high
+  harness: codex
+  allowed_models: gpt-6.1-sol-high
+  model_profiles: |
+    balance:
+      model: gpt-6.1-sol-high
+      harness: codex
+  allow_pool: true
+secrets:
+  AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
+  AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
+```
+
+This route uses the subscription proxy pool. On a hosted runner, the proxy
+base URL must be a reachable HTTPS endpoint. See
+[Configuration and credentials](configuration.md) for pool access and secret
+setup. Add the required `check_command` and other consumer settings as
+shown above.
+
+Select a profile at the start of the task:
+
+```text
+/agent-ci --model-profile=balance resolve review comments
+```
+
+`--model-profile balance` also works. Without the option, agent-ci uses the
+required default `model`, `harness` and `route`. A profile supplies a complete
+selection and does not inherit the default harness or route. Every configured
+model, including the default, must appear in `allowed_models`. Unknown config
+fields, unsupported names and requests for unconfigured profiles fail before
+agent execution. There is no automatic fallback between profiles, and the
+names do not imply a provider or an automatic model router.
+
+Options must precede the prompt. Once the prompt begins, text such as
+`--model-profile=cost` stays part of the prompt. Use `--` to start a prompt
+with a literal option. Direct `--model` selection is reserved for a future
+version and is currently rejected as a leading option.
+
+Native skill invocations remain in the task text:
+
+```text
+/agent-ci --model-profile=balance use $fix-ci and then $address-feedback
+```
+
+Use the skill syntax supported by the selected harness, as described below.
 
 ## Use repository skills
 

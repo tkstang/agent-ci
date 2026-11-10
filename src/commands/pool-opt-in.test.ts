@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
  */
 export const RESOLVING_SUBCOMMANDS: readonly (readonly string[])[] = [
   ['route', '--model', 'fake-echo'],
+  ['pr-run', 'gate'],
   ['run', '--model', 'fake-echo', '--prompt', 'x'],
   ['review', 'gate'],
   ['review', 'pass', '--pass', 'primary'],

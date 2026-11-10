@@ -111,6 +111,27 @@ describe('PR command workflow authority and transport', () => {
     }
   });
 
+  it('passes caller profile config to the authorized gate before credential selection', async () => {
+    const { jobs, on } = await load('.github/workflows/pr-agent.yml');
+    const inputs = (on.workflow_call as { inputs: Record<string, unknown> })
+      .inputs;
+    expect(inputs.model).toMatchObject({ required: true });
+    expect(inputs.model_profiles).toMatchObject({
+      type: 'string',
+      default: '',
+    });
+    const gate = step(jobs.gate ?? {}, 'Authorize the PR command');
+    expect(gate.env?.MODEL_PROFILES).toBe('${{ inputs.model_profiles }}');
+    expect(gate.env?.MODEL).toBe('${{ inputs.model }}');
+    expect(gate.run).toContain('--model-profiles "$MODEL_PROFILES"');
+    expect(jobs.gate?.outputs?.route_id).toBe(
+      '${{ steps.gate.outputs.route_id }}',
+    );
+    expect(jobs.gate?.outputs?.credential).toBe(
+      '${{ steps.gate.outputs.credential }}',
+    );
+  });
+
   it('moves task context by exact artifact ID and binds every reader to its digest', async () => {
     const { jobs } = await load('.github/workflows/pr-agent.yml');
     expect(JSON.stringify(jobs.gate?.outputs)).not.toMatch(/prompt|context/u);
@@ -158,7 +179,7 @@ describe('PR command workflow authority and transport', () => {
 
   it('keeps publishing credentials out of every repository-executing job', async () => {
     const { jobs } = await load('.github/workflows/pr-agent.yml');
-    const gateRoute = step(jobs.gate ?? {}, 'Resolve the route');
+    const gateRoute = step(jobs.gate ?? {}, 'Authorize the PR command');
     expect(gateRoute.env?.AGENT_CI_PROXY_BASE_URL).toBe(
       '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
     );

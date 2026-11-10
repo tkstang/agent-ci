@@ -3,6 +3,8 @@ import { isRepository, isUserLogin } from '@agent-ci/review/contracts.js';
 import { isBranchName } from '@agent-ci/review/trigger.js';
 import { z } from 'zod';
 
+import { MODEL_PROFILE_NAMES } from './command.js';
+
 export const PR_RUN_PROMPT_BYTES = 16 * 1024;
 export const PR_RUN_CONTEXT_BYTES = 64 * 1024;
 
@@ -27,6 +29,7 @@ export const PrRunRequestSchema = z
     headRef: z.string().refine(isBranchName, 'invalid head branch'),
     baseSha: z.string().regex(/^[0-9a-f]{40}$/u),
     baseRef: z.string().refine(isBranchName, 'invalid base branch'),
+    modelProfile: z.enum(MODEL_PROFILE_NAMES).optional(),
     prompt: text(PR_RUN_PROMPT_BYTES).refine(
       (value) => value.trim() !== '',
       'empty task',

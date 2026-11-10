@@ -10,9 +10,13 @@ on:
         type: string
         default: ''
       model:
-        description: Trusted configured model; comments cannot override it.
+        description: Required default model key when no profile is requested.
         type: string
         required: true
+      model_profiles:
+        description: Optional YAML mapping of cost, balance and intelligence to model, harness and route selections.
+        type: string
+        default: ''
       harness:
         type: string
         default: ''
@@ -113,9 +117,9 @@ jobs:
       head_ref: ${{ steps.gate.outputs.head_ref }}
       base_sha: ${{ steps.gate.outputs.base_sha }}
       pr_number: ${{ steps.gate.outputs.pr_number }}
-      route_id: ${{ steps.route.outputs.route_id }}
-      credential: ${{ steps.route.outputs.credential }}
-      account: ${{ steps.route.outputs.account }}
+      route_id: ${{ steps.gate.outputs.route_id }}
+      credential: ${{ steps.gate.outputs.credential }}
+      account: ${{ steps.gate.outputs.account }}
     steps:
       - name: Check out the agent-ci helpers
         uses: actions/checkout@v5
@@ -128,26 +132,24 @@ jobs:
         uses: ./.agent-ci-src/.github/actions/setup-agent-ci
         with:
           path: .agent-ci-src
-      - name: Resolve the route
-        id: route
-        env:
-          MODEL: ${{ inputs.model }}
-          HARNESS: ${{ inputs.harness }}
-          ROUTE: ${{ inputs.route }}
-          ALLOW_POOL: ${{ inputs.allow_pool }}
-          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
-        run: agent-ci route --model "$MODEL" --harness "$HARNESS" --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
       - name: Authorize the PR command
         id: gate
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COMMENT_ID: ${{ inputs.comment_id }}
-          MODEL: ${{ steps.route.outputs.model }}
+          MODEL: ${{ inputs.model }}
+          MODEL_PROFILES: ${{ inputs.model_profiles }}
+          HARNESS: ${{ inputs.harness }}
+          ROUTE: ${{ inputs.route }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
           ALLOWED_MODELS: ${{ inputs.allowed_models }}
           ALLOWED_PR_AUTHORS: ${{ inputs.allowed_pr_authors }}
         run: >-
           agent-ci pr-run gate --comment-id "$COMMENT_ID" --model "$MODEL"
-          --allowed-models "$ALLOWED_MODELS" --allowed-pr-authors "$ALLOWED_PR_AUTHORS"
+          --model-profiles "$MODEL_PROFILES" --harness "$HARNESS" --route "$ROUTE"
+          --allow-pool-value "$ALLOW_POOL" --allowed-models "$ALLOWED_MODELS"
+          --allowed-pr-authors "$ALLOWED_PR_AUTHORS"
           --out "$RUNNER_TEMP/agent-ci-request" --github-output
       - name: Upload the request
         id: upload
