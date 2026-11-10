@@ -65,7 +65,8 @@ bot authors need an exact `allowed_pr_authors` entry. The workflow refuses
 to write a head branch that is the repository's default branch or the PR's
 base branch. Fork PRs never reach the model credential.
 
-The gate captures the PR's head and base commits and fetches its description,
+The gate pins the actual head and base branch refs rather than cached commit
+SHAs in PR metadata, then fetches its description,
 discussion, submitted reviews and inline review comments. This context is
 bounded and supplied as untrusted observations. The REST comment listing
 includes both resolved and unresolved feedback; it does not identify thread

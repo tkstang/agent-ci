@@ -11,6 +11,7 @@ import {
   readPullRequest,
 } from '@agent-ci/review/trigger.js';
 
+import { readPrBranchTip } from './refs.js';
 import {
   parsePrRunRequest,
   PR_RUN_CONTEXT_BYTES,
@@ -292,6 +293,12 @@ async function resolve(
       'the PR head must not be its base or the repository default branch',
     );
 
+  const [head, base] = await Promise.all([
+    readPrBranchTip(github, repository, headRef),
+    readPrBranchTip(github, repository, pr.baseRef),
+  ]);
+  if (!head.ok) return head;
+  if (!base.ok) return base;
   const observations = await context(
     github,
     repository,
@@ -305,9 +312,9 @@ async function resolve(
     prNumber,
     commentId,
     actor,
-    headSha: pr.headSha,
+    headSha: head.value,
     headRef,
-    baseSha: pr.baseSha,
+    baseSha: base.value,
     baseRef: pr.baseRef,
     prompt,
     context: observations,

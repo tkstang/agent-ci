@@ -47,6 +47,15 @@ function setup(body = '/agent-ci fix the build') {
       body: { permission: 'maintain' },
     })
     .on('GET', `${API}/pulls/7`, { body: pull })
+    .on('GET', `${API}/git/ref/heads/feature/fix`, {
+      body: {
+        ref: 'refs/heads/feature/fix',
+        object: { type: 'commit', sha: HEAD },
+      },
+    })
+    .on('GET', `${API}/git/ref/heads/main`, {
+      body: { ref: 'refs/heads/main', object: { type: 'commit', sha: BASE } },
+    })
     .on('GET', API, { body: { default_branch: 'main' } })
     .on('GET', `${API}/issues/7/comments`, { body: [] })
     .on('GET', `${API}/pulls/7/reviews`, { body: [] })
@@ -62,6 +71,95 @@ function setup(body = '/agent-ci fix the build') {
 }
 
 describe('resolvePrRun', () => {
+  it.each([
+    ['base', 'main', 'baseSha'],
+    ['head', 'feature/fix', 'headSha'],
+  ])(
+    'pins the current %s branch tip when PR metadata is stale',
+    async (_side, branch, field) => {
+      const { input, github } = setup();
+      const current = 'c'.repeat(40);
+      github.on('GET', `${API}/git/ref/heads/${branch}`, {
+        body: {
+          ref: `refs/heads/${branch}`,
+          object: { type: 'commit', sha: current },
+        },
+      });
+      expect(await resolvePrRun(input)).toMatchObject({
+        ok: true,
+        value: { status: 'ready', request: { [field]: current } },
+      });
+    },
+  );
+
+  it.each([
+    [
+      'another branch',
+      { ref: 'refs/heads/other', object: { type: 'commit', sha: BASE } },
+    ],
+    [
+      'a tag object',
+      { ref: 'refs/heads/main', object: { type: 'tag', sha: BASE } },
+    ],
+    [
+      'an invalid SHA',
+      { ref: 'refs/heads/main', object: { type: 'commit', sha: 'invalid' } },
+    ],
+    ['missing object metadata', { ref: 'refs/heads/main' }],
+    ['a list instead of an exact ref', []],
+  ])(
+    'fails closed when the actual ref response contains %s',
+    async (_name, body) => {
+      const { input, github } = setup();
+      github.on('GET', `${API}/git/ref/heads/main`, { body });
+      expect(await resolvePrRun(input)).toMatchObject({
+        ok: false,
+        code: 'E_GITHUB_API',
+      });
+      expect(
+        github.requests.some((request) =>
+          request.path.includes('/pulls/7/comments'),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each(['main', 'feature/fix'])(
+    'fails closed when the actual %s branch is missing',
+    async (branch) => {
+      const { input, github } = setup();
+      github.on('GET', `${API}/git/ref/heads/${branch}`, { status: 404 });
+      expect(await resolvePrRun(input)).toMatchObject({
+        ok: false,
+        code: 'E_GITHUB_API',
+      });
+    },
+  );
+
+  it('encodes branch path segments without changing the pinned ref name', async () => {
+    const { input, github, pull } = setup();
+    const branch = 'feature/日本語+cache#next';
+    const current = 'c'.repeat(40);
+    pull.head = { sha: HEAD, ref: branch, repo: { full_name: REPOSITORY } };
+    github.on(
+      'GET',
+      `${API}/git/ref/heads/feature/%E6%97%A5%E6%9C%AC%E8%AA%9E%2Bcache%23next`,
+      {
+        body: {
+          ref: `refs/heads/${branch}`,
+          object: { type: 'commit', sha: current },
+        },
+      },
+    );
+    expect(await resolvePrRun(input)).toMatchObject({
+      ok: true,
+      value: {
+        status: 'ready',
+        request: { headRef: branch, headSha: current },
+      },
+    });
+  });
+
   it('targets the fetched head of an open draft PR and preserves native skill and PHP text', async () => {
     const { input, github } = setup(
       '/agent-ci use $fix-ci and then $address-feedback; preserve PHP $response\n/another-skill',

@@ -1,3 +1,8 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import {
   agentJob,
   load,
@@ -8,6 +13,73 @@ import {
 import { describe, expect, it } from 'vitest';
 
 describe('PR command workflow authority and transport', () => {
+  it('rejects a published single-parent fix that leaves the actual base outside its history', async () => {
+    const selftest = await load('.github/workflows/agent-ci-selftest.yml');
+    const assertion = step(
+      selftest.jobs['pr-command-assert'] ?? {},
+      'Assert published history',
+    );
+    expect(assertion.run).toBeTypeOf('string');
+    const cwd = mkdtempSync(path.join(os.tmpdir(), 'agent-ci-history-proof-'));
+    const git = (...args: string[]) =>
+      execFileSync(
+        'git',
+        ['-c', 'user.name=test', '-c', 'user.email=test@example.com', ...args],
+        { cwd, stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+        .toString()
+        .trim();
+    git('init', '-q', '-b', 'main');
+    writeFileSync(path.join(cwd, 'file.txt'), 'initial\n');
+    git('add', '.');
+    git('commit', '-qm', 'test: initial');
+    git('checkout', '-qb', 'topic');
+    writeFileSync(path.join(cwd, 'file.txt'), 'feature\n');
+    git('commit', '-qam', 'test: feature');
+    const head = git('rev-parse', 'HEAD');
+    git('checkout', '-q', 'main');
+    writeFileSync(path.join(cwd, 'file.txt'), 'base\n');
+    git('commit', '-qam', 'test: base');
+    const base = git('rev-parse', 'HEAD');
+    const tree = git('rev-parse', `${head}^{tree}`);
+    const singleParent = git(
+      'commit-tree',
+      tree,
+      '-p',
+      head,
+      '-m',
+      'fix: incomplete ancestry',
+    );
+    const merged = git(
+      'commit-tree',
+      tree,
+      '-p',
+      head,
+      '-p',
+      base,
+      '-m',
+      'fix: preserve base ancestry',
+    );
+    const execute = (final: string) =>
+      execFileSync(
+        'bash',
+        ['-eu', '-o', 'pipefail', '-c', assertion.run ?? ''],
+        {
+          cwd,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            ...process.env,
+            FINAL_SHA: final,
+            ORIGINAL_HEAD_SHA: head,
+            BASE_SHA: base,
+            CHANGED: 'true',
+            REAL_MODEL: 'false',
+          },
+        },
+      );
+    expect(() => execute(singleParent)).toThrow();
+    expect(() => execute(merged)).not.toThrow();
+  });
   it('passes one route-selected credential to the read-only agent boundary', async () => {
     const { jobs, on } = await load('.github/workflows/pr-agent.yml');
     expect(Object.keys(on)).toEqual(['workflow_call']);

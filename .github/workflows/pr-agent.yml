@@ -82,6 +82,12 @@ on:
         value: ${{ jobs.publish.outputs.commit }}
       pr_url:
         value: ${{ jobs.publish.outputs.pr_url }}
+      head_sha:
+        description: Actual PR head branch tip captured by the gate.
+        value: ${{ jobs.gate.outputs.head_sha }}
+      base_sha:
+        description: Actual base branch tip captured by the gate.
+        value: ${{ jobs.gate.outputs.base_sha }}
 
 permissions:
   contents: read
@@ -105,6 +111,7 @@ jobs:
       repository: ${{ steps.gate.outputs.repository }}
       head_sha: ${{ steps.gate.outputs.head_sha }}
       head_ref: ${{ steps.gate.outputs.head_ref }}
+      base_sha: ${{ steps.gate.outputs.base_sha }}
       pr_number: ${{ steps.gate.outputs.pr_number }}
       route_id: ${{ steps.route.outputs.route_id }}
       credential: ${{ steps.route.outputs.credential }}

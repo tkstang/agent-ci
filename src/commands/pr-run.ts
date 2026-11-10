@@ -161,6 +161,7 @@ export const prRunCommand: CommandSpec = {
           request_digest: digest.value,
           head_sha: request.headSha,
           head_ref: request.headRef,
+          base_sha: request.baseSha,
           pr_number: String(request.prNumber),
           repository: request.repository,
         });

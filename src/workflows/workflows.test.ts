@@ -584,7 +584,7 @@ describe('agent-ci-selftest.yml', () => {
     expect(fake.with?.publish_pr).toBe(true);
     expect(fake.secrets).toBeUndefined();
     for (const [name, job] of Object.entries(workflow.jobs)) {
-      if (name === 'pr-command') continue;
+      if (name === 'pr-command' || name === 'pr-command-assert') continue;
       expect(job.if).toContain(
         'github.event.pull_request.head.repo.full_name == github.repository',
       );

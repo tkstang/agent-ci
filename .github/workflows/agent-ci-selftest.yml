@@ -119,3 +119,50 @@ jobs:
       timeout_minutes: 10
     secrets:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+
+  pr-command-assert:
+    name: Assert the published consumer result
+    needs: pr-command
+    if: github.event_name == 'workflow_dispatch' && inputs.comment_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the published result
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert published history
+        env:
+          FINAL_SHA: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
+          ORIGINAL_HEAD_SHA: ${{ needs.pr-command.outputs.head_sha }}
+          BASE_SHA: ${{ needs.pr-command.outputs.base_sha }}
+          CHANGED: ${{ needs.pr-command.outputs.status == 'changed' }}
+        run: |
+          [[ "$FINAL_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ORIGINAL_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [ "$CHANGED" = true ]; then
+            test "$(git rev-parse "$FINAL_SHA^1")" = "$ORIGINAL_HEAD_SHA"
+          fi
+          git merge-base --is-ancestor "$BASE_SHA" "$FINAL_SHA"
+      - name: Assert published content
+        if: inputs.command_model == 'grok-4.7'
+        env:
+          FINAL_SHA: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          const read = (file) => execFileSync('git', ['show', `${process.env.FINAL_SHA}:${file}`], { encoding: 'utf8' });
+          assert.match(read('agent-ci-command-fixture.mjs'), /return 42;/);
+          const conflict = read('agent-ci-command-conflict.txt');
+          assert.match(conflict, /base wording/);
+          assert.match(conflict, /feature wording/);
+          assert.doesNotMatch(conflict, /^(<<<<<<<|=======|>>>>>>>)/m);
+          assert.equal(read('agent-ci-command-base-only.txt'), 'base addition\n');
+          assert.equal(read('agent-ci-skill-order.txt'), 'first\nsecond\n');
+          JS

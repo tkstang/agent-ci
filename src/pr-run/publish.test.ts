@@ -84,6 +84,8 @@ async function fixture(conflict = false) {
   const state = {
     headSha,
     baseSha,
+    headMetadataSha: headSha,
+    baseMetadataSha: baseSha,
     open: true,
     fork: false,
     permission: 'write',
@@ -96,15 +98,31 @@ async function fixture(conflict = false) {
         number: 1,
         state: state.open ? 'open' : 'closed',
         head: {
-          sha: state.headSha,
+          sha: state.headMetadataSha,
           ref: 'topic',
           repo: { full_name: state.fork ? 'other/repo' : 'owner/repo' },
         },
         base: {
-          sha: state.baseSha,
+          sha: state.baseMetadataSha,
           ref: 'main',
           repo: { full_name: 'owner/repo' },
         },
+      };
+    } else if (
+      call.method === 'GET' &&
+      call.path === '/repos/owner/repo/git/ref/heads/topic'
+    ) {
+      body = {
+        ref: 'refs/heads/topic',
+        object: { type: 'commit', sha: state.headSha },
+      };
+    } else if (
+      call.method === 'GET' &&
+      call.path === '/repos/owner/repo/git/ref/heads/main'
+    ) {
+      body = {
+        ref: 'refs/heads/main',
+        object: { type: 'commit', sha: state.baseSha },
       };
     } else if (call.method === 'GET' && call.path === '/repos/owner/repo') {
       body = { default_branch: 'main' };
@@ -226,6 +244,81 @@ describe('PR head publishing', () => {
     expect(git(f.remote, 'rev-parse', `${commit}^{tree}`)).toBe(
       verified.value.tree,
     );
+  });
+
+  it.each(['head', 'base'] as const)(
+    'publishes both merge parents when PR %s metadata is cached behind the actual branch ref',
+    async (metadata) => {
+      const f = await fixture(true);
+      if (metadata === 'head') f.state.headMetadataSha = f.initial;
+      else f.state.baseMetadataSha = f.initial;
+      const published = await publishPrRun({
+        git: f.runner,
+        github: f.github,
+        request: f.request,
+        outputs: f.outputs(),
+      });
+      expect(published).toMatchObject({
+        ok: true,
+        value: { status: 'changed' },
+      });
+      if (!published.ok || published.value.commit === null) return;
+      const commit = published.value.commit;
+      expect(git(f.remote, 'show', '-s', '--format=%P', commit)).toBe(
+        `${f.request.headSha} ${f.request.baseSha}`,
+      );
+      expect(git(f.remote, 'show', `${commit}:base-only.txt`)).toBe(
+        'preserved base update',
+      );
+    },
+  );
+
+  it('refuses an actual base ref change even while PR metadata still matches the pinned base', async () => {
+    const f = await fixture(true);
+    git(f.seed, 'checkout', '-q', 'main');
+    git(f.seed, 'commit', '--allow-empty', '-qm', 'base advanced after gate');
+    git(f.seed, 'push', '-q', 'origin', 'main');
+    f.state.baseSha = git(f.seed, 'rev-parse', 'HEAD');
+    const published = await publishPrRun({
+      git: f.runner,
+      github: f.github,
+      request: f.request,
+      outputs: f.outputs(),
+    });
+    expect(published).toMatchObject({ ok: false, code: 'E_PR_RUN_STALE_HEAD' });
+    expect(git(f.remote, 'rev-parse', 'refs/heads/topic')).toBe(
+      f.request.headSha,
+    );
+    expect(f.comments).toHaveLength(0);
+  });
+
+  it('corroborates the base branch on the remote immediately before pushing', async () => {
+    const f = await fixture(true);
+    const moved: GitRunner = async (args, options) => {
+      if (args[0] === 'ls-remote') {
+        git(f.seed, 'checkout', '-q', 'main');
+        git(
+          f.seed,
+          'commit',
+          '--allow-empty',
+          '-qm',
+          'base advanced before push',
+        );
+        git(f.seed, 'push', '-q', 'origin', 'main');
+      }
+      return f.runner(args, options);
+    };
+    const published = await publishPrRun({
+      git: moved,
+      github: f.github,
+      request: f.request,
+      outputs: f.outputs(),
+    });
+    expect(published).toMatchObject({ ok: false, code: 'E_PR_RUN_STALE_HEAD' });
+    expect(git(f.remote, 'rev-parse', 'refs/heads/topic')).toBe(
+      f.request.headSha,
+    );
+    expect(f.comments).toHaveLength(0);
   });
 
   it('refuses an unresolved merge before verification or publication', async () => {

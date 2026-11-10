@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { computePrMerge, type PrMerge } from '@agent-ci/pr-run/merge.js';
+import { readPrBranchTip } from '@agent-ci/pr-run/refs.js';
 import {
   parsePrRunRequest,
   type PrRunRequest,
@@ -223,13 +224,31 @@ async function checkCurrentPull(
     field(field(head, 'repo'), 'full_name') !== request.repository ||
     field(field(base, 'repo'), 'full_name') !== request.repository ||
     field(head, 'ref') !== request.headRef ||
-    field(base, 'ref') !== request.baseRef ||
-    field(head, 'sha') !== request.headSha ||
-    field(base, 'sha') !== request.baseSha
+    field(base, 'ref') !== request.baseRef
   ) {
     return failure(
       'E_PR_RUN_STALE_HEAD',
       'the pull request changed after this task started; nothing was pushed',
+    );
+  }
+  // Pull-request metadata can retain older head/base SHAs. The branch refs
+  // are the authority for what the gate pinned and what may be published.
+  const headTip = await readPrBranchTip(
+    github,
+    request.repository,
+    request.headRef,
+  );
+  if (!headTip.ok) return headTip;
+  const baseTip = await readPrBranchTip(
+    github,
+    request.repository,
+    request.baseRef,
+  );
+  if (!baseTip.ok) return baseTip;
+  if (headTip.value !== request.headSha || baseTip.value !== request.baseSha) {
+    return failure(
+      'E_PR_RUN_STALE_HEAD',
+      'a pull request branch changed after this task started; nothing was pushed',
     );
   }
   const metadata = await github.json({
@@ -367,14 +386,26 @@ export async function publishPrRun(
     const rechecked = await checkCurrentPull(options);
     if (!rechecked.ok) return rechecked;
     const ref = `refs/heads/${request.headRef}`;
-    const remote = await git(['ls-remote', '--heads', 'origin', ref]);
+    const baseRef = `refs/heads/${request.baseRef}`;
+    const remote = await git(['ls-remote', '--heads', 'origin', ref, baseRef]);
+    const tips = new Map(
+      remote.stdout
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const [sha = '', name = ''] = line.split('\t');
+          return [name, sha];
+        }),
+    );
     if (
       remote.code !== 0 ||
-      remote.stdout.trim() !== `${request.headSha}\t${ref}`
+      tips.size !== 2 ||
+      tips.get(ref) !== request.headSha ||
+      tips.get(baseRef) !== request.baseSha
     ) {
       return failure(
         'E_PR_RUN_STALE_HEAD',
-        'PR branch moved before publication',
+        'a PR branch moved before publication',
       );
     }
     const pushed = await git([
