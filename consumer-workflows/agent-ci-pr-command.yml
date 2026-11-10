@@ -26,11 +26,16 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: tkstang/agent-ci/.github/workflows/pr-agent.yml@e19032f689249f5cfbd80f258c03fac555fb38d1
+    uses: tkstang/agent-ci/.github/workflows/pr-agent.yml@14527476012e7178a515cb2dba3ff3f5d6726adc
     with:
       comment_id: ${{ inputs.comment_id || '' }}
       model: claude-haiku-5-5
       allowed_models: claude-haiku-5-5
+      # Optional aliases are configured here; comments select only these mappings.
+      model_profiles: |
+        balance:
+          model: claude-haiku-5-5
+          harness: claude
       # Set the directory containing <skill-name>/SKILL.md in the PR checkout.
       # skills_source: .github/agent-ci/skills
       setup_command: pnpm install --frozen-lockfile

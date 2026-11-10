@@ -110,6 +110,10 @@ jobs:
       model: ${{ inputs.command_model || 'fake-edit' }}
       harness: ${{ inputs.command_model == 'grok-4.7' && 'cursor' || 'fake' }}
       allowed_models: fake-edit,grok-4.7
+      model_profiles: |
+        balance:
+          model: ${{ inputs.command_model || 'fake-edit' }}
+          harness: ${{ inputs.command_model == 'grok-4.7' && 'cursor' || 'fake' }}
       # Live skills are supplied only on the disposable test PR's head ref.
       skills_source: .github/agent-ci/test-skills
       check_command: >-

@@ -186,6 +186,42 @@ describe('PR command acknowledgement', () => {
 });
 
 describe('resolvePrRun', () => {
+  it('records the authorized profile separately from the native skill prompt', async () => {
+    const { input } = setup(
+      '/agent-ci --model-profile=balance use $fix-ci then $address-feedback',
+    );
+    expect(await resolvePrRun(input)).toMatchObject({
+      ok: true,
+      value: {
+        status: 'ready',
+        request: {
+          modelProfile: 'balance',
+          prompt: 'use $fix-ci then $address-feedback',
+        },
+      },
+    });
+  });
+
+  it('refuses an invalid profile after authorization and before branch or context lookups', async () => {
+    const { input, github } = setup('/agent-ci --model-profile=other fix it');
+    expect(await resolvePrRun(input)).toMatchObject({
+      ok: false,
+      code: 'E_PR_RUN_REQUEST',
+    });
+    expect(
+      github.requests.some((request) =>
+        request.path.endsWith('/collaborators/maintainer/permission'),
+      ),
+    ).toBe(true);
+    expect(
+      github.requests.some(
+        (request) =>
+          request.path.includes('/git/ref/') ||
+          request.path.includes('/pulls/7/comments'),
+      ),
+    ).toBe(false);
+  });
+
   it.each([
     ['base', 'main', 'baseSha'],
     ['head', 'feature/fix', 'headSha'],
@@ -597,6 +633,15 @@ describe('resolvePrRun', () => {
 });
 
 describe('parsePrRunRequest', () => {
+  it('accepts an existing request without profile metadata', async () => {
+    const { input } = setup();
+    const result = await resolvePrRun(input);
+    if (!result.ok || result.value.status !== 'ready')
+      throw new Error('expected a ready request');
+    expect(result.value.request).not.toHaveProperty('modelProfile');
+    expect(parsePrRunRequest(result.value.request)).toMatchObject({ ok: true });
+  });
+
   it('rejects artifact fields that could redirect publication', async () => {
     const { input } = setup();
     const result = await resolvePrRun(input);
@@ -608,6 +653,7 @@ describe('parsePrRunRequest', () => {
       { headSha: '-bad-option' },
       { prUrl: 'https://github.com/other/repo/pull/7' },
       { actor: 'some-bot[bot]' },
+      { modelProfile: 'unconfigured' },
       { skills: ['unexpected-parser-output'] },
     ])
       expect(

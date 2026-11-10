@@ -613,7 +613,7 @@ describe('workflow class sweep', () => {
     // Every subcommand that resolves a route (see RESOLVING_SUBCOMMANDS in
     // src/commands/pool-opt-in.test.ts); the review gate was missed once.
     const routing =
-      /agent-ci (?:route|run|doctor|review (?:gate|pass|adjudicate|run)|targets (?:matrix|validate))\b/u;
+      /agent-ci (?:route|run|doctor|review (?:gate|pass|adjudicate|run)|pr-run (?:gate|execute)|targets (?:matrix|validate))\b/u;
     const seenRouting: string[] = [];
     for (const file of await allWorkflowFiles()) {
       const workflow = await load<Workflow>(file);
@@ -654,6 +654,7 @@ describe('workflow class sweep', () => {
     // The gate step is among the steps this sweep covers.
     expect(seenRouting).toEqual(
       expect.arrayContaining([
+        '.github/workflows/pr-agent.yml gate/Authorize the PR command',
         '.github/workflows/pr-review.yml gate/Authorize the request',
         '.github/workflows/pr-review.yml gate/Resolve the primary route',
         '.github/workflows/pr-review.yml gate/Resolve the second route',
