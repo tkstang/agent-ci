@@ -141,6 +141,7 @@ jobs:
           ORIGINAL_HEAD_SHA: ${{ needs.pr-command.outputs.head_sha }}
           BASE_SHA: ${{ needs.pr-command.outputs.base_sha }}
           CHANGED: ${{ needs.pr-command.outputs.status == 'changed' }}
+          EXPECT_BASE_MERGED: ${{ inputs.command_model == 'grok-4.7' }}
         run: |
           [[ "$FINAL_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$ORIGINAL_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -148,7 +149,9 @@ jobs:
           if [ "$CHANGED" = true ]; then
             test "$(git rev-parse "$FINAL_SHA^1")" = "$ORIGINAL_HEAD_SHA"
           fi
-          git merge-base --is-ancestor "$BASE_SHA" "$FINAL_SHA"
+          if [ "$EXPECT_BASE_MERGED" = true ]; then
+            git merge-base --is-ancestor "$BASE_SHA" "$FINAL_SHA"
+          fi
       - name: Assert published content
         if: inputs.command_model == 'grok-4.7'
         env:

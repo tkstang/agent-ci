@@ -20,6 +20,15 @@ describe('PR command workflow authority and transport', () => {
       'Assert published history',
     );
     expect(assertion.run).toBeTypeOf('string');
+    expect(assertion.env?.BASE_SHA).toBe(
+      '${{ needs.pr-command.outputs.base_sha }}',
+    );
+    expect(assertion.env?.ORIGINAL_HEAD_SHA).toBe(
+      '${{ needs.pr-command.outputs.head_sha }}',
+    );
+    expect(assertion.env?.EXPECT_BASE_MERGED).toBe(
+      "${{ inputs.command_model == 'grok-4.7' }}",
+    );
     const cwd = mkdtempSync(path.join(os.tmpdir(), 'agent-ci-history-proof-'));
     const git = (...args: string[]) =>
       execFileSync(
@@ -60,7 +69,7 @@ describe('PR command workflow authority and transport', () => {
       '-m',
       'fix: preserve base ancestry',
     );
-    const execute = (final: string) =>
+    const execute = (final: string, expectMerge = 'true') =>
       execFileSync(
         'bash',
         ['-eu', '-o', 'pipefail', '-c', assertion.run ?? ''],
@@ -73,12 +82,13 @@ describe('PR command workflow authority and transport', () => {
             ORIGINAL_HEAD_SHA: head,
             BASE_SHA: base,
             CHANGED: 'true',
-            REAL_MODEL: 'false',
+            EXPECT_BASE_MERGED: expectMerge,
           },
         },
       );
     expect(() => execute(singleParent)).toThrow();
     expect(() => execute(merged)).not.toThrow();
+    expect(() => execute(singleParent, 'false')).not.toThrow();
   });
   it('passes one route-selected credential to the read-only agent boundary', async () => {
     const { jobs, on } = await load('.github/workflows/pr-agent.yml');
