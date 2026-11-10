@@ -1,6 +1,6 @@
 ---
 title: Choosing how models run
-description: The ways a workflow can reach a model (subscription token, your machine's proxy pool, a paid API key), what each one needs and which fleet template uses it.
+description: The ways a workflow can reach a model (subscription token, your machine's proxy pool, your pool's https endpoint, a paid API key), what each one needs and which fleet template uses it.
 ---
 
 # Choosing how models run
@@ -20,16 +20,18 @@ what each job can reach in [Security model](security-model.md).
 - [The setups](#the-setups)
 - [Subscription token on GitHub-hosted runners](#subscription-token-on-github-hosted-runners)
 - [Your machine: the proxy pool on a self-hosted runner](#your-machine-the-proxy-pool-on-a-self-hosted-runner)
+- [Your endpoint: the proxy pool over https on GitHub-hosted runners](#your-endpoint-the-proxy-pool-over-https-on-github-hosted-runners)
 - [Paid API key](#paid-api-key)
 - [Which template to start from](#which-template-to-start-from)
 
 ## The setups
 
-| Setup                     | Runner                                      | How the model is reached                                                | What you provide                                                               | Main risk                                                                    |
-| ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| Subscription token        | GitHub-hosted                               | Directly, with your own subscription token                              | The route's token, for example `CLAUDE_CODE_OAUTH_TOKEN` or `OPENCODE_API_KEY` | The token reaches the agent step of every run that uses its route            |
-| Your machine (proxy pool) | Self-hosted, registered to a private caller | Your CLIProxyAPI pool, on loopback or through `AGENT_CI_PROXY_BASE_URL` | The pool key, `allow_pool: true`, an admitted runner                           | Whoever can change the caller's workflows controls what runs on your machine |
-| Paid API key              | Any                                         | The provider API, metered                                               | The API key and an exact `route:`                                              | It spends money; agent-ci never chooses it for you                           |
+| Setup                      | Runner                                      | How the model is reached                                                | What you provide                                                               | Main risk                                                                    |
+| -------------------------- | ------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Subscription token         | GitHub-hosted                               | Directly, with your own subscription token                              | The route's token, for example `CLAUDE_CODE_OAUTH_TOKEN` or `OPENCODE_API_KEY` | The token reaches the agent step of every run that uses its route            |
+| Your machine (proxy pool)  | Self-hosted, registered to a private caller | Your CLIProxyAPI pool, on loopback or through `AGENT_CI_PROXY_BASE_URL` | The pool key, `allow_pool: true`, an admitted runner                           | Whoever can change the caller's workflows controls what runs on your machine |
+| Your endpoint (proxy pool) | GitHub-hosted                               | Your CLIProxyAPI pool at its https origin, `AGENT_CI_PROXY_BASE_URL`    | The pool key, the origin, `allow_pool: true`                                   | The pool key reaches the agent step, and a leaked key works from anywhere    |
+| Paid API key               | Any                                         | The provider API, metered                                               | The API key and an exact `route:`                                              | It spends money; agent-ci never chooses it for you                           |
 
 Which routes resolve in CI, and why a skipped subscription route never falls
 back to a paid one, is described under
@@ -66,6 +68,26 @@ runner and prefer one that is discarded after each job. Runner admission and pro
 described in
 [Self-hosted runners and the proxy](configuration.md#self-hosted-runners-and-the-proxy).
 
+## Your endpoint: the proxy pool over https on GitHub-hosted runners
+
+Use this to run pooled subscriptions from GitHub-hosted runners, including
+from a public fleet, when your CLIProxyAPI pool is reachable from the
+internet over https. Set `allow_pool: true`, and pass the pool key as above
+plus the `AGENT_CI_PROXY_BASE_URL` secret with the pool's origin
+(`https://host[:port]`, nothing after it). On a runner that is not
+self-hosted, a pool route resolves only when that origin is valid and its
+host is not a loopback host (DR-261110-allow-pool-routes-on-hosted).
+
+Each job runs on a fresh GitHub VM, and fork pull requests receive no
+secrets, so neither your machine nor the key is exposed to outside
+contributors. The key does reach the agent step of every pool run you start,
+like a subscription token, so an injected instruction in a target's files
+could make the agent leak it, and a leaked key works from any network. Give
+each fleet its own pool key, rate-limited where your proxy supports it, so a
+leak costs one rotation. The origin is masked in logs, but treat its host
+name as discoverable (see the private proxy origin in the
+[Security model](security-model.md)).
+
 ## Paid API key
 
 A `paid-api` route, such as `claude-haiku-5-5-api` with `ANTHROPIC_API_KEY`,
@@ -75,10 +97,10 @@ unavailable.
 
 ## Which template to start from
 
-| Template                                        | Targets                                                                                     | Default setup                     | Other setups                                            |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
-| `consumer-workflows/agent-ci-fleet.yml`         | Public only (`public_only: true`, see [Workflows](workflows.md#fan-outyml-and-targetsyaml)) | Subscription token, GitHub-hosted | Paid API key, or another route's token under `secrets:` |
-| `consumer-workflows/agent-ci-private-fleet.yml` | Private                                                                                     | Your machine                      | Add a route's token under `secrets:`                    |
+| Template                                        | Targets                                                                                     | Default setup                     | Other setups                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| `consumer-workflows/agent-ci-fleet.yml`         | Public only (`public_only: true`, see [Workflows](workflows.md#fan-outyml-and-targetsyaml)) | Subscription token, GitHub-hosted | Your endpoint (commented block), a paid API key, or another route's token under `secrets:` |
+| `consumer-workflows/agent-ci-private-fleet.yml` | Private                                                                                     | Your machine                      | Your endpoint, or a route's token under `secrets:`                                         |
 
 Setting up either fleet repository is described in
 [Using agent-ci from another repository](fleet-repo.md).

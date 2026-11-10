@@ -39,7 +39,7 @@ routes:
     account: pool
     structuredOutput: json-schema
     qualified: '2026-10-25'
-    notes: CLIProxyAPI pool (loopback); CI requires self-hosted and allow_pool.
+    notes: CLIProxyAPI pool (loopback); CI requires allow_pool and a self-hosted runner or a remote https AGENT_CI_PROXY_BASE_URL.
   - id: claude-haiku-4-5-personal
     model: claude-haiku-4-5
     harness: claude
@@ -73,7 +73,7 @@ routes:
     account: pool
     structuredOutput: json-schema
     qualified: '2026-10-25'
-    notes: CLIProxyAPI pool (loopback); CI requires self-hosted and allow_pool.
+    notes: CLIProxyAPI pool (loopback); CI requires allow_pool and a self-hosted runner or a remote https AGENT_CI_PROXY_BASE_URL.
   - id: claude-haiku-5-5-personal
     model: claude-haiku-5-5
     harness: claude
@@ -152,8 +152,9 @@ routes:
     qualified: '2026-10-25'
     notes: >-
       CLIProxyAPI pool over the Responses API (loopback). Local runs with
-      --allow-pool; in CI only on a self-hosted runner whose host serves the
-      proxy, with allow_pool: true and the AGENT_CI_PROXY_API_KEY secret.
+      --allow-pool; in CI with allow_pool: true and the AGENT_CI_PROXY_API_KEY
+      secret, on a self-hosted runner that reaches the proxy or through a
+      remote https AGENT_CI_PROXY_BASE_URL.
       grok-4.7 is not reachable from Codex through the proxy
       (ModelProtocolUnsupported).
 

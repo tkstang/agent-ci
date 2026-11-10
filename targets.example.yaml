@@ -2,7 +2,8 @@
 # Every value becomes a reusable-workflow input; agent-ci targets validate
 # checks the schema, unique ids and repositories, allowedOwners and that each
 # model resolves under the routing policy (in CI, login routes are refused and
-# pool routes resolve only with the allow_pool opt-in on a self-hosted runner;
+# pool routes resolve only with the allow_pool opt-in, on a self-hosted runner
+# or through a remote https AGENT_CI_PROXY_BASE_URL;
 # Claude models always run through Claude Code). How each setup runs models:
 # docs/running-models.md.
 version: 1

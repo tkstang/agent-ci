@@ -160,9 +160,11 @@ model keys include effort (`gpt-6.1-sol-high`, `gpt-6.1-sol-low`,
 `claude-opus-5-5-high`) so each pass selects the intended setting.
 
 These routes use the subscription proxy pool. Before using them in Actions,
-configure an admitted self-hosted runner, `allow_pool: true` and the model
-secrets. `runs_on` still defaults to `ubuntu-latest` and pool opt-in to
-`false`; leaving them unchanged refuses the pool route. The new routes
+set `allow_pool: true` and the model secrets, and either pass a remote https
+`AGENT_CI_PROXY_BASE_URL` or configure an admitted self-hosted runner in a
+private repository (see [Choosing how models run](running-models.md)). Pool
+opt-in defaults to `false`, which refuses the pool route; on the default
+`ubuntu-latest` runner a pool route also needs the remote origin. The new routes
 remain unqualified until their live checks pass.
 
 Sol Low adjudication uses the existing subscription pool directly through

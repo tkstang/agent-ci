@@ -31,8 +31,10 @@ setting is needed.
 
 1. Choose a caller for the targets' trust and visibility. Use a public
    fleet on GitHub-hosted runners for public targets, or a private fleet on
-   admitted self-hosted runners for private targets and subscription-pool
-   routes (see [Choosing how models run](running-models.md)). The public
+   admitted self-hosted runners for private targets. Either can use your
+   subscription pool: the private fleet from your machine, either fleet
+   through the pool's https endpoint (see
+   [Choosing how models run](running-models.md)). The public
    template sets `public_only: true` (see [Workflows](workflows.md#fan-outyml-and-targetsyaml)).
    Keep private targets in the private fleet while artifact encryption
    remains unimplemented; output suppression does not protect artifacts.
@@ -85,8 +87,9 @@ setting is needed.
      (validation does not check presence). The private pool template maps
      `AGENT_CI_PROXY_API_KEY` for Codex and the same existing key into
      `ANTHROPIC_AUTH_TOKEN` for Claude Code. `tools-update` needs none;
-   - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes (self-hosted
-     runner, `allow_pool: true` and `AGENT_CI_PROXY_API_KEY`); see
+   - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes
+     (`allow_pool: true` and `AGENT_CI_PROXY_API_KEY`, plus a self-hosted
+     runner unless the origin is a remote https endpoint); see
      [Configuration and credentials](configuration.md).
 5. Allow GitHub Actions to create pull requests in the fleet repository's
    Actions settings only if a target is the fleet repository itself; other
