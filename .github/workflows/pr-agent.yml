@@ -1,6 +1,6 @@
 # Execute a trusted PR comment against its existing head. Task text travels
 # only in a digest-bound artifact. Repository code never gets a write token.
-name: '[agent-ci] Execute PR comment'
+name: '[agent-ci] Run PR comment prompt'
 
 on:
   workflow_call:

@@ -2,7 +2,7 @@
 # Only current repository writers can request work on trusted same-repo PRs.
 # Skills are loaded from the exact checked-out PR head. Use the selected
 # harness's native invocation syntax; agent-ci does not parse skill names.
-name: '[agent-ci] Execute PR comment'
+name: '[agent-ci] Run PR comment prompt'
 
 on:
   issue_comment:

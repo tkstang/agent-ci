@@ -6,6 +6,7 @@ description: Run a task from a trusted PR comment, use repository skills, verify
 # PR commands
 
 Use `pr-agent.yml` to run a task on an existing pull request. The workflow
+appears as `[agent-ci] Run PR comment prompt` in GitHub Actions. It
 checks out its exact head, gives the task to the configured agent, verifies
 the resulting tree and pushes a commit to the same branch. It posts a
 summary on that PR and does not open another pull request.
