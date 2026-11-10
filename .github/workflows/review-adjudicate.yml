@@ -60,7 +60,7 @@ on:
         description: The selected route credential, provided by pr-review.yml.
         required: false
       AGENT_CI_PROXY_BASE_URL:
-        description: Private proxy origin, provided only for a pool route.
+        description: Private proxy origin, provided only for a pool route (route selection and the pass).
         required: false
     outputs:
       artifact_id:
@@ -151,6 +151,7 @@ jobs:
         env:
           ROUTE: ${{ inputs.route_id }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: agent-ci route --purpose adjudicator --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Install the harness

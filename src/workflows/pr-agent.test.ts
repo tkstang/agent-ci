@@ -158,12 +158,18 @@ describe('PR command workflow authority and transport', () => {
 
   it('keeps publishing credentials out of every repository-executing job', async () => {
     const { jobs } = await load('.github/workflows/pr-agent.yml');
+    const gateRoute = step(jobs.gate ?? {}, 'Resolve the route');
+    expect(gateRoute.env?.AGENT_CI_PROXY_BASE_URL).toBe(
+      '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+    );
     for (const name of ['gate', 'setup', 'agent', 'verify']) {
       expect(JSON.stringify(jobs[name]), name).not.toContain(
         'secrets.AGENT_CI_PUBLISH_TOKEN',
       );
       for (const entry of jobs[name]?.steps ?? [])
-        expect(secretRefs(entry), entry.name).toEqual([]);
+        expect(secretRefs(entry), entry.name).toEqual(
+          entry === gateRoute ? ['AGENT_CI_PROXY_BASE_URL'] : [],
+        );
     }
     expect(jobs.publish?.permissions).toEqual({
       contents: 'write',

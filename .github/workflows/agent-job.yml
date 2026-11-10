@@ -105,7 +105,7 @@ on:
       AGENT_CI_TARGET_READ_TOKEN:
         required: false
       AGENT_CI_PROXY_BASE_URL:
-        description: The private proxy origin, passed by run-agent.yml only for a pool route.
+        description: The private proxy origin, passed by run-agent.yml only for a pool route (route selection and the agent step).
         required: false
     outputs:
       result_artifact_id:
@@ -192,13 +192,15 @@ jobs:
         run: agent-ci workspace restore --archive "$RUNNER_TEMP/agent-ci-prepared/agent-ci-prepared.tgz" --target target --sha256 "$PREPARED_SHA256"
 
       # The route the resolve job selected the credential for, re-resolved
-      # under this environment's policy (a pool route only with allow_pool on a
-      # self-hosted runner; login routes refused).
+      # under this environment's policy (a pool route only with allow_pool, on a
+      # self-hosted runner or through a remote https proxy origin; login routes
+      # refused). The origin is empty unless run-agent.yml selected a pool route.
       - name: Resolve the route
         id: route
         env:
           ROUTE: ${{ inputs.route_id }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: agent-ci route --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Install the harness

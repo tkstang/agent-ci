@@ -193,7 +193,17 @@ describe('fan-out.yml', () => {
         'persist-credentials'
       ],
     ).toBe(false);
-    expect(secretRefs(targets)).toEqual([]);
+    // Only route selection sees a secret: the proxy origin, which the pool
+    // policy needs to admit a remote https pool. No credential or token.
+    expect(select.env?.AGENT_CI_PROXY_BASE_URL).toBe(
+      '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+    );
+    for (const entry of targets.steps ?? []) {
+      expect(secretRefs(entry), entry.name).toEqual(
+        entry === select ? ['AGENT_CI_PROXY_BASE_URL'] : [],
+      );
+    }
+    expect(secretRefs(targets)).toEqual(['AGENT_CI_PROXY_BASE_URL']);
   });
 
   it('calls run-agent.yml or tools-update.yml once per matrix entry, mapping every field to an input', async () => {
@@ -342,19 +352,40 @@ describe('proxy origin secret chain', () => {
   });
 });
 
+describe('public-only chain', () => {
+  it('carries public_only from fan-out into both resolve steps', async () => {
+    const fan = await fanOut();
+    for (const nested of ['run-agent.yml', 'tools-update.yml']) {
+      const calls = Object.values(fan.jobs).filter(
+        (job) => job.uses === `./.github/workflows/${nested}`,
+      );
+      expect(calls.length, nested).toBe(1);
+      expect(calls[0]?.with?.public_only, nested).toBe(
+        '${{ inputs.public_only }}',
+      );
+      const workflow = await load(`.github/workflows/${nested}`);
+      const inputs = (
+        workflow.on.workflow_call as { inputs: Record<string, unknown> }
+      ).inputs;
+      expect(inputs.public_only, nested).toMatchObject({
+        type: 'boolean',
+        default: false,
+      });
+      const resolve = step(
+        workflow.jobs.resolve ?? {},
+        'Resolve the target repository, commit and base',
+      );
+      expect(resolve.env?.PUBLIC_ONLY, nested).toBe(
+        '${{ inputs.public_only }}',
+      );
+      expect(resolve.run, nested).toContain('--public-only "$PUBLIC_ONLY"');
+    }
+  });
+});
+
 describe('fleet and consumer templates', () => {
   it('pin the reusable workflows, grant the publish scopes and pass explicit secrets', async () => {
     const cases: [string, string, string[]][] = [
-      [
-        'consumer-workflows/agent-ci-fleet.yml',
-        'fan-out.yml',
-        [
-          'AGENT_CI_TARGET_TOKEN',
-          'AGENT_CI_TARGET_READ_TOKEN',
-          'CLAUDE_CODE_OAUTH_TOKEN',
-          'AGENT_CI_PROXY_BASE_URL',
-        ],
-      ],
       [
         'consumer-workflows/agent-ci-docs-update.yml',
         'docs-update.yml',
@@ -411,10 +442,29 @@ describe('fleet and consumer templates', () => {
       ANTHROPIC_AUTH_TOKEN: '${{ secrets.AGENT_CI_PROXY_API_KEY }}',
       AGENT_CI_PROXY_BASE_URL: '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
     });
-    const publicFleet = await load('consumer-workflows/agent-ci-fleet.yml');
-    expect(publicFleet.jobs['fan-out']?.with?.targets_json).toBe(
-      '${{ vars.AGENT_CI_TARGETS_JSON }}',
+  });
+
+  it('keeps the public fleet manual, public-only and free of private-target and pool secrets', async () => {
+    const workflow = await load('consumer-workflows/agent-ci-fleet.yml');
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
+    expect(workflow.permissions).toEqual({
+      contents: 'write',
+      'pull-requests': 'write',
+    });
+    const job = workflow.jobs['fan-out'];
+    expect(job?.uses).toMatch(
+      /^tkstang\/agent-ci\/\.github\/workflows\/fan-out\.yml@/u,
     );
+    expect(job?.with).toMatchObject({
+      targets_json: '${{ vars.AGENT_CI_TARGETS_JSON }}',
+      public_only: true,
+    });
+    expect(job?.with).not.toHaveProperty('allow_pool');
+    expect(job?.with).not.toHaveProperty('runs_on');
+    expect(job?.secrets).toEqual({
+      AGENT_CI_TARGET_TOKEN: '${{ secrets.AGENT_CI_TARGET_TOKEN }}',
+      CLAUDE_CODE_OAUTH_TOKEN: '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}',
+    });
   });
 
   it('are all linted by CI', async () => {

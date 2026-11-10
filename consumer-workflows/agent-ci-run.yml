@@ -45,7 +45,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: tkstang/agent-ci/.github/workflows/run-agent.yml@v0.1.0
+    uses: tkstang/agent-ci/.github/workflows/run-agent.yml@v0.2.0
     with:
       model: ${{ inputs.model }}
       prompt: ${{ inputs.prompt }}

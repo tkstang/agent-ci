@@ -42,6 +42,10 @@ on:
         description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
         type: boolean
         default: false
+      public_only:
+        description: Refuse a target GitHub does not report as public (for public fleets), before any job runs its code.
+        type: boolean
+        default: false
       model:
         description: Qualified model from models.yaml (for example claude-haiku-5-5, grok-4.7, fake-edit). Set model or route.
         type: string
@@ -93,11 +97,11 @@ on:
         default: ''
       allow_pool:
         description: >-
-          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner, set true there to
-          opt in. The route uses the loopback proxy origin unless the optional
-          AGENT_CI_PROXY_BASE_URL secret names another origin (https, or http
-          for a loopback host).
+          Allow a proxy-pool route (models.yaml account: pool); set true to opt in.
+          CI allows one only on a self-hosted runner, or on any runner when the
+          optional AGENT_CI_PROXY_BASE_URL secret names a remote https origin.
+          The route uses the loopback proxy origin unless that secret names
+          another origin (https, or http for a loopback host).
         type: boolean
         default: false
       runs_on:
@@ -216,20 +220,20 @@ on:
       ANTHROPIC_API_KEY:
         required: false
       ANTHROPIC_AUTH_TOKEN:
-        description: Proxy-pool key for Claude Code (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Claude Code (pool routes with allow_pool only).
         required: false
       OPENCODE_API_KEY:
         required: false
       CURSOR_API_KEY:
         required: false
       AGENT_CI_PROXY_API_KEY:
-        description: Proxy-pool key for Codex pool routes (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Codex pool routes (pool routes with allow_pool only).
         required: false
       AGENT_CI_PROXY_BASE_URL:
         description: >-
           Optional private proxy origin (https) that replaces the loopback origin of
-          pool routes. A secret so Actions masks it; passed to the agent step only for
-          a pool route.
+          pool routes. A secret so Actions masks it; passed to route selection and,
+          only for a pool route, to the agent step.
         required: false
       AGENT_CI_NOTIFY_WEBHOOK:
         description: Optional https webhook (Slack-compatible) for a run notification.
@@ -302,6 +306,7 @@ jobs:
           AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
           AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
           REPOSITORY: ${{ inputs.target_repository }}
+          PUBLIC_ONLY: ${{ inputs.public_only }}
           REF: ${{ inputs.target_ref }}
           BASE: ${{ inputs.publish_base }}
           COMMENT_PR: ${{ inputs.comment_pr }}
@@ -311,7 +316,7 @@ jobs:
         run: >-
           agent-ci targets resolve --repository "$REPOSITORY" --ref "$REF" --base "$BASE"
           --comment-pr "$COMMENT_PR" --event-ref "$EVENT_REF" --event-base "$EVENT_BASE"
-          --event-pr "$EVENT_PR" --github-output
+          --event-pr "$EVENT_PR" --public-only "$PUBLIC_ONLY" --github-output
 
       # The route decides which one model credential the agent job receives
       # (credential: one of the five model secret names, or empty).
@@ -322,6 +327,7 @@ jobs:
           HARNESS: ${{ inputs.harness }}
           ROUTE: ${{ inputs.route }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: agent-ci route --model "$MODEL" --harness "$HARNESS" --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
 
   # The setup command runs repository code, so it gets its own job: no

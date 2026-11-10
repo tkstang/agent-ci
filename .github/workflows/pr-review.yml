@@ -145,10 +145,10 @@ on:
         default: false
       allow_pool:
         description: >-
-          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner that can reach the proxy (the loopback default, or
-          the AGENT_CI_PROXY_BASE_URL origin), set true
-          there to opt in.
+          Allow a proxy-pool route (models.yaml account: pool); set true to opt in.
+          CI allows one only on a self-hosted runner that can reach the proxy (the
+          loopback default, or the AGENT_CI_PROXY_BASE_URL origin), or on any
+          runner when that secret names a remote https origin.
         type: boolean
         default: false
       runs_on:
@@ -177,20 +177,20 @@ on:
       ANTHROPIC_API_KEY:
         required: false
       ANTHROPIC_AUTH_TOKEN:
-        description: Proxy-pool key for Claude Code (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Claude Code (pool routes with allow_pool only).
         required: false
       OPENCODE_API_KEY:
         required: false
       CURSOR_API_KEY:
         required: false
       AGENT_CI_PROXY_API_KEY:
-        description: Proxy-pool key for Codex pool routes (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Codex pool routes (pool routes with allow_pool only).
         required: false
       AGENT_CI_PROXY_BASE_URL:
         description: >-
           Optional private proxy origin (https) that replaces the loopback origin of
-          pool routes. A secret so Actions masks it; passed to the reviewer and adjudicator
-          steps only for a pool route.
+          pool routes. A secret so Actions masks it; passed to route selection and,
+          only for a pool route, to the reviewer and adjudicator steps.
         required: false
 
 env:
@@ -273,6 +273,7 @@ jobs:
           MAX_INLINE: ${{ inputs.max_inline_comments }}
           PUBLISHER_LOGIN: ${{ inputs.publisher_login }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
           VERIFY: ${{ inputs.verify }}
         run: >-
           agent-ci review gate --out "$RUNNER_TEMP/review-gate"
@@ -313,13 +314,16 @@ jobs:
           if-no-files-found: error
 
       # Resolve names only after authorization and spec binding; secrets are
-      # selected at the child workflow boundary, never on an agent runner.
+      # selected at the child workflow boundary, never on an agent runner. The
+      # proxy origin (no credential) lets the pool policy see a remote https
+      # pool (DR-261110-allow-pool-routes-on-hosted).
       - name: Resolve the primary route
         id: route-primary
         if: steps.spec-upload.outcome == 'success'
         env:
           MODEL: ${{ steps.gate.outputs.reviewer_model }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Resolve the second route
@@ -328,6 +332,7 @@ jobs:
         env:
           MODEL: ${{ steps.gate.outputs.second_reviewer_model }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: agent-ci route --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       - name: Resolve the adjudicator route
@@ -336,6 +341,7 @@ jobs:
         env:
           MODEL: ${{ steps.gate.outputs.adjudicator_model }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: agent-ci route --purpose adjudicator --model "$MODEL" --allow-pool-value "$ALLOW_POOL" --github-output
 
       # verify-review: the built CLI for the verify job, which must not hold

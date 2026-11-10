@@ -4,6 +4,8 @@
 # - targets: no secret but the helper token. `agent-ci targets matrix`
 #            validates targets.yaml (schema, unique targets, allowedOwners,
 #            models under the CI routing policy) and emits a bounded matrix.
+#            With public_only, each nested resolve job refuses a target
+#            GitHub does not report as public (E_TARGET_VISIBILITY).
 # - agent:   docs-update / instructions-update: run-agent.yml once per target.
 # - tools:   tools-update: tools-update.yml once per target (no model; no
 #            model credential is passed).
@@ -38,6 +40,10 @@ on:
     inputs:
       private_target:
         description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
+      public_only:
+        description: Refuse a target GitHub does not report as public (for public fleets), before any job runs its code.
         type: boolean
         default: false
       preset:
@@ -80,11 +86,11 @@ on:
         default: 4
       allow_pool:
         description: >-
-          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner, set true there to
-          opt in. The route uses the loopback proxy origin unless the optional
-          AGENT_CI_PROXY_BASE_URL secret names another origin (https, or http
-          for a loopback host).
+          Allow a proxy-pool route (models.yaml account: pool); set true to opt in.
+          CI allows one only on a self-hosted runner, or on any runner when the
+          optional AGENT_CI_PROXY_BASE_URL secret names a remote https origin.
+          The route uses the loopback proxy origin unless that secret names
+          another origin (https, or http for a loopback host).
         type: boolean
         default: false
       runs_on:
@@ -119,20 +125,20 @@ on:
       ANTHROPIC_API_KEY:
         required: false
       ANTHROPIC_AUTH_TOKEN:
-        description: Proxy-pool key for Claude Code (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Claude Code (pool routes with allow_pool only).
         required: false
       OPENCODE_API_KEY:
         required: false
       CURSOR_API_KEY:
         required: false
       AGENT_CI_PROXY_API_KEY:
-        description: Proxy-pool key for Codex pool routes (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Codex pool routes (pool routes with allow_pool only).
         required: false
       AGENT_CI_PROXY_BASE_URL:
         description: >-
           Optional private proxy origin (https) that replaces the loopback origin of
-          pool routes. A secret so Actions masks it; passed to the agent step only for
-          a pool route.
+          pool routes. A secret so Actions masks it; passed to route selection and,
+          only for a pool route, to the agent step.
         required: false
       AGENT_CI_NOTIFY_WEBHOOK:
         required: false
@@ -194,6 +200,7 @@ jobs:
           MODEL: ${{ inputs.model }}
           MAX_TARGETS: ${{ inputs.max_targets }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: >-
           agent-ci targets matrix --root caller --file "$TARGETS_FILE" --targets-json "$TARGETS_JSON"
           --preset "$PRESET" --target "$TARGET" --reset "$RESET" --base "$BASE"
@@ -238,6 +245,7 @@ jobs:
       artifact_name: ${{ matrix.artifact_name }}
       runs_on: ${{ inputs.runs_on }}
       private_target: ${{ inputs.private_target || matrix.private_target }}
+      public_only: ${{ inputs.public_only }}
       allow_pool: ${{ inputs.allow_pool }}
       publisher_login: ${{ inputs.publisher_login }}
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
@@ -281,6 +289,7 @@ jobs:
       artifact_name: ${{ matrix.artifact_name }}
       runs_on: ${{ inputs.runs_on }}
       private_target: ${{ inputs.private_target || matrix.private_target }}
+      public_only: ${{ inputs.public_only }}
       publisher_login: ${{ inputs.publisher_login }}
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
       agent_ci_ref: ${{ inputs.agent_ci_ref }}

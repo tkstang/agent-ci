@@ -50,7 +50,8 @@ const USAGE = `agent-ci targets — multi-repository fan-out targets.
 
   agent-ci targets resolve [--repository <owner/name>] [--ref <ref>] [--base <branch>]
                            [--comment-pr <n>] [--event-ref <sha>] [--event-base <branch>]
-                           [--event-pr <n>] [--github-output]
+                           [--event-pr <n>] [--public-only <true|false>]
+                           [--github-output]
       Resolve one run's target once (no checkout): the repository (default
       $GITHUB_REPOSITORY), whether it is another repository, the commit
       every job checks out, the publish base and the PR to comment on.
@@ -60,6 +61,8 @@ const USAGE = `agent-ci targets — multi-repository fan-out targets.
       token is refused when it is the write token, a scoped classic token or
       can write repository contents (its other permissions cannot be
       checked). Event values (--event-*) apply only to the calling repository.
+      --public-only true refuses a target GitHub does not report as public
+      (E_TARGET_VISIBILITY), the calling repository included.
       --github-output writes repository, cross, sha, base, comment_pr and
       default_branch.
 
@@ -273,10 +276,18 @@ async function resolve(
       'event-ref': { type: 'string' },
       'event-base': { type: 'string' },
       'event-pr': { type: 'string' },
+      'public-only': { type: 'string' },
       'github-output': { type: 'boolean' },
     },
     USAGE,
   );
+  const publicOnly = optional(flags['public-only']);
+  if (publicOnly !== undefined && !['true', 'false'].includes(publicOnly)) {
+    throw new CliError(
+      'E_INVALID_INPUT',
+      '--public-only must be true or false',
+    );
+  }
   const resolved = await resolveTarget({
     repository: flags.repository,
     callingRepository: context.env.GITHUB_REPOSITORY ?? '',
@@ -289,6 +300,7 @@ async function resolve(
     githubToken: context.env.GITHUB_TOKEN,
     targetToken: context.env.AGENT_CI_TARGET_TOKEN,
     readToken: context.env.AGENT_CI_TARGET_READ_TOKEN,
+    publicOnly: publicOnly === 'true',
     ...(context.env.GITHUB_API_URL
       ? { apiUrl: context.env.GITHUB_API_URL }
       : {}),

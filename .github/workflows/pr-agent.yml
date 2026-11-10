@@ -135,6 +135,7 @@ jobs:
           HARNESS: ${{ inputs.harness }}
           ROUTE: ${{ inputs.route }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: agent-ci route --model "$MODEL" --harness "$HARNESS" --route "$ROUTE" --allow-pool-value "$ALLOW_POOL" --github-output
       - name: Authorize the PR command
         id: gate

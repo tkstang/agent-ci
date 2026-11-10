@@ -56,6 +56,12 @@ export interface ResolveTargetInput {
   readonly targetToken?: string;
   /** Read-only token the checkout of another repository uses. */
   readonly readToken?: string;
+  /**
+   * Refuse any target, including the calling repository, that GitHub does
+   * not report as public (a public fleet's guard against private and
+   * internal targets).
+   */
+  readonly publicOnly?: boolean;
   readonly apiUrl?: string;
   readonly fetch?: typeof fetch;
 }
@@ -79,6 +85,16 @@ function field(value: unknown, key: string): unknown {
   return value !== null && typeof value === 'object'
     ? (value as Record<string, unknown>)[key]
     : undefined;
+}
+
+/**
+ * Public only when GitHub says so twice: `visibility` is `public` and
+ * `private` is `false`. A missing or contradictory field fails closed.
+ */
+function isPublic(repo: unknown): boolean {
+  return (
+    field(repo, 'visibility') === 'public' && field(repo, 'private') === false
+  );
 }
 
 const RATE_LIMIT_MESSAGE = /rate limit|abuse/iu;
@@ -308,6 +324,14 @@ export async function resolveTarget(
       return failure(
         'E_GITHUB_API',
         `GitHub returned unexpected metadata for ${requested}`,
+      );
+    }
+    if (input.publicOnly === true && !isPublic(repo)) {
+      const visibility = field(repo, 'visibility');
+      return failure(
+        'E_TARGET_VISIBILITY',
+        `${requested} is not public (visibility ${typeof visibility === 'string' ? visibility : 'unknown'}) and this caller accepts public targets only`,
+        'Remove the target from this fleet, or run it from a private fleet caller (consumer-workflows/agent-ci-private-fleet.yml).',
       );
     }
     if (cross) {

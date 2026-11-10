@@ -26,8 +26,10 @@
 #   as ANTHROPIC_AUTH_TOKEN for Claude Code. Add other route credentials explicitly
 #   only if your target list uses them. No paid fallback is selected automatically.
 # - Optional AGENT_CI_PROXY_BASE_URL: https private proxy origin (http only for a
-#   loopback host). Pool opt-in and self-hosted admission remain required.
+#   loopback host). Pool opt-in remains required; with a remote https origin a
+#   pool route also runs on GitHub-hosted runners.
 # This maintenance caller enables no adjudicator; the Sol route is unsupported there.
+# How models run on your machine and the other setups: docs/running-models.md.
 name: '[agent-ci] Run private fleet'
 
 on:
@@ -51,9 +53,14 @@ permissions:
   contents: write
   pull-requests: write
 
+# One fleet run at a time; max_parallel: 1 keeps one target at a time.
+concurrency:
+  group: agent-ci-private-fleet
+  cancel-in-progress: false
+
 jobs:
   fan-out:
-    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@v0.1.0
+    uses: tkstang/agent-ci/.github/workflows/fan-out.yml@v0.2.0
     with:
       preset: ${{ inputs.preset }}
       target: ${{ inputs.target || 'all' }}
