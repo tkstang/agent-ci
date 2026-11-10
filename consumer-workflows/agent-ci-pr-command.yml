@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: tkstang/agent-ci/.github/workflows/pr-agent.yml@e19032f689249f5cfbd80f258c03fac555fb38d1
+    uses: tkstang/agent-ci/.github/workflows/pr-agent.yml@14527476012e7178a515cb2dba3ff3f5d6726adc
     with:
       comment_id: ${{ inputs.comment_id || '' }}
       model: claude-haiku-5-5
