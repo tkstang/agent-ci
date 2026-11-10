@@ -105,9 +105,13 @@ references such as PHP `$response`. Claude receives the raw task as its
 user prompt, with agent-ci's execution instructions in an appended system
 prompt so a leading slash command stays at the start.
 
-Native headless skill expansion has not yet been proven by a live test for
-these paths. Discoverability, user-only invocation flags and invocation of
-several skills depend on the harness. A phrase such as "and then" asks that
+One local live probe through `agent-ci run` with Cursor CLI
+`2026.11.05-86047df` and `grok-4.7-low` completed two installed skills in the
+requested order with `/ci-probe-first and then /ci-probe-second`. The
+resulting file contained the expected ordered output from both skills.
+This does not qualify other CLI versions or Claude's user-only slash-skill
+path. Discoverability, user-only invocation flags and invocation of several
+skills depend on the harness. A phrase such as "and then" asks that
 harness to perform the work in order; agent-ci does not enforce a separate
 skill chain. Skills that require interactive approval or their own Git,
 GitHub or publishing operations may not fit the unattended run. The agent

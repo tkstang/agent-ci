@@ -180,6 +180,7 @@ describe('PR head publishing', () => {
       outputs: f.outputs(),
     });
     expect(published).toMatchObject({ ok: true, value: { status: 'changed' } });
+    if (published.ok) expect(published.value.commit).toMatch(/^[0-9a-f]{40}$/u);
     if (!published.ok || published.value.commit === null) return;
     const commit = published.value.commit;
     expect(git(f.remote, 'rev-parse', 'refs/heads/topic')).toBe(commit);
@@ -211,6 +212,7 @@ describe('PR head publishing', () => {
     });
     expect(verified.ok).toBe(true);
     expect(published).toMatchObject({ ok: true, value: { status: 'changed' } });
+    if (published.ok) expect(published.value.commit).toMatch(/^[0-9a-f]{40}$/u);
     if (!published.ok || published.value.commit === null || !verified.ok)
       return;
     const commit = published.value.commit;
