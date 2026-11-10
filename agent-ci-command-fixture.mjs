@@ -1,3 +1,3 @@
 export function answer() {
-  return 41;
+  return 42;
 }
