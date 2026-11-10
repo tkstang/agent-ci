@@ -346,16 +346,6 @@ describe('fleet and consumer templates', () => {
   it('pin the reusable workflows, grant the publish scopes and pass explicit secrets', async () => {
     const cases: [string, string, string[]][] = [
       [
-        'consumer-workflows/agent-ci-fleet.yml',
-        'fan-out.yml',
-        [
-          'AGENT_CI_TARGET_TOKEN',
-          'AGENT_CI_TARGET_READ_TOKEN',
-          'CLAUDE_CODE_OAUTH_TOKEN',
-          'AGENT_CI_PROXY_BASE_URL',
-        ],
-      ],
-      [
         'consumer-workflows/agent-ci-docs-update.yml',
         'docs-update.yml',
         ['CLAUDE_CODE_OAUTH_TOKEN'],
@@ -411,10 +401,29 @@ describe('fleet and consumer templates', () => {
       ANTHROPIC_AUTH_TOKEN: '${{ secrets.AGENT_CI_PROXY_API_KEY }}',
       AGENT_CI_PROXY_BASE_URL: '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
     });
-    const publicFleet = await load('consumer-workflows/agent-ci-fleet.yml');
-    expect(publicFleet.jobs['fan-out']?.with?.targets_json).toBe(
-      '${{ vars.AGENT_CI_TARGETS_JSON }}',
+  });
+
+  it('keeps the public fleet manual, public-only and free of private-target and pool secrets', async () => {
+    const workflow = await load('consumer-workflows/agent-ci-fleet.yml');
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
+    expect(workflow.permissions).toEqual({
+      contents: 'write',
+      'pull-requests': 'write',
+    });
+    const job = workflow.jobs['fan-out'];
+    expect(job?.uses).toMatch(
+      /^tkstang\/agent-ci\/\.github\/workflows\/fan-out\.yml@/u,
     );
+    expect(job?.with).toMatchObject({
+      targets_json: '${{ vars.AGENT_CI_TARGETS_JSON }}',
+      public_only: true,
+    });
+    expect(job?.with).not.toHaveProperty('allow_pool');
+    expect(job?.with).not.toHaveProperty('runs_on');
+    expect(job?.secrets).toEqual({
+      AGENT_CI_TARGET_TOKEN: '${{ secrets.AGENT_CI_TARGET_TOKEN }}',
+      CLAUDE_CODE_OAUTH_TOKEN: '${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}',
+    });
   });
 
   it('are all linted by CI', async () => {

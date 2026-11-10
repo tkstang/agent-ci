@@ -499,11 +499,19 @@ const REPOS = {
     full_name: 'octo/widgets',
     default_branch: 'trunk',
     private: false,
+    visibility: 'public',
   },
   'octo/secret': {
     full_name: 'octo/secret',
     default_branch: 'main',
     private: true,
+    visibility: 'private',
+  },
+  'octo/inner': {
+    full_name: 'octo/inner',
+    default_branch: 'main',
+    private: true,
+    visibility: 'internal',
   },
 };
 
@@ -598,6 +606,43 @@ describe('resolveTarget', () => {
       'Bearer target-token',
     ]);
     expect(calls[2]?.url).toMatch(/\/repos\/octo\/secret\/git\/refs$/u);
+  });
+
+  it('accepts only targets GitHub reports as public when public-only is set', async () => {
+    const { impl, calls } = fakeFetch(REPOS, {
+      main: SHA_B,
+      trunk: SHA_A,
+      [SHA_A]: SHA_A,
+    });
+    const base = {
+      callingRepository: 'octo/caller',
+      githubToken: 'gh-token',
+      targetToken: 'target-token',
+      readToken: 'read-token',
+      publicOnly: true,
+      fetch: impl,
+    };
+    const resolved = await resolveTarget({
+      ...base,
+      repository: 'octo/widgets',
+    });
+    expect(resolved.ok && resolved.value.sha).toBe(SHA_A);
+    for (const repository of ['octo/secret', 'octo/inner']) {
+      calls.length = 0;
+      expect(
+        code(await resolveTarget({ ...base, repository })),
+        repository,
+      ).toBe('E_TARGET_VISIBILITY');
+      // Refused on metadata alone: the read token is never used.
+      expect(
+        calls.map((call) => call.auth),
+        repository,
+      ).toEqual(['Bearer target-token']);
+    }
+    // Metadata without a visibility fails closed, the calling repository too.
+    expect(code(await resolveTarget({ ...base, eventRef: SHA_A }))).toBe(
+      'E_TARGET_VISIBILITY',
+    );
   });
 
   it('refuses a read token that is the write token, a scoped classic token, or can write contents', async () => {

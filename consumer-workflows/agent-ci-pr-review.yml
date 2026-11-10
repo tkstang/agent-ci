@@ -95,7 +95,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    uses: tkstang/agent-ci/.github/workflows/pr-review.yml@v0.1.0
+    uses: tkstang/agent-ci/.github/workflows/pr-review.yml@v0.2.0
     with:
       pr_number: ${{ inputs.pr_number || '' }}
       command: ${{ inputs.command || '' }}
