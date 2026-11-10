@@ -82,7 +82,7 @@ import {
   readHead,
   snapshotWorkspace,
 } from '@agent-ci/run/changed-files.js';
-import { buildRunPrompt } from '@agent-ci/run/prompt.js';
+import { buildRunInstructions, buildRunPrompt } from '@agent-ci/run/prompt.js';
 import { RunLog } from '@agent-ci/run/run-log.js';
 import { superviseAttempts } from '@agent-ci/run/supervisor.js';
 import {
@@ -263,26 +263,36 @@ export async function runAgent(
     const refused = checkStructured(structured, options, route);
     if (refused !== undefined) return refused;
   }
+  const promptOptions = {
+    useCase: options.useCase,
+    targetRepo: options.targetRepo,
+    outputContract: options.outputContract,
+    mode: options.mode,
+    prompt: options.prompt,
+    verdictItems: options.verdictItems,
+    ...(options.targetPaths === undefined
+      ? {}
+      : { targetPaths: options.targetPaths }),
+    ...(options.untrustedContext === undefined
+      ? {}
+      : { untrustedContext: options.untrustedContext }),
+  };
   const prompt =
     structured !== undefined
       ? options.prompt.trim() === ''
         ? failure('E_INVALID_INPUT', 'the prompt is empty')
         : success(options.prompt)
-      : buildRunPrompt({
-          useCase: options.useCase,
-          targetRepo: options.targetRepo,
-          outputContract: options.outputContract,
-          mode: options.mode,
-          prompt: options.prompt,
-          verdictItems: options.verdictItems,
-          ...(options.targetPaths === undefined
-            ? {}
-            : { targetPaths: options.targetPaths }),
-          ...(options.untrustedContext === undefined
-            ? {}
-            : { untrustedContext: options.untrustedContext }),
-        });
+      : buildRunPrompt(promptOptions);
   if (!prompt.ok) return prompt;
+  // Claude expands a native slash command only at the start of its user
+  // message. Keep the task intact and place the execution contract in its
+  // supported system-prompt channel. Structured reviewer prompts already own
+  // their entire protocol and must not be changed here.
+  const nativeInstructions =
+    route.harness === 'claude' && structured === undefined
+      ? buildRunInstructions(promptOptions)
+      : success<string | undefined>(undefined);
+  if (!nativeInstructions.ok) return nativeInstructions;
 
   // The home root holds credentials (seeded or refreshed logins) and
   // invocation files: it must never be the workspace or inside it, where it
@@ -351,6 +361,7 @@ export async function runAgent(
       { root: boundaryRoot, git: boundary.value.git },
       outputDir.value,
       pinned.value,
+      nativeInstructions.value,
     );
   } finally {
     // A temp root may hold a seeded login; never leave it behind.
@@ -368,6 +379,7 @@ async function runInHome(
   boundary: { readonly root: string; readonly git: boolean },
   outDir: string,
   workspacePin: GitPin | undefined,
+  nativeInstructions: string | undefined,
 ): Promise<Result<RunSummary>> {
   const boundaryRoot = boundary.root;
   const direct =
@@ -687,7 +699,13 @@ async function runInHome(
                     adapter,
                     {
                       route,
-                      prompt: promptText,
+                      prompt:
+                        nativeInstructions === undefined
+                          ? promptText
+                          : options.prompt,
+                      ...(nativeInstructions === undefined
+                        ? {}
+                        : { systemPrompt: nativeInstructions }),
                       cwd: attemptCwd,
                       mode: options.mode,
                       home: homeRoot,

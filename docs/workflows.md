@@ -30,6 +30,7 @@ page, [PR review](pr-review.md).
 | Workflow                  | Use it to                                                                                        | Caller permissions                                        |
 | ------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | `run-agent.yml`           | Run one prompt with a chosen model and optionally publish a pull request and comment.            | `contents: write`, `pull-requests: write`                 |
+| `pr-agent.yml`            | Execute a trusted PR comment, verify the result and update that PR's existing branch.            | `contents: write`, `pull-requests: write`                 |
 | `agent-job.yml`           | Internal: the agent job of `run-agent.yml`. Do not call it.                                      | n/a                                                       |
 | `pr-review.yml`           | Review a pull request on request and publish one review.                                         | `contents: read`, `issues: write`, `pull-requests: write` |
 | `fan-out.yml`             | Run one maintenance preset across the repositories in a `targets.yaml`.                          | `contents: write`, `pull-requests: write`                 |
@@ -92,11 +93,12 @@ Key inputs (all optional; see the file for every input):
 
 Outputs: `status`, `pr_url` and `comment_url`.
 
-The optional `AGENT_CI_PROXY_BASE_URL` secret reaches only the agent step,
-and only for a pool route. The two agent wrappers (`docs-update.yml`,
+The optional `AGENT_CI_PROXY_BASE_URL` secret is available during route
+selection so the policy can admit remote HTTPS pools on hosted runners.
+It reaches the agent step only for a pool route. The two agent wrappers (`docs-update.yml`,
 `instructions-update.yml`) and `fan-out.yml` pass it on
-to `run-agent.yml`; `pr-review.yml` gives it to its reviewer and adjudicator
-steps under the same rule. See
+to `run-agent.yml`; `pr-agent.yml` and `pr-review.yml` use it during route
+selection and pass it to their execution steps under the same rule. See
 [Configuration and credentials](configuration.md).
 
 Publishing details (`agent-ci publish`):
@@ -122,6 +124,22 @@ Publishing details (`agent-ci publish`):
 
 Edit runs that may retry run every attempt in a fresh copy of the repository
 and promote only the successful attempt's changes.
+
+## pr-agent.yml
+
+Runs a newly created `/agent-ci` or `@agent-ci` comment against an open
+same-repository PR. Its gate captures the exact head and review context;
+an optional setup job prepares dependencies; `agent-job.yml` runs the task
+with one model credential; a separate hosted job verifies the reconstructed
+tree; and the publisher commits to the existing head after stale-state checks.
+Task text travels in a digest-bound artifact, never a job output or shell
+script. The workflow serializes executions per repository.
+
+`model`, `allowed_models` and `check_command` are required. Repository skills
+come from `skills_source` in the pinned PR checkout and use native harness
+invocation syntax. The workflow exports `status`, `commit` and `pr_url`.
+See [PR commands](pr-commands.md) for setup, authorization, native skill
+limits, conflict handling and the real-comment dispatch test path.
 
 ## pr-review.yml
 
@@ -252,6 +270,7 @@ the `uses:` ref, and add the secrets it lists.
 | Template                                        | Calls                                       | Triggers                                                                        | Secrets                                                                     |
 | ----------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `consumer-workflows/agent-ci-run.yml`           | `run-agent.yml` (edit mode, publishes a PR) | `workflow_dispatch` with `prompt` and `model`                                   | one model secret                                                            |
+| `consumer-workflows/agent-ci-pr-command.yml`    | `pr-agent.yml`                              | `issue_comment` (created), `workflow_dispatch` with a real `comment_id`         | one model secret, optional `AGENT_CI_PUBLISH_TOKEN`                         |
 | `consumer-workflows/agent-ci-pr-review.yml`     | `pr-review.yml`                             | `pull_request_target` (labeled), `issue_comment` (created), `workflow_dispatch` | the reviewer model secrets, optional `AGENT_CI_PROXY_BASE_URL`              |
 | `consumer-workflows/agent-ci-docs-update.yml`   | `docs-update.yml`                           | weekly schedule, `workflow_dispatch`                                            | one model secret                                                            |
 | `consumer-workflows/agent-ci-tools-update.yml`  | `tools-update.yml`                          | weekly schedule, `workflow_dispatch`                                            | none                                                                        |
@@ -274,3 +293,8 @@ this repository; label `agent-ci-fanout-selftest`) and
 by the review labels). The first two can also be dispatched. They use
 `pull_request` because the workflows reach the default branch only when they
 merge.
+
+The registered `agent-ci-selftest.yml` caller also provides the pre-merge
+dispatch path for `pr-agent.yml` using an actual command comment ID. That
+path updates the test PR's existing branch rather than opening a static
+branch PR; see [PR commands](pr-commands.md#replay-a-real-comment-for-a-pre-merge-test).

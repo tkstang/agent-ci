@@ -24,15 +24,12 @@ gaps are tracked in the [backlog](../.oat/repo/pjm/backlog/index.md).
 - **No write token next to the agent.** Jobs that publish hold no model
   credential and run no repository code; jobs that run the agent hold no
   write-capable token.
-- **agent-ci never runs repository or pull-request code next to a model
-  credential.** It runs no setup command, repository skill or check in a
-  job that holds one; in PR review the only job that runs pull-request code
-  (the verify-review `verify` job) holds no model credential and no helper
-  token. The harness itself is a separate matter: a Codex or Cursor
-  reviewer's own shell can still run files from the pull-request checkout
-  while the credential is in its environment (see
-  [Residual risk](#residual-risk)). A Claude or OpenCode reviewer has no
-  shell.
+- **Setup and final verification run without model credentials.** Edit-mode
+  agents can execute repository code and installed skills while holding
+  their own model credential. Read-only review jobs install no repository
+  skills or setup command; a Codex or Cursor reviewer's own shell can still
+  run checkout files while its credential is in the environment. A Claude
+  or OpenCode reviewer has no shell. See [Residual risk](#residual-risk).
 
 ## Trust boundaries by job
 
@@ -58,6 +55,32 @@ restore`), accepting only directories, regular files, in-tree links and hard
 links, never `.git`, absolute paths, devices or setuid bits. The publish job
 downloads the agent's artifact by ID and refuses it unless its content
 digest matches the one the agent job recorded.
+
+### pr-agent.yml
+
+| Job                       | Repository code                                                              | Model credential           | GitHub write                                                    |
+| ------------------------- | ---------------------------------------------------------------------------- | -------------------------- | --------------------------------------------------------------- |
+| `gate`                    | no target checkout                                                           | none                       | eyes reaction on an accepted command comment                    |
+| `setup`                   | optional dependency preparation                                              | none                       | none                                                            |
+| `agent` (`agent-job.yml`) | edits, shell commands and installed skills                                   | the route's one credential | none                                                            |
+| `verify`                  | configured checks on the reconstructed final tree, on a GitHub-hosted runner | none                       | none; read-only `GITHUB_TOKEN` and Actions runtime token remain |
+| `publish`                 | no target code execution; Git plumbing only                                  | none                       | existing branch update and PR summary                           |
+
+The gate downloads no target code and fetches the real command comment
+through GitHub. It checks the requester's current permission, the PR
+author's trust, same-repository branches and an open PR. It rejects edited
+commands, bot requesters and protected target heads. A dispatch replay
+requires the fetched comment author to equal the dispatcher. The task and
+review observations travel only inside a digest-bound request artifact.
+
+The agent and verification jobs never receive `AGENT_CI_PUBLISH_TOKEN`.
+Each downstream job downloads the request and result by their producing
+job's artifact ID and verifies their content digest. Verification and
+publication independently rebuild the final tree from the pinned commits
+and the captured file changes, including the recomputed merge baseline
+when the base conflicts. Publication requires successful verification and
+rechecks the PR's head and base state before an exact-head lease push.
+See [PR commands](pr-commands.md) for invocation and conflict limits.
 
 ### pr-review.yml
 
@@ -95,8 +118,9 @@ no write token. Its resolve and publish jobs match `run-agent.yml`'s.
 
 ## Private target output
 
-Every reusable execution workflow accepts `private_target` (default `false`)
-and supplies `AGENT_CI_PRIVATE_TARGET` to its agent-ci commands. Wrappers and
+The general execution and maintenance workflows and PR review accept
+`private_target` (default `false`) and supply `AGENT_CI_PRIVATE_TARGET` to
+their agent-ci commands. Wrappers and
 review parents forward the input explicitly because workflow-level environments
 do not propagate to called reusable workflows. Fan-out enables it when either
 the workflow input or a selected target's `private: true` is set. Selection
@@ -137,7 +161,7 @@ See [Workflows](workflows.md#fan-outyml-and-targetsyaml).
 - **Checkouts do not persist credentials** (`persist-credentials: false`),
   except the publish jobs' target checkout: `agent-ci publish` pushes with
   that checkout's token, and the publish job runs no repository code.
-- **The verify job gets no helper token.** agent-ci reaches it as a bundle
+- **The verify-review job gets no helper token.** agent-ci reaches it as a bundle
   the gate job uploads, checked against its sha256.
 - **Pool routes** need an explicit opt-in and run in CI only on a self-hosted
   runner, or on any runner through a remote https `AGENT_CI_PROXY_BASE_URL`.
@@ -201,10 +225,15 @@ credential over the network.
 
 ## Publishing and path policies
 
-- Publishing never force-pushes. Static branches live under `agent-ci/`,
+- Static-branch publishing uses ordinary fast-forward pushes. Static branches live under `agent-ci/`,
   and agent-ci updates a branch or pull request only when its own
   publishing identity made the head commit or opened it, unless
   `adopt_branch` (or `reset` in fan-out) is set.
+- PR-command publishing updates the authorized PR head rather than an
+  agent-owned branch. The publisher first proves that its new commit has
+  the pinned head as its first parent, then uses `--force-with-lease` with
+  that exact expected head as a compare-and-swap check. It cannot discard
+  the captured branch history, and a concurrent branch change is refused.
 - The use-case presets publish only paths their policy allows (for example,
   docs-update refuses `.github/`, provider directories, MCP configuration
   and package manifests). The policy is checked against the change set and

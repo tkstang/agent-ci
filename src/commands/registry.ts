@@ -4,6 +4,7 @@ import { harnessCommand } from '@agent-ci/commands/harness.js';
 import { helpersCommand } from '@agent-ci/commands/helpers.js';
 import { modelsCommand } from '@agent-ci/commands/models.js';
 import { notifyCommand } from '@agent-ci/commands/notify.js';
+import { prRunCommand } from '@agent-ci/commands/pr-run.js';
 import { presetCommand } from '@agent-ci/commands/preset.js';
 import { publishCommand } from '@agent-ci/commands/publish.js';
 import { reviewCommand } from '@agent-ci/commands/review.js';
@@ -27,6 +28,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   skillsCommand,
   publishCommand,
   reviewCommand,
+  prRunCommand,
   presetCommand,
   targetsCommand,
   toolsUpdateCommand,

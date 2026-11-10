@@ -24,6 +24,16 @@ const REPLAY_CLI = fileURLToPath(
 
 const MODELS = `version: 1
 routes:
+  - id: claude-test
+    model: claude-test
+    harness: claude
+    family: claude
+    providerModel: synthetic-claude
+    credentials: [CLAUDE_CODE_OAUTH_TOKEN]
+    billing: subscription
+    account: personal
+    structuredOutput: json-schema
+    qualified: null
   - id: codex-login
     model: codex-login
     harness: codex
@@ -160,6 +170,70 @@ const opencodeAnswer = (text: string) =>
   })}\n`;
 
 describe('runAgent', () => {
+  it('preserves the native Claude task on every attempt while keeping execution context separate', async () => {
+    const task =
+      '/resolve-review use $fix-ci and keep the PHP $response variable';
+    const context = 'Review observation: preserve the public response shape.';
+    const opts = await options({
+      model: 'claude-test',
+      prompt: task,
+      untrustedContext: context,
+      maxAttempts: 2,
+      env: {
+        PATH: process.env.PATH,
+        CLAUDE_CODE_OAUTH_TOKEN: 'synthetic-claude-test-key',
+      },
+    });
+    const attempts: string[][] = [];
+    const summary = await runAgent(opts, {
+      harness: {
+        spawn: async (spec) => {
+          attempts.push([...spec.args]);
+          return okProcess(
+            `${JSON.stringify(
+              attempts.length === 1
+                ? {
+                    type: 'result',
+                    is_error: true,
+                    result: 'API Error: Overloaded',
+                    api_error_status: 529,
+                  }
+                : {
+                    type: 'result',
+                    is_error: false,
+                    result: JSON.stringify({
+                      summary: 'The native task was received.',
+                      report: { title: 'Result', markdown: 'No edits needed.' },
+                    }),
+                  },
+            )}\n`,
+          );
+        },
+      },
+    });
+    expect(summary.ok && summary.value.result.ok).toBe(true);
+    expect(attempts).toHaveLength(2);
+    for (const args of attempts) {
+      expect(args.slice(args.indexOf('--') + 1)).toEqual([task]);
+      const instructionIndex = args.indexOf('--append-system-prompt');
+      expect(instructionIndex).toBeGreaterThan(-1);
+      const instructions = args[instructionIndex + 1] ?? '';
+      expect(instructions).toContain('Do not run git commands');
+      expect(instructions).toContain('outputContract: report');
+      expect(instructions).toContain(Buffer.from(context).toString('base64'));
+      expect(instructions).not.toContain(task);
+      expect(instructions).not.toContain(context);
+    }
+    expect(attempts[0]).toEqual(attempts[1]);
+    const recorded = await readFile(
+      path.join(opts.outDir!, 'prompt.md'),
+      'utf8',
+    );
+    expect(recorded).toContain(task);
+    expect(recorded).toContain('Do not run git commands');
+    expect(recorded).toContain(Buffer.from(context).toString('base64'));
+  });
+
   it('times out a hanging harness and still writes a failed result', async () => {
     const opts = await options({ model: 'fake-hang', timeoutMs: 1_000 });
     const summary = await runAgent(opts);

@@ -12,6 +12,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
+    inputs:
+      comment_id:
+        description: Replay your real PR command through the PR-agent consumer test.
+        default: ''
+      command_model:
+        description: Harness used only by the PR-comment consumer test.
+        type: choice
+        options: [fake-edit, grok-4.7]
+        default: fake-edit
 
 permissions:
   contents: read
@@ -24,7 +33,7 @@ jobs:
   fake-run:
     name: Fake harness run and publish
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.comment_id == '') ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        contains(github.event.pull_request.labels.*.name, 'agent-ci-selftest'))
     permissions:
@@ -48,7 +57,7 @@ jobs:
   harness-smoke:
     name: Harness install and Codex sandbox smoke check
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.comment_id == '') ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        contains(github.event.pull_request.labels.*.name, 'agent-ci-selftest'))
     runs-on: ubuntu-latest
@@ -88,3 +97,75 @@ jobs:
 
       - name: Smoke-test the Codex sandbox again
         run: agent-ci harness smoke --harness codex --report-only
+
+  pr-command:
+    name: PR-comment reusable workflow consumer test
+    if: github.event_name == 'workflow_dispatch' && inputs.comment_id != ''
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/pr-agent.yml
+    with:
+      comment_id: ${{ inputs.comment_id }}
+      model: ${{ inputs.command_model || 'fake-edit' }}
+      harness: ${{ inputs.command_model == 'grok-4.7' && 'cursor' || 'fake' }}
+      allowed_models: fake-edit,grok-4.7
+      # Live skills are supplied only on the disposable test PR's head ref.
+      skills_source: .github/agent-ci/test-skills
+      check_command: >-
+        if [ -f agent-ci-command-test.mjs ]; then node --test agent-ci-command-test.mjs;
+        else test -f agent-ci-fake-edit.md; fi
+      max_attempts: 1
+      timeout_minutes: 10
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+
+  pr-command-assert:
+    name: Assert the published consumer result
+    needs: pr-command
+    if: github.event_name == 'workflow_dispatch' && inputs.comment_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the published result
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert published history
+        env:
+          FINAL_SHA: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
+          ORIGINAL_HEAD_SHA: ${{ needs.pr-command.outputs.head_sha }}
+          BASE_SHA: ${{ needs.pr-command.outputs.base_sha }}
+          CHANGED: ${{ needs.pr-command.outputs.status == 'changed' }}
+          EXPECT_BASE_MERGED: ${{ inputs.command_model == 'grok-4.7' }}
+        run: |
+          [[ "$FINAL_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ORIGINAL_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [ "$CHANGED" = true ]; then
+            test "$(git rev-parse "$FINAL_SHA^1")" = "$ORIGINAL_HEAD_SHA"
+          fi
+          if [ "$EXPECT_BASE_MERGED" = true ]; then
+            git merge-base --is-ancestor "$BASE_SHA" "$FINAL_SHA"
+          fi
+      - name: Assert published content
+        if: inputs.command_model == 'grok-4.7'
+        env:
+          FINAL_SHA: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          const read = (file) => execFileSync('git', ['show', `${process.env.FINAL_SHA}:${file}`], { encoding: 'utf8' });
+          assert.match(read('agent-ci-command-fixture.mjs'), /return 42;/);
+          const conflict = read('agent-ci-command-conflict.txt');
+          assert.match(conflict, /base wording/);
+          assert.match(conflict, /feature wording/);
+          assert.doesNotMatch(conflict, /^(<<<<<<<|=======|>>>>>>>)/m);
+          assert.equal(read('agent-ci-command-base-only.txt'), 'base addition\n');
+          assert.equal(read('agent-ci-skill-order.txt'), 'first\nsecond\n');
+          JS

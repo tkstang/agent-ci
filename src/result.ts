@@ -48,6 +48,10 @@ export const ERROR_CODES = [
   'E_PATH_POLICY',
   'E_PUBLISH',
   'E_PUBLISH_STALE_BASE',
+  // PR-comment execution
+  'E_PR_RUN_REQUEST',
+  'E_PR_RUN_STALE_HEAD',
+  'E_PR_RUN_FAILED',
   // Fan-out targets and use-case wrappers
   'E_TARGETS_CONFIG',
   'E_TARGET_NOT_FOUND',

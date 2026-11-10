@@ -12,6 +12,8 @@ export type RunMode = (typeof RUN_MODES)[number];
 export interface HarnessRequest {
   readonly route: Route;
   readonly prompt: string;
+  /** Additional execution instructions, separate from the native user prompt. */
+  readonly systemPrompt?: string | undefined;
   /** Workspace the agent runs in. */
   readonly cwd: string;
   readonly mode: RunMode;

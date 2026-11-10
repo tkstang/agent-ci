@@ -534,6 +534,7 @@ describe('workflow class sweep', () => {
     // agent-ci publish runs `git push` in this checkout and authenticates
     // with the token actions/checkout persisted there.
     const pushesWithCheckoutToken = [
+      '.github/workflows/pr-agent.yml publish/Check out the PR head for publishing',
       '.github/workflows/run-agent.yml publish/Check out the target repository',
       '.github/workflows/tools-update.yml publish/Check out the target repository',
     ];
