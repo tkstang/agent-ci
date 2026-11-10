@@ -342,6 +342,37 @@ describe('proxy origin secret chain', () => {
   });
 });
 
+describe('public-only chain', () => {
+  it('carries public_only from fan-out into both resolve steps', async () => {
+    const fan = await fanOut();
+    for (const nested of ['run-agent.yml', 'tools-update.yml']) {
+      const calls = Object.values(fan.jobs).filter(
+        (job) => job.uses === `./.github/workflows/${nested}`,
+      );
+      expect(calls.length, nested).toBe(1);
+      expect(calls[0]?.with?.public_only, nested).toBe(
+        '${{ inputs.public_only }}',
+      );
+      const workflow = await load(`.github/workflows/${nested}`);
+      const inputs = (
+        workflow.on.workflow_call as { inputs: Record<string, unknown> }
+      ).inputs;
+      expect(inputs.public_only, nested).toMatchObject({
+        type: 'boolean',
+        default: false,
+      });
+      const resolve = step(
+        workflow.jobs.resolve ?? {},
+        'Resolve the target repository, commit and base',
+      );
+      expect(resolve.env?.PUBLIC_ONLY, nested).toBe(
+        '${{ inputs.public_only }}',
+      );
+      expect(resolve.run, nested).toContain('--public-only "$PUBLIC_ONLY"');
+    }
+  });
+});
+
 describe('fleet and consumer templates', () => {
   it('pin the reusable workflows, grant the publish scopes and pass explicit secrets', async () => {
     const cases: [string, string, string[]][] = [

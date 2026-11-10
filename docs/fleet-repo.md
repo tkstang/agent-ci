@@ -33,8 +33,8 @@ setting is needed.
    fleet on GitHub-hosted runners for public targets, or a private fleet on
    admitted self-hosted runners for private targets and subscription-pool
    routes (see [Choosing how models run](running-models.md)). The public
-   template sets `public_only: true`, so its runs refuse any target GitHub
-   does not report as public (`E_TARGET_VISIBILITY`). Keep private targets in the private fleet while artifact encryption
+   template sets `public_only: true` (see [Workflows](workflows.md#fan-outyml-and-targetsyaml)).
+   Keep private targets in the private fleet while artifact encryption
    remains unimplemented; output suppression does not protect artifacts.
 2. Configure the targets in a file, or use the JSON-only private template
    described below. For a file, add `targets.yaml` at the caller root:
@@ -84,8 +84,7 @@ setting is needed.
      `CLAUDE_CODE_OAUTH_TOKEN`; add each required credential explicitly
      (validation does not check presence). The private pool template maps
      `AGENT_CI_PROXY_API_KEY` for Codex and the same existing key into
-     `ANTHROPIC_AUTH_TOKEN` for Claude Code; the public template carries the
-     same lines commented out. `tools-update` needs none;
+     `ANTHROPIC_AUTH_TOKEN` for Claude Code. `tools-update` needs none;
    - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes (self-hosted
      runner, `allow_pool: true` and `AGENT_CI_PROXY_API_KEY`); see
      [Configuration and credentials](configuration.md).

@@ -25,17 +25,16 @@ what each job can reach in [Security model](security-model.md).
 
 ## The setups
 
-| Setup                     | Runner                                | How the model is reached                                                | What you provide                                                               | Main risk                                                                 |
-| ------------------------- | ------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| Subscription token        | GitHub-hosted                         | Directly, with your own subscription token                              | The route's token, for example `CLAUDE_CODE_OAUTH_TOKEN` or `OPENCODE_API_KEY` | The token reaches the agent step of every run that uses its route         |
-| Your machine (proxy pool) | Self-hosted, able to reach your proxy | Your CLIProxyAPI pool, on loopback or through `AGENT_CI_PROXY_BASE_URL` | The pool key, `allow_pool: true`, an admitted runner                           | Whoever controls the caller repository controls what runs on your machine |
-| Paid API key              | Any                                   | The provider API, metered                                               | The API key and an exact `route:`                                              | It spends money; agent-ci never chooses it for you                        |
+| Setup                     | Runner                                      | How the model is reached                                                | What you provide                                                               | Main risk                                                                    |
+| ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Subscription token        | GitHub-hosted                               | Directly, with your own subscription token                              | The route's token, for example `CLAUDE_CODE_OAUTH_TOKEN` or `OPENCODE_API_KEY` | The token reaches the agent step of every run that uses its route            |
+| Your machine (proxy pool) | Self-hosted, registered to a private caller | Your CLIProxyAPI pool, on loopback or through `AGENT_CI_PROXY_BASE_URL` | The pool key, `allow_pool: true`, an admitted runner                           | Whoever can change the caller's workflows controls what runs on your machine |
+| Paid API key              | Any                                         | The provider API, metered                                               | The API key and an exact `route:`                                              | It spends money; agent-ci never chooses it for you                           |
 
-In CI, a pool route resolves only on a self-hosted runner with the
-`allow_pool` opt-in (`E_POLICY_POOL_CI` otherwise), and a login route never
-resolves (`E_POLICY_LOGIN_CI`). A subscription route that is skipped never
-falls back to a paid route (`E_POLICY_FALLBACK`). Claude models always run
-through Claude Code, whichever setup reaches them.
+Which routes resolve in CI, and why a skipped subscription route never falls
+back to a paid one, is described under
+[Policy](harnesses-and-routing.md#policy). Claude models always run through
+Claude Code, whichever setup reaches them.
 
 ## Subscription token on GitHub-hosted runners
 
@@ -60,9 +59,10 @@ the pool key: `AGENT_CI_PROXY_API_KEY` for Codex routes, mapped to
 origin, for example when the runner is a VM that cannot reach its host's
 loopback.
 
-The runner runs target code and the agent. Give each fleet its own runner,
-prefer one that is discarded after each job, and never share a private
-fleet's runner with a public caller. Runner admission and proxy setup are
+The runner runs target code and the agent. Register it only to a private
+caller: in a public repository, a fork pull request can add a workflow that
+runs on any self-hosted runner the repository has. Give each fleet its own
+runner and prefer one that is discarded after each job. Runner admission and proxy setup are
 described in
 [Self-hosted runners and the proxy](configuration.md#self-hosted-runners-and-the-proxy).
 
@@ -75,12 +75,10 @@ unavailable.
 
 ## Which template to start from
 
-| Template                                        | Targets     | Default setup                     | Other setups                                      |
-| ----------------------------------------------- | ----------- | --------------------------------- | ------------------------------------------------- |
-| `consumer-workflows/agent-ci-fleet.yml`         | Public only | Subscription token, GitHub-hosted | Your machine (commented `runs_on` and pool lines) |
-| `consumer-workflows/agent-ci-private-fleet.yml` | Private     | Your machine                      | Add a route's token under `secrets:`              |
+| Template                                        | Targets                                                                                     | Default setup                     | Other setups                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
+| `consumer-workflows/agent-ci-fleet.yml`         | Public only (`public_only: true`, see [Workflows](workflows.md#fan-outyml-and-targetsyaml)) | Subscription token, GitHub-hosted | Paid API key, or another route's token under `secrets:` |
+| `consumer-workflows/agent-ci-private-fleet.yml` | Private                                                                                     | Your machine                      | Add a route's token under `secrets:`                    |
 
-The public template sets `public_only: true`, so every run refuses a target
-GitHub does not report as public (`E_TARGET_VISIBILITY`) before any job runs
-its code. Setting up either fleet repository is described in
+Setting up either fleet repository is described in
 [Using agent-ci from another repository](fleet-repo.md).

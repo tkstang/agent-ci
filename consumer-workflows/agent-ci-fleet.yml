@@ -7,9 +7,10 @@
 # targets use agent-ci-private-fleet.yml from a private fleet repository
 # instead. This repository's Actions logs and artifacts are public too.
 #
-# How models run: see docs/running-models.md in agent-ci. This template
-# starts with a subscription token on GitHub-hosted runners; the commented
-# lines below show the pool setup. Set AGENT_CI_TARGETS_JSON as a repository
+# How models run: see docs/running-models.md in agent-ci. This template uses
+# a subscription token on GitHub-hosted runners. Do not attach a self-hosted
+# runner to a public repository: a fork pull request can add a workflow that
+# runs on it. Run pool routes from a private fleet. Set AGENT_CI_TARGETS_JSON as a repository
 # variable for a JSON target array appended after targets.yaml; leave it
 # unset to use only the file. Variables are visible configuration.
 #
@@ -76,19 +77,8 @@ jobs:
       targets_file: targets.yaml
       targets_json: ${{ vars.AGENT_CI_TARGETS_JSON }}
       public_only: true
-      # Your machine (docs/running-models.md): a self-hosted runner whose host
-      # can reach your proxy pool. Register a runner for this repository only,
-      # ideally one discarded after each job, never a private fleet's runner.
-      # Uncomment together with the pool secrets below.
-      # runs_on: '["self-hosted","linux","your-public-fleet-label"]'
-      # allow_pool: true
     secrets:
       AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       # Add the credential of every other route your targets use, for example:
       # OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-      # Pool routes (with runs_on and allow_pool above): your pool key, mapped
-      # for Codex and for Claude Code, and optionally your pool's https origin.
-      # AGENT_CI_PROXY_API_KEY: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
-      # ANTHROPIC_AUTH_TOKEN: ${{ secrets.AGENT_CI_PROXY_API_KEY }}
-      # AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}

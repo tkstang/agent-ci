@@ -249,14 +249,14 @@ output `status` and `pr_url`.
 Copy one of these into the calling repository's `.github/workflows/`, pin
 the `uses:` ref, and add the secrets it lists.
 
-| Template                                        | Calls                                       | Triggers                                                                        | Secrets                                                                                               |
-| ----------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `consumer-workflows/agent-ci-run.yml`           | `run-agent.yml` (edit mode, publishes a PR) | `workflow_dispatch` with `prompt` and `model`                                   | one model secret                                                                                      |
-| `consumer-workflows/agent-ci-pr-review.yml`     | `pr-review.yml`                             | `pull_request_target` (labeled), `issue_comment` (created), `workflow_dispatch` | the reviewer model secrets, optional `AGENT_CI_PROXY_BASE_URL`                                        |
-| `consumer-workflows/agent-ci-docs-update.yml`   | `docs-update.yml`                           | weekly schedule, `workflow_dispatch`                                            | one model secret                                                                                      |
-| `consumer-workflows/agent-ci-tools-update.yml`  | `tools-update.yml`                          | weekly schedule, `workflow_dispatch`                                            | none                                                                                                  |
-| `consumer-workflows/agent-ci-private-fleet.yml` | `fan-out.yml`                               | `workflow_dispatch` only; review admission before scheduling                    | target write/read tokens, existing pool key, optional proxy origin                                    |
-| `consumer-workflows/agent-ci-fleet.yml`         | `fan-out.yml`                               | `workflow_dispatch` with `preset`, `target`, `reset`; public targets only       | `AGENT_CI_TARGET_TOKEN` and the model secret of every route the targets use; pool lines commented out |
+| Template                                        | Calls                                       | Triggers                                                                        | Secrets                                                                     |
+| ----------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `consumer-workflows/agent-ci-run.yml`           | `run-agent.yml` (edit mode, publishes a PR) | `workflow_dispatch` with `prompt` and `model`                                   | one model secret                                                            |
+| `consumer-workflows/agent-ci-pr-review.yml`     | `pr-review.yml`                             | `pull_request_target` (labeled), `issue_comment` (created), `workflow_dispatch` | the reviewer model secrets, optional `AGENT_CI_PROXY_BASE_URL`              |
+| `consumer-workflows/agent-ci-docs-update.yml`   | `docs-update.yml`                           | weekly schedule, `workflow_dispatch`                                            | one model secret                                                            |
+| `consumer-workflows/agent-ci-tools-update.yml`  | `tools-update.yml`                          | weekly schedule, `workflow_dispatch`                                            | none                                                                        |
+| `consumer-workflows/agent-ci-private-fleet.yml` | `fan-out.yml`                               | `workflow_dispatch` only; review admission before scheduling                    | target write/read tokens, existing pool key, optional proxy origin          |
+| `consumer-workflows/agent-ci-fleet.yml`         | `fan-out.yml`                               | `workflow_dispatch` with `preset`, `target`, `reset`; public targets only       | `AGENT_CI_TARGET_TOKEN` and the model secret of every route the targets use |
 
 `actionlint` checks every template in CI.
 
