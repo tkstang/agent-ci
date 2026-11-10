@@ -200,7 +200,7 @@ secrets:
 ```
 
 The defaults do not enable pool spending, choose a self-hosted runner or set
-a proxy origin for you. Configure both explicitly before using the default Sol reviewer or the
+a proxy origin for you. Configure them explicitly before using the default Sol reviewer or the
 optional Opus reviewer. Runner setup is in
 [Configuration and credentials](configuration.md#self-hosted-runners-and-the-proxy).
 
@@ -209,11 +209,15 @@ from it and keeps its own path, so the Codex pool route uses
 `https://localhost/v1` for an origin of `https://localhost`.
 The value must be a canonical `https` origin with no trailing slash
 (`http` only for a loopback host) and is otherwise refused with
-`E_ROUTE_CONFIG`. It changes where the pool is
-reached, not who may use it: the policy above applies unchanged. agent-ci
-treats the value as a secret, never prints it, and refuses agent output
-that contains it; the workflows pass it only to the agent, review and
-adjudicator steps of a pool route.
+`E_ROUTE_CONFIG`. It changes where the pool is reached and, when its host
+does not reach the runner itself (not `localhost`, `*.localhost`,
+`127.0.0.0/8`, `[::1]`, IPv4-mapped loopback, `0.0.0.0` or `[::]`), lets a
+pool route run on a runner that is not self-hosted; the opt-in still
+applies. agent-ci treats the value as a secret, never prints it, and
+refuses agent output that contains it. The workflows pass it to every
+route-selection step, including the PR review gate, whatever route is
+chosen, because the policy needs it there; they pass it to the agent,
+review and adjudicator steps only for a pool route.
 
 ## Current routes
 

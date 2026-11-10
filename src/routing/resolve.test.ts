@@ -752,9 +752,40 @@ describe('proxy origin override (AGENT_CI_PROXY_BASE_URL)', () => {
         const shown = `${refused.message} ${refused.hint ?? ''}`;
         if (override.trim() !== '') expect(shown).not.toContain(override);
       }
+      // Valid origins whose host still reaches the runner itself: every
+      // loopback and unspecified form. Each one resolves as an origin
+      // locally, so the refusal is the policy's, not the origin rules'.
+      for (const override of [
+        'https://localhost.',
+        'https://app.localhost',
+        'https://127.0.0.2:8443',
+        'https://127.255.255.254',
+        'https://[::ffff:7f00:1]',
+        'https://0.0.0.0',
+        'https://[::]',
+        'https://[::ffff:0:0]',
+      ]) {
+        expect(baseUrl('claude-pool', local(override)), override).toBe(
+          override,
+        );
+        expect(
+          resolve(routeId, true, 'github-hosted', override),
+          `${routeId} ${override}`,
+        ).toMatchObject({ code: 'E_POLICY_POOL_CI' });
+      }
       expect(resolve(routeId, false, 'self-hosted')).toMatchObject({
         code: 'E_POLICY_POOL',
       });
+    }
+    // A host that merely contains a loopback-looking label is remote.
+    for (const remote of [
+      'https://localhost.example.com',
+      'https://127.0.0.1.example.com',
+    ]) {
+      const admitted = resolve('codex-pool', true, 'github-hosted', remote);
+      expect(admitted.ok && admitted.value.route.baseUrl, remote).toBe(
+        `${remote}/v1`,
+      );
     }
     // A pool route with no baseUrl never uses the override, so a remote
     // origin does not admit it off a self-hosted runner.

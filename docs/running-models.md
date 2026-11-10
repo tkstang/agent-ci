@@ -76,7 +76,8 @@ internet over https. Set `allow_pool: true`, and pass the pool key as above
 plus the `AGENT_CI_PROXY_BASE_URL` secret with the pool's origin
 (`https://host[:port]`, nothing after it). On a runner that is not
 self-hosted, a pool route resolves only when that origin is valid and its
-host is not a loopback host (DR-261110-allow-pool-routes-on-hosted).
+host does not reach the runner itself: no loopback or unspecified address
+(DR-261110-allow-pool-routes-on-hosted).
 
 Each job runs on a fresh GitHub VM, and fork pull requests receive no
 secrets, so neither your machine nor the key is exposed to outside

@@ -31,7 +31,9 @@ pool, and accepted the residual risk described under Consequences.
 
 Under CI, a pool route may also resolve on a runner that is not self-hosted
 when `AGENT_CI_PROXY_BASE_URL` is set to a valid origin whose host is not a
-loopback host. `parseOrigin` (`src/routing/proxy-origin.ts`) already accepts
+loopback host. Any form that reaches the runner itself counts as loopback here:
+`localhost` and `*.localhost`, `127.0.0.0/8`, `[::1]`, IPv4-mapped loopback,
+`0.0.0.0` and `[::]`. `parseOrigin` (`src/routing/proxy-origin.ts`) already accepts
 `http` only for loopback hosts, so the accepted origin is always https. On a
 self-hosted runner the rule is unchanged: loopback or the override.
 
