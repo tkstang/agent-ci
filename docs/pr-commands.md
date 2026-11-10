@@ -58,6 +58,10 @@ existing comment does not start a run; post a new command instead. Commands
 such as `/agent-ci-review` belong to the separate
 [PR review](pr-review.md) workflow.
 
+Once the gate accepts the command, agent-ci adds an eyes reaction (👀) to
+that comment to acknowledge it. A failed reaction does not stop the accepted
+task. Ignored or unauthorized comments receive no reaction.
+
 The requester must currently have write, maintain or admin access. The PR
 must be open and its head and base must belong to the calling repository.
 Draft PRs are allowed. Its human author also needs current write access;

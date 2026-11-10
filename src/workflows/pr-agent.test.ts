@@ -93,6 +93,10 @@ describe('PR command workflow authority and transport', () => {
   it('passes one route-selected credential to the read-only agent boundary', async () => {
     const { jobs, on } = await load('.github/workflows/pr-agent.yml');
     expect(Object.keys(on)).toEqual(['workflow_call']);
+    expect(jobs.gate?.permissions).toEqual({
+      contents: 'read',
+      'pull-requests': 'write',
+    });
     expect(jobs.agent?.uses).toBe('./.github/workflows/agent-job.yml');
     expect(jobs.agent?.permissions).toEqual({ contents: 'read' });
     expect(jobs.agent?.secrets?.AGENT_CI_CREDENTIAL).toBe(

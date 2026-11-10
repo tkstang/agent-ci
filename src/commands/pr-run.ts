@@ -24,7 +24,11 @@ import {
 import { digestResultDir, verifyResultDir } from '@agent-ci/publish/digest.js';
 import { createGit } from '@agent-ci/publish/git.js';
 import { readRunOutputs } from '@agent-ci/publish/publish.js';
-import { fetchTransport, GithubClient } from '@agent-ci/review/github.js';
+import {
+  fetchTransport,
+  GithubClient,
+  GithubError,
+} from '@agent-ci/review/github.js';
 import { runAgent } from '@agent-ci/run/execute.js';
 
 const USAGE = `agent-ci pr-run <gate|execute|materialize|publish>
@@ -124,8 +128,9 @@ export const prRunCommand: CommandSpec = {
         context.env.GITHUB_EVENT_PATH,
         'GITHUB_EVENT_PATH',
       );
+      const client = github(context);
       const result = await resolvePrRun({
-        github: github(context),
+        github: client,
         repository: required(
           context.env.GITHUB_REPOSITORY,
           'GITHUB_REPOSITORY',
@@ -155,6 +160,23 @@ export const prRunCommand: CommandSpec = {
       const digest = await digestResultDir(dir);
       if (!digest.ok) throw CliError.fromFailure(digest);
       const request = result.value.request;
+      // Match PR review acknowledgement: a reaction failure must not drop
+      // a request that already passed authorization and was persisted.
+      try {
+        await client.send(
+          {
+            method: 'POST',
+            path: `/repos/${request.repository}/issues/comments/${request.commentId}/reactions`,
+            body: { content: 'eyes' },
+          },
+          [200, 201],
+        );
+      } catch (error) {
+        if (!(error instanceof GithubError)) throw error;
+        context.log(
+          'Could not add the eyes reaction; continuing the accepted PR task.',
+        );
+      }
       if (flags['github-output'])
         await appendGithubOutput(context.env, {
           status: 'ready',

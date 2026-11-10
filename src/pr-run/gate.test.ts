@@ -1,5 +1,10 @@
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import { run } from '@agent-ci/cli.js';
 import { FakeGithub } from '@agent-ci/review/testing/fake-github.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { resolvePrRun } from './gate.js';
 import { parsePrRunRequest, PR_RUN_CONTEXT_BYTES } from './request.js';
@@ -69,6 +74,116 @@ function setup(body = '/agent-ci fix the build') {
   };
   return { input, github, comment, pull, event };
 }
+
+describe('PR command acknowledgement', () => {
+  it.each([200, 201, 403])(
+    'acknowledges an accepted comment without dropping the request when reactions return %s',
+    async (status) => {
+      const { github, event } = setup();
+      github.on('POST', `${API}/issues/comments/99/reactions`, {
+        status,
+        body: { id: 1 },
+      });
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-ack-'));
+      const eventFile = path.join(dir, 'event.json');
+      await writeFile(eventFile, JSON.stringify(event));
+      vi.stubGlobal('fetch', github.fetch());
+      try {
+        const result = await run(
+          [
+            'pr-run',
+            'gate',
+            '--model',
+            'fake-edit',
+            '--allowed-models',
+            'fake-edit',
+            '--out',
+            path.join(dir, 'request'),
+          ],
+          {
+            cwd: dir,
+            env: {
+              GITHUB_TOKEN: 'synthetic-github-token',
+              GITHUB_REPOSITORY: REPOSITORY,
+              GITHUB_ACTOR: 'maintainer',
+              GITHUB_EVENT_NAME: 'issue_comment',
+              GITHUB_EVENT_PATH: eventFile,
+            },
+            log: () => {},
+          },
+        );
+        expect(result.envelope).toMatchObject({
+          ok: true,
+          data: { status: 'ready' },
+        });
+        expect(github.sent('POST')).toEqual([
+          {
+            method: 'POST',
+            path: `${API}/issues/comments/99/reactions`,
+            body: { content: 'eyes' },
+          },
+        ]);
+        expect(
+          JSON.parse(
+            await readFile(path.join(dir, 'request', 'request.json'), 'utf8'),
+          ),
+        ).toMatchObject({ commentId: 99, headSha: HEAD });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each(['ignored', 'unauthorized'])(
+    'does not acknowledge an %s comment',
+    async (kind) => {
+      const { github, event } = setup(
+        kind === 'ignored' ? '/agent-ci-review' : '/agent-ci fix the build',
+      );
+      if (kind === 'unauthorized')
+        github.on('GET', `${API}/collaborators/maintainer/permission`, {
+          body: { permission: 'read' },
+        });
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-ci-no-ack-'));
+      const eventFile = path.join(dir, 'event.json');
+      await writeFile(eventFile, JSON.stringify(event));
+      vi.stubGlobal('fetch', github.fetch());
+      try {
+        const result = await run(
+          [
+            'pr-run',
+            'gate',
+            '--model',
+            'fake-edit',
+            '--allowed-models',
+            'fake-edit',
+            '--out',
+            path.join(dir, 'request'),
+          ],
+          {
+            cwd: dir,
+            env: {
+              GITHUB_TOKEN: 'synthetic-github-token',
+              GITHUB_REPOSITORY: REPOSITORY,
+              GITHUB_ACTOR: 'maintainer',
+              GITHUB_EVENT_NAME: 'issue_comment',
+              GITHUB_EVENT_PATH: eventFile,
+            },
+            log: () => {},
+          },
+        );
+        expect(result.envelope).toMatchObject(
+          kind === 'ignored'
+            ? { ok: true, data: { status: 'ignored' } }
+            : { ok: false, code: 'E_PR_RUN_REQUEST' },
+        );
+        expect(github.sent('POST')).toEqual([]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+});
 
 describe('resolvePrRun', () => {
   it.each([

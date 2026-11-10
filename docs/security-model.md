@@ -60,7 +60,7 @@ digest matches the one the agent job recorded.
 
 | Job                       | Repository code                                                              | Model credential           | GitHub write                                                    |
 | ------------------------- | ---------------------------------------------------------------------------- | -------------------------- | --------------------------------------------------------------- |
-| `gate`                    | no target checkout                                                           | none                       | none; current permissions and comment metadata only             |
+| `gate`                    | no target checkout                                                           | none                       | eyes reaction on an accepted command comment                    |
 | `setup`                   | optional dependency preparation                                              | none                       | none                                                            |
 | `agent` (`agent-job.yml`) | edits, shell commands and installed skills                                   | the route's one credential | none                                                            |
 | `verify`                  | configured checks on the reconstructed final tree, on a GitHub-hosted runner | none                       | none; read-only `GITHUB_TOKEN` and Actions runtime token remain |

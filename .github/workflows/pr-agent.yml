@@ -103,7 +103,7 @@ jobs:
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
     outputs:
       status: ${{ steps.gate.outputs.status }}
       request_artifact_id: ${{ steps.upload.outputs.artifact-id }}
