@@ -6,19 +6,19 @@
 
 - agent-ci v1 shipped (PR #25, 2026-10-26); its p02-p06 items are archived. Open work is follow-up from that delivery and the run-up to making the repository public.
 - Active: the self-hosted runner and proxy (proxy override shipped in PR #29; runner admission pending) and the flaky moved-base publish test.
+- Deferred (2026-11-09): letting a fleet add its own pool routes for its own endpoint ([#16](https://github.com/tkstang/agent-ci/issues/16)); it follows the public-fleet template and the https pool policy change.
 - Planned: route qualification, fleet target lists and protected artifacts, the Codex login route, publishing to the calling repository with an App token. Sequencing is in `pjm/roadmap.md`.
 
 <!-- OAT BACKLOG-INDEX -->
-
-| ID                                     | Title                                                               | Status | Priority | Scope   | Estimate |
-| -------------------------------------- | ------------------------------------------------------------------- | ------ | -------- | ------- | -------- |
-| BL-261025-fleet-repositories-merged    | Fleet repositories: merged target lists and protected artifacts     | open   | high     | feature | L        |
-| BL-261025-codex-chatgpt-login-route    | Codex ChatGPT-login route for the private fleet                     | open   | medium   | task    | M        |
-| BL-261030-make-the-moved-base-publish  | Make the moved-base publish test deterministic                      | open   | medium   | task    | S        |
-| BL-261025-qualify-the-ci-routes-live   | Qualify the CI routes live                                          | open   | medium   | task    | S        |
-| BL-261025-self-hosted-runner-and-proxy | Self-hosted runner and proxy readiness                              | open   | medium   | task    | S        |
-| BL-261025-publish-to-the-calling       | Publish to the calling repository with an optional GitHub App token | open   | low      | feature | S        |
-
+| ID | Title | Status | Priority | Scope | Estimate |
+| --- | --- | --- | --- | --- | --- |
+| BL-261025-fleet-repositories-merged | Fleet repositories: merged target lists and protected artifacts | open | high | feature | L |
+| BL-261025-codex-chatgpt-login-route | Codex ChatGPT-login route for the private fleet | open | medium | task | M |
+| BL-261030-make-the-moved-base-publish | Make the moved-base publish test deterministic | open | medium | task | S |
+| BL-261025-qualify-the-ci-routes-live | Qualify the CI routes live | open | medium | task | S |
+| BL-261025-self-hosted-runner-and-proxy | Self-hosted runner and proxy readiness | open | medium | task | S |
+| BL-261110-let-a-fleet-add-its-own-pool | Let a fleet add its own pool routes | open | low | feature | M |
+| BL-261025-publish-to-the-calling | Publish to the calling repository with an optional GitHub App token | open | low | feature | S |
 <!-- END OAT BACKLOG-INDEX -->
 
 ## Notes
