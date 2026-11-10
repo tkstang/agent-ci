@@ -257,7 +257,7 @@ async function gateFixture(body: string) {
     '--route',
     'fake-edit',
     '--allowed-models',
-    'fake-edit fake-echo',
+    'fake-edit fake-echo grok-4.7',
     '--out',
     request,
     '--github-output',
@@ -297,6 +297,27 @@ describe('pr-run gate profile routing and credential boundary', () => {
       expect(f.github.sent('POST')).toHaveLength(1);
     },
   );
+
+  it('emits the selected profile route credential without requiring its secret', async () => {
+    const f = await gateFixture(
+      '/agent-ci --model-profile=balance use $fix-ci',
+    );
+    const result = await run(
+      [
+        ...f.flags,
+        '--model-profiles',
+        'balance: {model: grok-4.7, harness: cursor, route: grok-4.7-cursor}',
+      ],
+      f.context,
+    );
+    expect(result.envelope).toMatchObject({
+      ok: true,
+      data: { status: 'ready', model: 'grok-4.7', routeId: 'grok-4.7-cursor' },
+    });
+    const outputs = await readFile(f.output, 'utf8');
+    expect(outputs).toContain('credential=CURSOR_API_KEY\n');
+    expect(outputs).toContain('account=work\n');
+  });
 
   it.each([
     {
