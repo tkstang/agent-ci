@@ -31,6 +31,7 @@ can reach.
 
 ### Set up
 
+- [Choosing how models run](running-models.md) - Subscription token, your machine's proxy pool or a paid API key: what each needs and which fleet template uses it.
 - [Configuration and credentials](configuration.md) - Every secret and token permission, repository settings, and self-hosted runners for the proxy pool.
 - [Using agent-ci from another repository](fleet-repo.md) - A fleet repository for scheduled maintenance, and PR review callers per repository.
 

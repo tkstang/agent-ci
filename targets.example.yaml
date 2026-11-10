@@ -2,11 +2,13 @@
 # Every value becomes a reusable-workflow input; agent-ci targets validate
 # checks the schema, unique ids and repositories, allowedOwners and that each
 # model resolves under the routing policy (in CI, login routes are refused and
-# pool routes resolve only with the opt-in on a self-hosted runner, never for
-# a Claude model).
+# pool routes resolve only with the allow_pool opt-in on a self-hosted runner;
+# Claude models always run through Claude Code). How each setup runs models:
+# docs/running-models.md.
 version: 1
 
-# Optional: every target repository must belong to one of these owners.
+# Optional: every target repository must belong to one of these owners. Use
+# your own user or organization names.
 allowedOwners: [my-org]
 
 # Optional defaults; a target's own values win.
