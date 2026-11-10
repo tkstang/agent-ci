@@ -336,6 +336,10 @@ describe('claude argv and posture', () => {
     });
     expect(observed.argv).toContain('acceptEdits');
     expect(observed.argv).not.toContain('--tools');
+    const allowed = observed.argv.indexOf('--allowedTools');
+    expect(observed.argv[allowed + 1]).toBe('Bash');
+    expect(observed.argv).toContain('--permission-prompts');
+    expect(observed.argv).not.toContain('--dangerously-skip-permissions');
     // The run's own installed skills are readable; nothing else is added.
     const addDir = observed.argv.indexOf('--add-dir');
     expect(observed.argv[addDir + 1]).toBe(request.home.skillsDir);

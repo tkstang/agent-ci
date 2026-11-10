@@ -18,6 +18,7 @@ integrations below.
 | Integration                              | What it does                                                                                                             |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | [Prompt-driven tasks](docs/workflows.md) | Run a chosen model on a task and optionally publish its changes as a pull request.                                       |
+| [PR commands](docs/pr-commands.md)       | Run a task from a PR comment, verify its changes and push a commit to the existing branch.                               |
 | [Pull-request review](docs/pr-review.md) | Review changes on request, with optional independent reviewers and repository check results.                             |
 | [OAT maintenance](docs/workflows.md)     | Use Open Agent Toolkit (OAT) to update documentation, agent instructions or installed tools through dedicated workflows. |
 | [Fleet maintenance](docs/fleet-repo.md)  | Run maintenance across a configured list of repositories on a schedule or on demand.                                     |
@@ -54,6 +55,7 @@ Start at the [documentation index](docs/index.md):
 - [Getting started](docs/getting-started.md)
 - [Harnesses and routing](docs/harnesses-and-routing.md)
 - [Workflows](docs/workflows.md)
+- [PR commands](docs/pr-commands.md)
 - [PR review](docs/pr-review.md)
 - [Configuration and credentials](docs/configuration.md)
 - [Using agent-ci from another repository](docs/fleet-repo.md)

@@ -82,6 +82,13 @@ on:
       prepared_sha256:
         type: string
         default: ''
+      pr_request_artifact_id:
+        description: Trusted PR-comment request artifact; empty for ordinary run-agent calls.
+        type: string
+        default: ''
+      pr_request_digest:
+        type: string
+        default: ''
       artifact_name:
         type: string
         required: true
@@ -142,6 +149,7 @@ jobs:
           path: target
           ref: ${{ inputs.sha }}
           persist-credentials: false
+          fetch-depth: ${{ inputs.pr_request_artifact_id == '' && 1 || 0 }}
 
       - name: Check out the agent-ci helpers
         uses: actions/checkout@v5
@@ -156,6 +164,14 @@ jobs:
         uses: ./.agent-ci-src/.github/actions/setup-agent-ci
         with:
           path: .agent-ci-src
+
+      - name: Download the PR-comment request
+        if: inputs.pr_request_artifact_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ inputs.pr_request_artifact_id }}
+          path: ${{ runner.temp }}/agent-ci-request
+          merge-multiple: true
 
       # The setup job's archive is hostile input: downloaded by the exact
       # artifact ID that job uploaded, then parsed by agent-ci itself (no tar
@@ -224,6 +240,7 @@ jobs:
 
       # Either the preset's own prompt (owned by the helpers) or the caller's.
       - name: Write the prompt
+        if: inputs.pr_request_artifact_id == ''
         env:
           PROMPT: ${{ inputs.prompt }}
           PRESET: ${{ inputs.preset }}
@@ -237,6 +254,7 @@ jobs:
           --use-case "$USE_CASE" --out "$RUNNER_TEMP/agent-ci-prompt.md"
 
       - name: Run the agent
+        if: inputs.pr_request_artifact_id == ''
         env:
           # The only model credential this workflow receives: the one the
           # caller selected for this route (empty for the fake harness).
@@ -257,6 +275,22 @@ jobs:
           --prompt-file "$RUNNER_TEMP/agent-ci-prompt.md" --mode "$MODE" --contract "$CONTRACT"
           --use-case "$USE_CASE" --target-repo "$TARGET_REPOSITORY"
           --timeout-minutes "$TIMEOUT" --max-attempts "$ATTEMPTS"
+
+      - name: Execute the PR comment
+        if: inputs.pr_request_artifact_id != ''
+        env:
+          AGENT_CI_CREDENTIAL: ${{ secrets.AGENT_CI_CREDENTIAL }}
+          AGENT_CI_PROXY_BASE_URL: ${{ steps.route.outputs.account == 'pool' && secrets.AGENT_CI_PROXY_BASE_URL || '' }}
+          ROUTE_ID: ${{ inputs.route_id }}
+          REQUEST_DIGEST: ${{ inputs.pr_request_digest }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+          ATTEMPTS: ${{ inputs.max_attempts }}
+          ALLOW_POOL: ${{ inputs.allow_pool }}
+        run: >-
+          agent-ci pr-run execute --request-dir "$RUNNER_TEMP/agent-ci-request"
+          --request-digest "$REQUEST_DIGEST" --route "$ROUTE_ID" --credential-from-env
+          --allow-pool-value "$ALLOW_POOL" --cwd target --out "$RUNNER_TEMP/agent-ci-out"
+          --home-root "$RUNNER_TEMP/agent-ci-home" --timeout-minutes "$TIMEOUT" --max-attempts "$ATTEMPTS"
 
       - name: Check for a run result
         id: result

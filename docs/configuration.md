@@ -28,10 +28,11 @@ model secrets below.
 | `AGENT_CI_PROXY_BASE_URL`    | Optional. Replaces the loopback origin of every pool route with the operator's private proxy endpoint (for example `https://localhost`); each route keeps its own path, such as `/v1`. Unset or empty keeps `http://127.0.0.1:8317`. | Exactly `scheme://host[:port]` in canonical form: lowercase, `https` (plain `http` only for a loopback host), no default port, no trailing slash, path, query, fragment, user name or surrounding whitespace; anything else fails with `E_ROUTE_CONFIG`. Canonical form keeps the value matching every URL built from it, so output masking catches them all. Store it as a secret, not a variable: Actions prints variables in logs, and the endpoint is private. | Agent step, review passes, adjudicator; only for a pool route       |
 | `AGENT_CI_TARGET_TOKEN`      | Writes to a target repository that is not the calling repository.                                                                                                                                                                    | Fine-grained or GitHub App token on each target, Contents: Read and write and Pull requests: Read and write. Referenced only in the resolve and publish jobs.                                                                                                                                                                                                                                                                                                      | `run-agent.yml`, `tools-update.yml`, `fan-out.yml` and the wrappers |
 | `AGENT_CI_TARGET_READ_TOKEN` | Checks out a private target repository in the jobs that run repository code or the agent.                                                                                                                                            | Fine-grained or GitHub App token, Contents: Read-only and nothing else. Public targets need none. See [the read-token check](#the-read-token-check).                                                                                                                                                                                                                                                                                                               | Same as the target token                                            |
+| `AGENT_CI_PUBLISH_TOKEN`     | Optional GitHub App token for updating an existing PR branch and triggering its normal CI.                                                                                                                                           | Contents: Read and write and Pull requests: Read and write on the calling repository. Referenced only in the publisher; the default is the job's `GITHUB_TOKEN`.                                                                                                                                                                                                                                                                                                   | Publish job of `pr-agent.yml`                                       |
 | `AGENT_CI_NOTIFY_WEBHOOK`    | Optional incoming-webhook URL (Slack-compatible). agent-ci posts one JSON `{"text": ...}` message per run.                                                                                                                           | Must be an `https` URL. Unset or empty sends nothing.                                                                                                                                                                                                                                                                                                                                                                                                              | Publish job of `run-agent.yml` and `tools-update.yml`               |
 
-Locally, `GITHUB_TOKEN` or `GH_TOKEN` is the token `agent-ci publish` and
-`agent-ci review` use. In Actions they receive the job's own
+Locally, `GITHUB_TOKEN` or `GH_TOKEN` is the token `agent-ci publish`,
+`agent-ci review`, and the `pr-run` gate and publisher use. In Actions they receive the job's own
 `GITHUB_TOKEN`. agent-ci never prints a token.
 
 Credentials reach agent-ci only through the environment. Never pass a token
@@ -81,6 +82,21 @@ with Contents: Read plus pull-request, Actions, secrets or administration
 write access would pass the check and reach the agent job. Grant Contents:
 Read only. One read token serves a whole fleet; see
 [Security model](security-model.md#residual-risk).
+
+### PR command publishing token
+
+`pr-agent.yml` updates a branch in the calling repository, so it does not
+need the cross-repository target tokens. Its publisher uses `GITHUB_TOKEN`
+unless the caller explicitly passes `AGENT_CI_PUBLISH_TOKEN`. Give that
+optional GitHub App installation token Contents: Read and write and Pull
+requests: Read and write, limited to the calling repository. It reaches
+only the publishing job, never setup, agent execution or verification.
+
+Pushes made with `GITHUB_TOKEN` do not trigger subsequent workflow runs.
+The PR command's own required `check_command` still runs before publication,
+but normal CI on the pushed commit requires the optional App token. This
+workflow updates an existing PR and does not need the repository setting
+that allows Actions to create new pull requests.
 
 ## Store a secret
 

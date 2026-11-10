@@ -12,6 +12,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
+    inputs:
+      comment_id:
+        description: Replay your real PR command through the PR-agent consumer test.
+        default: ''
+      command_model:
+        description: Harness used only by the PR-comment consumer test.
+        type: choice
+        options: [fake-edit, grok-4.7]
+        default: fake-edit
 
 permissions:
   contents: read
@@ -24,7 +33,7 @@ jobs:
   fake-run:
     name: Fake harness run and publish
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.comment_id == '') ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        contains(github.event.pull_request.labels.*.name, 'agent-ci-selftest'))
     permissions:
@@ -48,7 +57,7 @@ jobs:
   harness-smoke:
     name: Harness install and Codex sandbox smoke check
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.comment_id == '') ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        contains(github.event.pull_request.labels.*.name, 'agent-ci-selftest'))
     runs-on: ubuntu-latest
@@ -88,3 +97,25 @@ jobs:
 
       - name: Smoke-test the Codex sandbox again
         run: agent-ci harness smoke --harness codex --report-only
+
+  pr-command:
+    name: PR-comment reusable workflow consumer test
+    if: github.event_name == 'workflow_dispatch' && inputs.comment_id != ''
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/pr-agent.yml
+    with:
+      comment_id: ${{ inputs.comment_id }}
+      model: ${{ inputs.command_model || 'fake-edit' }}
+      harness: ${{ inputs.command_model == 'grok-4.7' && 'cursor' || 'fake' }}
+      allowed_models: fake-edit,grok-4.7
+      # Live skills are supplied only on the disposable test PR's head ref.
+      skills_source: .github/agent-ci/test-skills
+      check_command: >-
+        if [ -f agent-ci-command-test.mjs ]; then node --test agent-ci-command-test.mjs;
+        else test -f agent-ci-fake-edit.md; fi
+      max_attempts: 1
+      timeout_minutes: 10
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}

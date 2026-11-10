@@ -95,6 +95,9 @@ export function claudeArgs(
   if (request.route.effort !== undefined) {
     args.push('--effort', request.route.effort);
   }
+  if (request.systemPrompt !== undefined) {
+    args.push('--append-system-prompt', request.systemPrompt);
+  }
   if (request.mode === 'read-only') {
     args.push(
       '--permission-mode',
@@ -122,6 +125,10 @@ export function claudeArgs(
       'acceptEdits',
       '--permission-prompts',
       'none',
+      // Verification and skill scripts need shell execution in unattended
+      // edit runs. Read-only runs retain their separate tools-only posture.
+      '--allowedTools',
+      'Bash',
       '--add-dir',
       request.home.skillsDir,
       // Read access only: deny every file-editing tool on the skill trees

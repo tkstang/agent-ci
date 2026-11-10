@@ -27,6 +27,7 @@ can reach.
 
 - [Harnesses and routing](harnesses-and-routing.md) - The four harnesses, the `models.yaml` routing table and the routing policy.
 - [Workflows](workflows.md) - The reusable workflows, their jobs and inputs, the consumer templates and caller permissions.
+- [PR commands](pr-commands.md) - Run a task from a PR comment, use repository skills and push a verified commit to the existing branch.
 - [PR review](pr-review.md) - Request a review, how findings are checked and published, and verify-review.
 
 ### Set up

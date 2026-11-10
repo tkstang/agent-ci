@@ -27,7 +27,13 @@ export interface RunPromptOptions {
 const HOST =
   /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/u;
 
-export function buildRunPrompt(options: RunPromptOptions): Result<string> {
+/**
+ * Execution instructions separated from the task so a harness with a native
+ * command parser can receive the task as its user message, without a prefix.
+ */
+export function buildRunInstructions(
+  options: RunPromptOptions,
+): Result<string> {
   const hosts = [...(options.allowedHosts ?? [])].map((host) =>
     host.trim().toLowerCase(),
   );
@@ -86,7 +92,6 @@ export function buildRunPrompt(options: RunPromptOptions): Result<string> {
       'Alongside the envelope fields, return verdict: {items: [{id, status: "pass"|"fail"|"blocked", summary, evidence: ["relative/file"]}]}. Pass/fail requires existing regular file evidence; blocked may have none. All requested items pass requires ok=true and a successful status; any fail/blocked requires ok=false/status=failed.',
     );
   }
-  lines.push('', 'Configured prompt:', options.prompt.trim());
   if (
     options.untrustedContext !== undefined &&
     options.untrustedContext !== ''
@@ -99,4 +104,12 @@ export function buildRunPrompt(options: RunPromptOptions): Result<string> {
     );
   }
   return success(`${lines.join('\n')}\n`);
+}
+
+export function buildRunPrompt(options: RunPromptOptions): Result<string> {
+  const instructions = buildRunInstructions(options);
+  if (!instructions.ok) return instructions;
+  return success(
+    `${instructions.value}\nConfigured prompt:\n${options.prompt.trim()}\n`,
+  );
 }

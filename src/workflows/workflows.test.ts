@@ -183,6 +183,13 @@ describe('run-agent.yml', () => {
     ]);
     const agent = await agentJob();
     const runStep = step(agent, 'Run the agent');
+    const prStep = step(agent, 'Execute the PR comment');
+    expect(runStep.if).toBe("inputs.pr_request_artifact_id == ''");
+    expect(prStep.if).toBe("inputs.pr_request_artifact_id != ''");
+    expect(prStep.env?.AGENT_CI_CREDENTIAL).toBe(
+      '${{ secrets.AGENT_CI_CREDENTIAL }}',
+    );
+    expect(prStep.run).toContain('--credential-from-env');
     expect(runStep.env?.AGENT_CI_CREDENTIAL).toBe(
       '${{ secrets.AGENT_CI_CREDENTIAL }}',
     );
@@ -193,7 +200,7 @@ describe('run-agent.yml', () => {
       poolOriginFor('steps.route.outputs.account'),
     );
     for (const entry of agent.steps ?? []) {
-      if (entry === runStep) continue;
+      if (entry === runStep || entry === prStep) continue;
       expect(secretRefs(entry), entry.name).not.toContain(
         'AGENT_CI_CREDENTIAL',
       );
@@ -576,7 +583,8 @@ describe('agent-ci-selftest.yml', () => {
     expect(fake.with?.model).toBe('fake-edit');
     expect(fake.with?.publish_pr).toBe(true);
     expect(fake.secrets).toBeUndefined();
-    for (const job of Object.values(workflow.jobs)) {
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      if (name === 'pr-command') continue;
       expect(job.if).toContain(
         'github.event.pull_request.head.repo.full_name == github.repository',
       );
