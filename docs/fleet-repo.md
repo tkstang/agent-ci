@@ -16,13 +16,14 @@ personal account:
 - **Each repository that wants PR review** carries its own small caller,
   because a review runs in the reviewed repository.
 
-Read [Configuration and credentials](configuration.md) first; this guide
-refers to its secrets.
+Read [Choosing how models run](running-models.md) first: the setup you pick
+decides the fleet's runner, secrets and template. This guide refers to the
+secrets in [Configuration and credentials](configuration.md).
 
 ## 1. Let your repositories use agent-ci
 
 agent-ci is public. Pin its reusable workflows to a released version tag
-such as `v0.1.0`, or a reviewed full commit SHA in the `uses:` reference. The helpers are checked out at that same commit with the
+such as `v0.2.0`, or a reviewed full commit SHA in the `uses:` reference. The helpers are checked out at that same commit with the
 job's `GITHUB_TOKEN`; no separate source token or agent-ci Actions access
 setting is needed.
 
@@ -31,7 +32,9 @@ setting is needed.
 1. Choose a caller for the targets' trust and visibility. Use a public
    fleet on GitHub-hosted runners for public targets, or a private fleet on
    admitted self-hosted runners for private targets and subscription-pool
-   routes. Keep private targets in the private fleet while artifact encryption
+   routes (see [Choosing how models run](running-models.md)). The public
+   template sets `public_only: true` (see [Workflows](workflows.md#fan-outyml-and-targetsyaml)).
+   Keep private targets in the private fleet while artifact encryption
    remains unimplemented; output suppression does not protect artifacts.
 2. Configure the targets in a file, or use the JSON-only private template
    described below. For a file, add `targets.yaml` at the caller root:
@@ -56,11 +59,12 @@ setting is needed.
 
 3. Copy `consumer-workflows/agent-ci-fleet.yml` for the public hosted caller,
    or `consumer-workflows/agent-ci-private-fleet.yml` for the private pool
-   caller, into `.github/workflows/`. The public template schedules
-   `docs-update` Mondays, `tools-update` Tuesdays and `instructions-update`
-   Wednesdays. The private template is manual-only until runner admission
-   and scheduled-event policy are reviewed; replace its label placeholder
-   with the complete admitted label array. Both templates pin `v0.1.0`;
+   caller, into `.github/workflows/`. Both templates are manual-only and run
+   one fleet run at a time. Add schedules to the public template after a
+   manual run of each preset succeeds (its comments show how); keep the
+   private template manual until runner admission and scheduled-event
+   policy are reviewed, and replace its label placeholder with the complete
+   admitted label array. Both templates pin `v0.2.0`;
    review later releases before updating them. For the pool
    template, set each agent target's model to an admitted pool alias (for
    example `gpt-6.1-sol-high`) instead of the personal example above. It
@@ -72,15 +76,16 @@ setting is needed.
 4. Store the secrets in the fleet repository:
    - `AGENT_CI_TARGET_TOKEN`: Contents and Pull requests read and write on
      every target repository;
-   - `AGENT_CI_TARGET_READ_TOKEN`: Contents read-only on every private
-     target;
+   - `AGENT_CI_TARGET_READ_TOKEN`, private fleet only: Contents read-only on
+     every private target. The public template does not pass it;
    - the model secret of every route your targets use, for example
      `CLAUDE_CODE_OAUTH_TOKEN` for `claude-haiku-5-5` and `OPENCODE_API_KEY`
      for `grok-4.7`. The public template passes only
      `CLAUDE_CODE_OAUTH_TOKEN`; add each required credential explicitly
      (validation does not check presence). The private pool template maps
      `AGENT_CI_PROXY_API_KEY` for Codex and the same existing key into
-     `ANTHROPIC_AUTH_TOKEN` for Claude Code. `tools-update` needs none; - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes (self-hosted
+     `ANTHROPIC_AUTH_TOKEN` for Claude Code. `tools-update` needs none;
+   - optionally `AGENT_CI_PROXY_BASE_URL`, only for pool routes (self-hosted
      runner, `allow_pool: true` and `AGENT_CI_PROXY_API_KEY`); see
      [Configuration and credentials](configuration.md).
 5. Allow GitHub Actions to create pull requests in the fleet repository's
@@ -92,7 +97,7 @@ GitHub checks the nested publish jobs' permissions against it, even though
 the writes to other repositories use the target token.
 
 Run it once by hand from the Actions tab (preset `tools-update`, target one
-repository) before relying on the schedule. Each target gets a static branch
+repository) before adding a schedule. Each target gets a static branch
 such as `agent-ci/oat-docs-update` and one pull request that later runs
 update.
 
@@ -164,7 +169,7 @@ comment happens there. For each repository that wants reviews:
 
 1. Copy `consumer-workflows/agent-ci-pr-review.yml` to
    `.github/workflows/agent-ci-pr-review.yml`. Its `uses:` ref pins
-   `v0.1.0`; review later releases before updating it.
+   `v0.2.0`; review later releases before updating it.
 2. Store the reviewer model secrets the caller passes (the template passes
    `CLAUDE_CODE_OAUTH_TOKEN` and `OPENCODE_API_KEY`, plus the optional pool-route
    `AGENT_CI_PROXY_BASE_URL`; remove the ones you do not use).
@@ -187,6 +192,6 @@ pull requests.
 
 ## Updating agent-ci
 
-Callers pin a commit, so agent-ci changes reach a repository only when its
-`uses:` ref changes. The helpers always match that ref. To update, change
-the SHA in each caller, starting with the fleet repository.
+Callers pin a release tag or commit, so agent-ci changes reach a repository
+only when its `uses:` ref changes. The helpers always match that ref. To
+update, change the ref in each caller, starting with the fleet repository.

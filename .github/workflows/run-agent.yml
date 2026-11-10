@@ -42,6 +42,10 @@ on:
         description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
         type: boolean
         default: false
+      public_only:
+        description: Refuse a target GitHub does not report as public (for public fleets), before any job runs its code.
+        type: boolean
+        default: false
       model:
         description: Qualified model from models.yaml (for example claude-haiku-5-5, grok-4.7, fake-edit). Set model or route.
         type: string
@@ -302,6 +306,7 @@ jobs:
           AGENT_CI_TARGET_TOKEN: ${{ secrets.AGENT_CI_TARGET_TOKEN }}
           AGENT_CI_TARGET_READ_TOKEN: ${{ secrets.AGENT_CI_TARGET_READ_TOKEN }}
           REPOSITORY: ${{ inputs.target_repository }}
+          PUBLIC_ONLY: ${{ inputs.public_only }}
           REF: ${{ inputs.target_ref }}
           BASE: ${{ inputs.publish_base }}
           COMMENT_PR: ${{ inputs.comment_pr }}
@@ -311,7 +316,7 @@ jobs:
         run: >-
           agent-ci targets resolve --repository "$REPOSITORY" --ref "$REF" --base "$BASE"
           --comment-pr "$COMMENT_PR" --event-ref "$EVENT_REF" --event-base "$EVENT_BASE"
-          --event-pr "$EVENT_PR" --github-output
+          --event-pr "$EVENT_PR" --public-only "$PUBLIC_ONLY" --github-output
 
       # The route decides which one model credential the agent job receives
       # (credential: one of the five model secret names, or empty).

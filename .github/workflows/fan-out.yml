@@ -4,6 +4,8 @@
 # - targets: no secret but the helper token. `agent-ci targets matrix`
 #            validates targets.yaml (schema, unique targets, allowedOwners,
 #            models under the CI routing policy) and emits a bounded matrix.
+#            With public_only, each nested resolve job refuses a target
+#            GitHub does not report as public (E_TARGET_VISIBILITY).
 # - agent:   docs-update / instructions-update: run-agent.yml once per target.
 # - tools:   tools-update: tools-update.yml once per target (no model; no
 #            model credential is passed).
@@ -38,6 +40,10 @@ on:
     inputs:
       private_target:
         description: Suppress agent-ci output and setup logs; artifacts and Actions metadata remain visible.
+        type: boolean
+        default: false
+      public_only:
+        description: Refuse a target GitHub does not report as public (for public fleets), before any job runs its code.
         type: boolean
         default: false
       preset:
@@ -238,6 +244,7 @@ jobs:
       artifact_name: ${{ matrix.artifact_name }}
       runs_on: ${{ inputs.runs_on }}
       private_target: ${{ inputs.private_target || matrix.private_target }}
+      public_only: ${{ inputs.public_only }}
       allow_pool: ${{ inputs.allow_pool }}
       publisher_login: ${{ inputs.publisher_login }}
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
@@ -281,6 +288,7 @@ jobs:
       artifact_name: ${{ matrix.artifact_name }}
       runs_on: ${{ inputs.runs_on }}
       private_target: ${{ inputs.private_target || matrix.private_target }}
+      public_only: ${{ inputs.public_only }}
       publisher_login: ${{ inputs.publisher_login }}
       agent_ci_repository: ${{ inputs.agent_ci_repository }}
       agent_ci_ref: ${{ inputs.agent_ci_ref }}
