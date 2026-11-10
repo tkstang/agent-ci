@@ -67,6 +67,21 @@ function parseOrigin(value: string): Result<string> {
 }
 
 /**
+ * True when the override is a valid origin whose host is not a loopback
+ * host. `parseOrigin` admits plain `http` only for loopback hosts, so such
+ * an origin is always https: a pool any runner can reach, not one served on
+ * the runner's own loopback (see `checkPoolPolicy`).
+ */
+export function hasRemoteProxyOrigin(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  const value = env[PROXY_BASE_URL_ENV] ?? '';
+  if (value.trim() === '') return false;
+  const origin = parseOrigin(value);
+  return origin.ok && !LOOPBACK_HOSTS.has(new URL(origin.value).hostname);
+}
+
+/**
  * Apply the override to a resolved route. Non-pool routes, pool routes
  * without a `baseUrl`, and an unset or empty variable leave it unchanged.
  */

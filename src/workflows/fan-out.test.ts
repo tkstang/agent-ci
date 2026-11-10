@@ -193,7 +193,17 @@ describe('fan-out.yml', () => {
         'persist-credentials'
       ],
     ).toBe(false);
-    expect(secretRefs(targets)).toEqual([]);
+    // Only route selection sees a secret: the proxy origin, which the pool
+    // policy needs to admit a remote https pool. No credential or token.
+    expect(select.env?.AGENT_CI_PROXY_BASE_URL).toBe(
+      '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+    );
+    for (const entry of targets.steps ?? []) {
+      expect(secretRefs(entry), entry.name).toEqual(
+        entry === select ? ['AGENT_CI_PROXY_BASE_URL'] : [],
+      );
+    }
+    expect(secretRefs(targets)).toEqual(['AGENT_CI_PROXY_BASE_URL']);
   });
 
   it('calls run-agent.yml or tools-update.yml once per matrix entry, mapping every field to an input', async () => {

@@ -192,22 +192,36 @@ describe('run-agent.yml', () => {
     expect(runStep.env?.AGENT_CI_PROXY_BASE_URL).toBe(
       poolOriginFor('steps.route.outputs.account'),
     );
+    // Route selection also sees the origin (empty unless run-agent.yml chose
+    // a pool route), so the pool policy can admit a remote https pool.
+    const agentRoute = step(agent, 'Resolve the route');
+    expect(agentRoute.env?.AGENT_CI_PROXY_BASE_URL).toBe(
+      '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+    );
     for (const entry of agent.steps ?? []) {
       if (entry === runStep) continue;
       expect(secretRefs(entry), entry.name).not.toContain(
         'AGENT_CI_CREDENTIAL',
       );
-      expect(secretRefs(entry), entry.name).not.toContain(
-        'AGENT_CI_PROXY_BASE_URL',
-      );
+      expect(
+        secretRefs(entry).includes('AGENT_CI_PROXY_BASE_URL'),
+        entry.name,
+      ).toBe(entry === agentRoute);
     }
 
-    // No step anywhere in run-agent.yml sees a model credential.
+    // No step anywhere in run-agent.yml sees a model credential; only the
+    // resolve job's route selection sees the proxy origin.
+    const resolveRoute = step(jobs.resolve ?? {}, 'Resolve the route');
+    expect(resolveRoute.env?.AGENT_CI_PROXY_BASE_URL).toBe(
+      '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+    );
     for (const [jobName, job] of Object.entries(jobs)) {
       for (const entry of job.steps ?? []) {
         const refs = secretRefs(entry);
         for (const ref of refs) expect(MODEL_SECRETS).not.toContain(ref);
-        expect(refs).not.toContain('AGENT_CI_PROXY_BASE_URL');
+        expect(refs.includes('AGENT_CI_PROXY_BASE_URL'), entry.name).toBe(
+          entry === resolveRoute,
+        );
         if (refs.includes('AGENT_CI_NOTIFY_WEBHOOK')) {
           expect([jobName, entry.name]).toEqual(['publish', 'Notify']);
         }
