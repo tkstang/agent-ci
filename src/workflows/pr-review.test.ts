@@ -62,6 +62,13 @@ const MODEL_SECRETS = [
   'AGENT_CI_PROXY_API_KEY',
 ];
 const CREDENTIAL_STEPS = new Set(['Run the reviewer', 'Run the adjudicator']);
+/** Gate-job steps that resolve routes, so the pool policy sees the origin. */
+const GATE_ROUTE_STEPS = new Set([
+  'Authorize the request',
+  'Resolve the primary route',
+  'Resolve the second route',
+  'Resolve the adjudicator route',
+]);
 const TOKEN_STEPS = new Set([
   'Authorize the request',
   'Bind the review spec and diff',
@@ -234,7 +241,16 @@ describe('pr-review.yml', () => {
       const text = JSON.stringify(step);
       for (const secret of MODEL_SECRETS)
         expect(text, step.name).not.toContain(`secrets.${secret}`);
-      expect(text, step.name).not.toContain('secrets.AGENT_CI_PROXY_BASE_URL');
+      // The proxy origin (no credential) reaches only the steps whose pool
+      // policy needs it to admit a remote https pool.
+      const routes = GATE_ROUTE_STEPS.has(step.name ?? '');
+      expect(text.includes('secrets.AGENT_CI_PROXY_BASE_URL'), step.name).toBe(
+        routes,
+      );
+      if (routes)
+        expect(step.env?.AGENT_CI_PROXY_BASE_URL, step.name).toBe(
+          '${{ secrets.AGENT_CI_PROXY_BASE_URL }}',
+        );
     }
     for (const child of [await reviewPass(), await adjudicate()]) {
       const call = child.on.workflow_call as {
@@ -263,7 +279,10 @@ describe('pr-review.yml', () => {
         expect(
           text.includes('secrets.AGENT_CI_PROXY_BASE_URL'),
           step.name,
-        ).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
+        ).toBe(
+          CREDENTIAL_STEPS.has(step.name ?? '') ||
+            step.name === 'Resolve the route',
+        );
         expect(holds, step.name).toBe(CREDENTIAL_STEPS.has(step.name ?? ''));
         if (holds) {
           expect(step.env?.AGENT_CI_CREDENTIAL).toBe(

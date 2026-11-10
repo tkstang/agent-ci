@@ -1,4 +1,8 @@
 import { failure, success, type Result } from '@agent-ci/result.js';
+import {
+  hasRemoteProxyOrigin,
+  PROXY_BASE_URL_ENV,
+} from '@agent-ci/routing/proxy-origin.js';
 import type { Route } from '@agent-ci/routing/schema.js';
 
 /**
@@ -9,7 +13,8 @@ import type { Route } from '@agent-ci/routing/schema.js';
  * - No automatic fallback from a subscription route to paid API billing.
  * - No automatic fallback into the `work` account class.
  * - `pool` routes need an explicit opt-in; under CI they are allowed only on
- *   a self-hosted runner ({@link checkPoolPolicy}).
+ *   a self-hosted runner or through a remote https proxy origin
+ *   ({@link checkPoolPolicy}).
  * - Login-seeded routes are local only.
  */
 
@@ -52,34 +57,39 @@ export function isCiEnvironment(
 }
 
 /**
- * The pool policy, in one place. A pool route spends the operator's local
- * CLIProxyAPI pool through a loopback `baseUrl`, so:
+ * The pool policy, in one place. A pool route spends the operator's
+ * CLIProxyAPI pool, served on the runner's loopback unless
+ * `AGENT_CI_PROXY_BASE_URL` names another origin, so:
  * - it always needs the explicit opt-in (`--allow-pool`, or the workflows'
  *   `allow_pool` input);
  * - under CI, only on a self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`,
- *   set by the Actions runner), whose host runs the proxy; a GitHub-hosted
- *   runner has no loopback proxy and would never reach it.
+ *   set by the Actions runner), whose host can serve the proxy, or, on any
+ *   other runner, for a route with a `baseUrl` when the override is a remote
+ *   https origin (`hasRemoteProxyOrigin`). A GitHub-hosted runner has no
+ *   loopback proxy (DR-261110-allow-pool-routes-on-hosted).
  */
 export function checkPoolPolicy(
   route: Route,
   request: Pick<EligibilityRequest, 'allowPool' | 'env'>,
 ): Result<void> {
   if (route.account !== 'pool') return success(undefined);
-  if (isCiEnvironment(request.env)) {
-    if (request.env.RUNNER_ENVIRONMENT !== 'self-hosted') {
-      return failure(
-        'E_POLICY_POOL_CI',
-        `route ${route.id} spends the local proxy pool, which CI allows only on a self-hosted runner (RUNNER_ENVIRONMENT is ${JSON.stringify(request.env.RUNNER_ENVIRONMENT ?? '')})`,
-        'Run on a self-hosted runner whose host serves the proxy, with allow_pool: true, or use a personal route.',
-      );
-    }
+  if (
+    isCiEnvironment(request.env) &&
+    request.env.RUNNER_ENVIRONMENT !== 'self-hosted' &&
+    !(route.baseUrl !== undefined && hasRemoteProxyOrigin(request.env))
+  ) {
+    return failure(
+      'E_POLICY_POOL_CI',
+      `route ${route.id} spends the proxy pool, which CI allows only on a self-hosted runner or through a remote https ${PROXY_BASE_URL_ENV} (RUNNER_ENVIRONMENT is ${JSON.stringify(request.env.RUNNER_ENVIRONMENT ?? '')})`,
+      `Run on a self-hosted runner whose host serves the proxy, or pass ${PROXY_BASE_URL_ENV} with the pool's https origin; both need allow_pool: true. Or use a personal route.`,
+    );
   }
   if (!request.allowPool) {
     return failure(
       'E_POLICY_POOL',
-      `route ${route.id} spends the local proxy pool`,
+      `route ${route.id} spends the proxy pool`,
       isCiEnvironment(request.env)
-        ? 'Set the allow_pool workflow input to true to opt in on this self-hosted runner.'
+        ? 'Set the allow_pool workflow input to true to opt in on this runner.'
         : 'Pass --allow-pool to opt in for this local run.',
     );
   }

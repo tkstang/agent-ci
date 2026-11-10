@@ -13,6 +13,26 @@ export const PROXY_BASE_URL_ENV = 'AGENT_CI_PROXY_BASE_URL';
 /** Hosts for which a plain `http:` origin is accepted. */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]', 'localhost']);
 
+/**
+ * True for a canonical host (as `URL.hostname` prints it) that reaches the
+ * runner itself rather than a remote pool: `localhost` and `*.localhost`
+ * (with or without a trailing dot), `127.0.0.0/8`, `[::1]`, IPv4-mapped
+ * IPv6 loopback (`[::ffff:7f00:1]`) and the unspecified addresses
+ * `0.0.0.0` and `[::]`, which connect to the local host.
+ */
+function isLocalHost(hostname: string): boolean {
+  const host = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    /^127(?:\.\d{1,3}){3}$/u.test(host) ||
+    host === '0.0.0.0' ||
+    host === '[::1]' ||
+    host === '[::]' ||
+    /^\[::ffff:(?:7f[0-9a-f]{2}:[0-9a-f]{1,4}|0:0)\]$/u.test(host)
+  );
+}
+
 function invalid(rule: string): Result<never> {
   return failure(
     'E_ROUTE_CONFIG',
@@ -64,6 +84,22 @@ function parseOrigin(value: string): Result<string> {
     );
   }
   return success(url.origin);
+}
+
+/**
+ * True when the override is a valid origin whose host does not reach the
+ * runner itself (`isLocalHost`). `parseOrigin` admits plain `http` only for
+ * loopback hosts, so such an origin is always https: a pool any runner can
+ * reach, not one served on the runner's own loopback (see
+ * `checkPoolPolicy`).
+ */
+export function hasRemoteProxyOrigin(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  const value = env[PROXY_BASE_URL_ENV] ?? '';
+  if (value.trim() === '') return false;
+  const origin = parseOrigin(value);
+  return origin.ok && !isLocalHost(new URL(origin.value).hostname);
 }
 
 /**

@@ -42,7 +42,7 @@ gaps are tracked in the [backlog](../.oat/repo/pjm/backlog/index.md).
 | ------------------------- | --------------------- | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
 | `resolve`                 | none                  | none                                        | target-token scopes for another repository | `GITHUB_TOKEN`; for another repository `AGENT_CI_TARGET_TOKEN` and the read-only target token (checked here) |
 | `setup`                   | runs `setup_command`  | none                                        | none                                       | read-only target token for a private other repository                                                        |
-| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)                    | read-only target token; `AGENT_CI_PROXY_BASE_URL` for a pool route only                                      |
+| `agent` (`agent-job.yml`) | the agent works on it | the route's one credential, agent step only | none (`contents: read`)                    | read-only target token; `AGENT_CI_PROXY_BASE_URL` for a pool route only (route selection and agent step)     |
 | `publish`                 | none (artifact only)  | none                                        | `contents`, `pull-requests`                | `GITHUB_TOKEN` or `AGENT_CI_TARGET_TOKEN`; optional `AGENT_CI_NOTIFY_WEBHOOK`                                |
 
 The agent job sits behind its own `workflow_call` boundary
@@ -74,7 +74,8 @@ The reviewer jobs call `review-pass.yml`; the adjudicator calls
 `review-adjudicate.yml`. Each child declares only `AGENT_CI_CREDENTIAL`
 and `AGENT_CI_PROXY_BASE_URL`. After authorization and spec binding, the
 gate resolves each enabled role to a route ID, credential name and account
-name. The caller selects one credential with static secret references and
+name; its authorization and route steps see `AGENT_CI_PROXY_BASE_URL` (no
+credential) so the pool policy can admit a remote https pool. The caller selects one credential with static secret references and
 passes the origin only for a pool route. Each child re-resolves that exact
 route under its own runner policy; the review command checks it against
 the model bound in the spec. Other model credentials do not reach these
@@ -139,7 +140,8 @@ See [Workflows](workflows.md#fan-outyml-and-targetsyaml).
 - **The verify job gets no helper token.** agent-ci reaches it as a bundle
   the gate job uploads, checked against its sha256.
 - **Pool routes** need an explicit opt-in and run in CI only on a self-hosted
-  runner. Claude pool routes run through Claude Code (see
+  runner, or on any runner through a remote https `AGENT_CI_PROXY_BASE_URL`.
+  Claude pool routes run through Claude Code (see
   [Harnesses and routing](harnesses-and-routing.md#policy)).
 - **Private proxy origin.** The optional `AGENT_CI_PROXY_BASE_URL` secret
   replaces the loopback origin of pool routes. It is a secret, not a
@@ -148,11 +150,13 @@ See [Workflows](workflows.md#fan-outyml-and-targetsyaml).
   loopback host), so every URL built from it contains the masked value. A
   message that shows only the host name, such as a DNS or connection
   error, is neither masked nor refused by the secret guard, so treat the
-  host name as discoverable from logs and run artifacts. Workflows pass it only to the agent step, the reviewer
-  passes and the adjudicator, and only for a pool route. With it set, the
-  pool key travels to that host (over https unless it is a loopback
-  host). The pool policy does not
-  change.
+  host name as discoverable from logs and run artifacts. Workflows pass it
+  to the steps that select routes, which run no repository code, so the
+  pool policy can see a remote origin; and, only for a pool route, to the
+  agent step, the reviewer passes and the adjudicator. With it set, the
+  pool key travels to that host (over https unless it is a loopback host).
+  A remote https origin also lets a pool route run on a GitHub-hosted
+  runner (DR-261110-allow-pool-routes-on-hosted).
 
 ## Isolated home and environment
 
@@ -301,6 +305,15 @@ These risks are accepted, with the conditions that would change that.
 
 **Secrets and tokens**
 
+- **A remote pool key works from anywhere.** With a remote https
+  `AGENT_CI_PROXY_BASE_URL`, a pool route can run on a GitHub-hosted runner,
+  and a leaked pool key can spend the pool from any network until it is
+  rotated. Only people with write access to the caller start runs and choose
+  targets, and fork
+  pull requests receive no secrets, so a leak needs injected content already
+  in a target or a file the agent reads. Give each caller its own pool key,
+  rate-limited where the proxy supports it
+  (DR-261110-allow-pool-routes-on-hosted).
 - **One read token per fleet.** An agent on one target could read every
   private target the fleet's read token can read. The token's permissions
   beyond writing contents cannot be checked through the API, so a token with

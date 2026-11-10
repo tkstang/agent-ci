@@ -31,15 +31,17 @@
 #    the job's GITHUB_TOKEN.
 # 2. Add the model credential the chosen routes name (see `agent-ci models`),
 #    AGENT_CI_PROXY_API_KEY for the default Sol reviewer. The default routes
-#    require an admitted self-hosted runner and explicit allow_pool below.
+#    are pool routes: they need explicit allow_pool and either a remote https
+#    AGENT_CI_PROXY_BASE_URL or an admitted self-hosted runner (see below).
 #    Only the reviewer and adjudicator steps receive the model credential.
 # 3. Create the `agent-ci:review` label.#
 # Pool routes: AGENT_CI_PROXY_BASE_URL optionally replaces the loopback
 # proxy origin with an https endpoint. A pool route also needs
-# `allow_pool: true`, a self-hosted `runs_on` and AGENT_CI_PROXY_API_KEY.
-# Without them it does not change routing, but every review and adjudicator
-# runner still receives the secret: delete the line below unless a review
-# model uses a pool route.
+# `allow_pool: true` and AGENT_CI_PROXY_API_KEY, plus a self-hosted `runs_on`
+# unless that origin is a remote https endpoint, which GitHub-hosted runners
+# can use. Without them it does not change routing, but the gate, review and
+# adjudicator runners still receive the secret: delete the line below unless
+# a review model uses a pool route.
 #
 # verify-review (off by default): set `verify: true` below and add
 # .github/agent-ci/checks.yaml (an optional setup command and up to 10 named
@@ -104,9 +106,14 @@ jobs:
       second_reviewer_model: claude-opus-5-5-high
       adjudicator: false
       adjudicator_model: gpt-6.1-sol-low
-      # For the default pool routes, explicitly configure your admitted runner:
-      # runs_on: self-hosted
+      # For the default pool routes, opt in and choose how the pool is reached
+      # (docs/running-models.md):
       # allow_pool: true
+      # - Remote https pool: keep AGENT_CI_PROXY_BASE_URL below; the default
+      #   GitHub-hosted runner works.
+      # - Your own runner, only in a private repository. In a public one, any
+      #   pull request, including a fork's, can add a workflow that runs on it:
+      # runs_on: self-hosted
       # Sol Low adjudication is pending a verified tool-free transport.
       # Leave it off until available; personal callers can then enable it.
       # Opus stays on request.

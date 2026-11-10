@@ -86,11 +86,11 @@ on:
         default: 4
       allow_pool:
         description: >-
-          Allow a proxy-pool route (models.yaml account: pool). CI allows one only
-          on a self-hosted runner, set true there to
-          opt in. The route uses the loopback proxy origin unless the optional
-          AGENT_CI_PROXY_BASE_URL secret names another origin (https, or http
-          for a loopback host).
+          Allow a proxy-pool route (models.yaml account: pool); set true to opt in.
+          CI allows one only on a self-hosted runner, or on any runner when the
+          optional AGENT_CI_PROXY_BASE_URL secret names a remote https origin.
+          The route uses the loopback proxy origin unless that secret names
+          another origin (https, or http for a loopback host).
         type: boolean
         default: false
       runs_on:
@@ -125,20 +125,20 @@ on:
       ANTHROPIC_API_KEY:
         required: false
       ANTHROPIC_AUTH_TOKEN:
-        description: Proxy-pool key for Claude Code (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Claude Code (pool routes with allow_pool only).
         required: false
       OPENCODE_API_KEY:
         required: false
       CURSOR_API_KEY:
         required: false
       AGENT_CI_PROXY_API_KEY:
-        description: Proxy-pool key for Codex pool routes (self-hosted runners with allow_pool only).
+        description: Proxy-pool key for Codex pool routes (pool routes with allow_pool only).
         required: false
       AGENT_CI_PROXY_BASE_URL:
         description: >-
           Optional private proxy origin (https) that replaces the loopback origin of
-          pool routes. A secret so Actions masks it; passed to the agent step only for
-          a pool route.
+          pool routes. A secret so Actions masks it; passed to route selection and,
+          only for a pool route, to the agent step.
         required: false
       AGENT_CI_NOTIFY_WEBHOOK:
         required: false
@@ -200,6 +200,7 @@ jobs:
           MODEL: ${{ inputs.model }}
           MAX_TARGETS: ${{ inputs.max_targets }}
           ALLOW_POOL: ${{ inputs.allow_pool }}
+          AGENT_CI_PROXY_BASE_URL: ${{ secrets.AGENT_CI_PROXY_BASE_URL }}
         run: >-
           agent-ci targets matrix --root caller --file "$TARGETS_FILE" --targets-json "$TARGETS_JSON"
           --preset "$PRESET" --target "$TARGET" --reset "$RESET" --base "$BASE"
