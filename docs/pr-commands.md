@@ -26,8 +26,8 @@ summary on that PR and does not open another pull request.
    dependency directories can be prepared here; a modified lockfile or
    other tracked file causes execution to stop before the agent starts.
 4. Set the required `check_command`. Verification runs against a fresh
-   reconstruction of the resulting tree on a GitHub-hosted runner. It
-   does not inherit the setup job's dependencies, so include any required
+   reconstruction of the resulting tree on the verification runner, which
+   defaults to `ubuntu-latest`. It does not inherit the setup job's dependencies, so include any required
    installation in the check command itself. For example:
 
    ```yaml
@@ -39,6 +39,28 @@ publisher can update the branch and post a summary. Agent execution has
 read-only GitHub permissions. The optional publishing token and the effect
 on subsequent CI are covered in
 [Configuration and credentials](configuration.md#pr-command-publishing-token).
+
+## Select runners
+
+`runs_on` selects the runner for authorization, dependency setup, agent execution
+and publication. `verify_runs_on` independently selects the final verification
+runner. Both default to `ubuntu-latest` and accept either a runner label or a
+JSON array of labels encoded as a string.
+
+A consumer using self-hosted Linux ARM64 runners can set both inputs:
+
+```yaml
+with:
+  runs_on: '["self-hosted","linux","ARM64","your-private-runner-label"]'
+  verify_runs_on: '["self-hosted","linux","ARM64","your-private-runner-label"]'
+```
+
+Each self-hosted job must receive a fresh isolated environment. A persistent
+runner shared by repository code, agent execution and publication can retain
+files or processes across jobs and invalidate their credential separation.
+Verification receives no model or write credential and still requires its own
+checkout and dependency installation. Runner selection does not change those
+job permissions or artifact digest checks.
 
 ## Request a task
 

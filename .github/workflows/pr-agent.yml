@@ -49,6 +49,10 @@ on:
       runs_on:
         type: string
         default: ubuntu-latest
+      verify_runs_on:
+        description: Runner for credential-free verification; use a fresh isolated environment for each self-hosted job.
+        type: string
+        default: ubuntu-latest
       allow_pool:
         type: boolean
         default: false
@@ -241,7 +245,7 @@ jobs:
     name: Verify the resulting tree without credentials
     needs: [gate, agent]
     if: ${{ !cancelled() && needs.agent.outputs.result_artifact_id != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ startsWith(inputs.verify_runs_on, '[') && fromJSON(inputs.verify_runs_on) || inputs.verify_runs_on }}
     timeout-minutes: ${{ inputs.job_timeout_minutes }}
     permissions:
       contents: read

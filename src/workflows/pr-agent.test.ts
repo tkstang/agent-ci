@@ -160,13 +160,19 @@ describe('PR command workflow authority and transport', () => {
     }
   });
 
-  it('runs required final checks on a fresh hosted runner without model or write credentials', async () => {
+  it('selects the verification runner independently and defaults to hosted without model or write credentials', async () => {
     const { jobs, on } = await load('.github/workflows/pr-agent.yml');
     const inputs = (on.workflow_call as { inputs: Record<string, unknown> })
       .inputs;
     expect(inputs.check_command).toMatchObject({ required: true });
     const verify = jobs.verify ?? {};
-    expect(verify['runs-on']).toBe('ubuntu-latest');
+    expect(inputs.verify_runs_on).toMatchObject({
+      type: 'string',
+      default: 'ubuntu-latest',
+    });
+    expect(verify['runs-on']).toBe(
+      "${{ startsWith(inputs.verify_runs_on, '[') && fromJSON(inputs.verify_runs_on) || inputs.verify_runs_on }}",
+    );
     expect(verify.permissions).toEqual({ contents: 'read' });
     expect(verify.secrets).toBeUndefined();
     for (const entry of verify.steps ?? [])
