@@ -134,7 +134,7 @@ jobs:
       contents: read
     steps:
       # The assertion program must come from the workflow revision, never
-      # the PR command's head or the agent's published commit.
+      # the agent's published commit.
       - name: Check out the assertion helpers
         if: inputs.command_model == 'grok-4.7'
         uses: actions/checkout@v5

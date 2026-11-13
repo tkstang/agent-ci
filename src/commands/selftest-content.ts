@@ -40,10 +40,11 @@ export const selftestContentCommand: CommandSpec = {
         baseOnly: read('agent-ci-command-base-only.txt'),
         skillOrder: read('agent-ci-skill-order.txt'),
       };
-    } catch {
+    } catch (error) {
       throw new CliError(
         'E_PR_RUN_FAILED',
         'Could not read published selftest fixture files at --sha',
+        { cause: error },
       );
     }
     const result = validatePublishedContent(content);
