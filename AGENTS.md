@@ -49,6 +49,12 @@ jobs before runner allocation. Main-push validation and local checks stay the
 same. Explicit label/manual self-tests and reusable workflows retain their
 existing invocation and trust boundaries.
 
+The PR-command selftest calls `agent-ci selftest-content --sha <full-commit>`,
+with fixture validation in `src/workflows/assert-published-content.ts`. Its helper
+checkout must use `github.workflow_sha`, with the existing setup action building
+it before checkout of the published result in a separate directory. Candidate
+files are data read with `git show`; never execute a helper from that result.
+
 There is never a CI coverage gate.
 
 ## Agent setup
