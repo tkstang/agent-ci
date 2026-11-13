@@ -27,8 +27,7 @@ summary on that PR and does not open another pull request.
    other tracked file causes execution to stop before the agent starts.
 4. Set the required `check_command`. Verification runs against a fresh
    reconstruction of the resulting tree on the verification runner, which
-   defaults to `ubuntu-latest`. It
-   does not inherit the setup job's dependencies, so include any required
+   defaults to `ubuntu-latest`. It does not inherit the setup job's dependencies, so include any required
    installation in the check command itself. For example:
 
    ```yaml
