@@ -133,13 +133,30 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The assertion program must come from the workflow revision, never
+      # the agent's published commit.
+      - name: Check out the assertion helpers
+        if: inputs.command_model == 'grok-4.7'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.workflow_sha }}
+          path: .agent-ci-src
+          persist-credentials: false
+      - name: Build the assertion helpers
+        if: inputs.command_model == 'grok-4.7'
+        uses: ./.agent-ci-src/.github/actions/setup-agent-ci
+        with:
+          path: .agent-ci-src
       - name: Check out the published result
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
           fetch-depth: 0
+          path: published-result
           persist-credentials: false
       - name: Assert published history
+        working-directory: published-result
         env:
           FINAL_SHA: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
           ORIGINAL_HEAD_SHA: ${{ needs.pr-command.outputs.head_sha }}
@@ -160,16 +177,5 @@ jobs:
         if: inputs.command_model == 'grok-4.7'
         env:
           FINAL_SHA: ${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}
-        run: |
-          node --input-type=module <<'JS'
-          import assert from 'node:assert/strict';
-          import { execFileSync } from 'node:child_process';
-          const read = (file) => execFileSync('git', ['show', `${process.env.FINAL_SHA}:${file}`], { encoding: 'utf8' });
-          assert.match(read('agent-ci-command-fixture.mjs'), /return 42;/);
-          const conflict = read('agent-ci-command-conflict.txt');
-          assert.match(conflict, /base wording/);
-          assert.match(conflict, /feature wording/);
-          assert.doesNotMatch(conflict, /^(<<<<<<<|=======|>>>>>>>)/m);
-          assert.equal(read('agent-ci-command-base-only.txt'), 'base addition\n');
-          assert.equal(read('agent-ci-skill-order.txt'), 'first\nsecond\n');
-          JS
+        working-directory: published-result
+        run: agent-ci selftest-content --sha "$FINAL_SHA"

@@ -90,6 +90,41 @@ describe('PR command workflow authority and transport', () => {
     expect(() => execute(merged)).not.toThrow();
     expect(() => execute(singleParent, 'false')).not.toThrow();
   });
+  it('builds assertion code from the workflow revision before checking out candidate data separately', async () => {
+    const selftest = await load('.github/workflows/agent-ci-selftest.yml');
+    const job = selftest.jobs['pr-command-assert'] ?? {};
+    const helper = step(job, 'Check out the assertion helpers');
+    const build = step(job, 'Build the assertion helpers');
+    const candidate = step(job, 'Check out the published result');
+    const content = step(job, 'Assert published content');
+    expect(helper.with).toMatchObject({
+      repository: '${{ github.repository }}',
+      ref: '${{ github.workflow_sha }}',
+      path: '.agent-ci-src',
+      'persist-credentials': false,
+    });
+    expect(build.uses).toBe('./.agent-ci-src/.github/actions/setup-agent-ci');
+    expect(build.with?.path).toBe(helper.with?.path);
+    expect(job.steps?.indexOf(build)).toBeLessThan(
+      job.steps?.indexOf(candidate) ?? -1,
+    );
+    expect(candidate.with).toMatchObject({
+      ref: '${{ needs.pr-command.outputs.commit || needs.pr-command.outputs.head_sha }}',
+      path: 'published-result',
+      'persist-credentials': false,
+    });
+    for (const entry of [helper, build, content]) {
+      expect(entry.if).toBe("inputs.command_model == 'grok-4.7'");
+    }
+    expect(content['working-directory']).toBe(candidate.with?.path);
+    expect(step(job, 'Assert published history')['working-directory']).toBe(
+      candidate.with?.path,
+    );
+    expect(content.run).toBe('agent-ci selftest-content --sha "$FINAL_SHA"');
+    expect(content.env?.FINAL_SHA).toBe(candidate.with?.ref);
+    expect(job.permissions).toEqual({ contents: 'read' });
+  });
+
   it('passes one route-selected credential to the read-only agent boundary', async () => {
     const { jobs, on } = await load('.github/workflows/pr-agent.yml');
     expect(Object.keys(on)).toEqual(['workflow_call']);

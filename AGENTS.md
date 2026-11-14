@@ -49,6 +49,10 @@ jobs before runner allocation. Main-push validation and local checks stay the
 same. Explicit label/manual self-tests and reusable workflows retain their
 existing invocation and trust boundaries.
 
+Build self-test helpers from `github.workflow_sha` before checking out the result.
+Run `agent-ci selftest-content --sha <full-commit>` in `published-result/`;
+read candidate files with `git show`, never execute them.
+
 There is never a CI coverage gate.
 
 ## Agent setup

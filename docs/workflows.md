@@ -8,8 +8,8 @@ description: The reusable GitHub Actions workflows, what each job may do, the co
 agent-ci ships reusable workflows (`on: workflow_call`) under
 `.github/workflows/` and copy-in callers under `consumer-workflows/`. A
 repository calls a reusable workflow at a pinned ref and passes the secrets
-it needs. Every step with real logic is an `agent-ci` subcommand, so the YAML
-stays thin and the logic is tested in TypeScript.
+it needs. Reusable workflow logic runs through `agent-ci` subcommands, so the YAML
+stays thin and the logic is tested in TypeScript. The repository-only `selftest-content` command checks the PR-command fixture.
 
 The Actions sidebar distinguishes three roles. `CI` and `CI: …` identify
 this repository's validation and self-test callers, including callers that
@@ -298,3 +298,22 @@ The registered `agent-ci-selftest.yml` caller also provides the pre-merge
 dispatch path for `pr-agent.yml` using an actual command comment ID. That
 path updates the test PR's existing branch rather than opening a static
 branch PR; see [PR commands](pr-commands.md#replay-a-real-comment-for-a-pre-merge-test).
+
+For the PR-command consumer test, the content assertion helper comes from a
+separate checkout at `github.workflow_sha`. The existing setup action installs
+Node 24, installs frozen dependencies and builds that trusted revision before
+the job checks out the published result in `published-result/`.
+`agent-ci selftest-content --sha "$FINAL_SHA"` reads fixture files with `git show`
+at the supplied full commit SHA; it never executes files from the candidate
+commit. The history
+assertion also runs in `published-result/`. The helper setup and content checks
+run only for the `grok-4.7` dispatch choice; the fake path retains its history
+checks without an added install.
+
+To check content locally after `pnpm build`, run
+`node /absolute/path/to/agent-ci/dist/cli.js selftest-content --sha <full-commit-sha>`
+from the repository holding the published commit. The command emits the standard
+JSON envelope with `sha` and `valid: true` on success. Invalid SHA input returns
+`E_INVALID_INPUT`; unreadable or mismatched fixtures return `E_PR_RUN_FAILED`.
+The focused regression suite is
+`pnpm test src/workflows/assert-published-content.test.ts`.
