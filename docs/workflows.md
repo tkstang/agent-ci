@@ -258,8 +258,9 @@ outside the Markdown scope). `instructions-update` applies recommendations
 that add guidance or move text unchanged. It deletes no existing `CLAUDE.md`
 unless `.oat/config.json` sets `instructions.claude.shims` to `"none"`, and
 no existing section or fact in `AGENTS.md` or a canonical rule. Skipped
-recommendations are listed in the pull request under "Skipped or failed
-items"; apply them interactively.
+recommendations are in the run result's `errors`, and in the pull request
+under "Skipped or failed items" when the run opens one; apply them
+interactively.
 
 `agent-ci preset list` prints each preset with its exact path policy rules.
 The two agent wrappers take `model`, `harness`, `route`,

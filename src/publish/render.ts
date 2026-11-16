@@ -67,6 +67,9 @@ export function renderPullBody(
   const errors = result.errors
     .slice(0, 50)
     .map((error) => `- ${sanitize(error, 500)}`);
+  if (result.errors.length > 50) {
+    errors.push(`- … and ${result.errors.length - 50} more in run-result.json`);
+  }
   return cap(
     [
       `## agent-ci: ${sanitize(result.useCase, 200)}`,
