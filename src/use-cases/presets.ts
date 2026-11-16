@@ -71,11 +71,36 @@ const TRACKING = [
   '- That helper may run read-only git commands. Those commands are allowed.',
 ];
 
-const APPLY_POLICY = [
+/**
+ * Unattended approval covers only `approval: default` recommendations;
+ * `approval: explicit` ones (tooling updates, restructures, changes outside
+ * the Markdown scope) need a person, per OAT's oat-docs-apply skill.
+ */
+const DOCS_APPLY_POLICY = [
   'Apply policy:',
-  '- Treat this workflow configuration as approval to apply all recommendations from the just-written analysis artifact.',
-  '- Skip a recommendation only when it is genuinely ambiguous, contradicted by current repo state, or requires owner judgment.',
+  '- This run is unattended. Treat this workflow configuration as unattended approval of eligible `approval: default` recommendations from the just-written analysis artifact only.',
+  '- An eligible default recommendation is not blocked by missing evidence, `omit`, or `ask_user`.',
+  '- This workflow configuration never approves an `approval: explicit` recommendation, such as a tooling update, a restructure block, or a change outside the Markdown scope.',
+  '- Skip every `approval: explicit` recommendation, even when its ID is supplied in an approved-ID list, and report its ID with reason `explicit_requires_interactive_approval` in the structured result.',
+  '- Never treat this workflow configuration, an apply-all choice, or a supplied ID list as individual approval of an explicit recommendation.',
+  '- If a recommendation has a missing or unknown approval class, or the artifact has duplicate or unknown IDs, apply nothing from the artifact and report the problem in the structured result.',
+  '- Skip an eligible default recommendation only when it is genuinely ambiguous, contradicted by current repo state, or requires owner judgment, and report its ID and reason.',
   '- If a recommendation requires live user input, skip it and report it in the structured result.',
+];
+
+/**
+ * Unattended approval covers additions and moves, never deletions of pointer
+ * shims or existing guidance: an unset `instructions.claude.shims` is not
+ * approval to remove CLAUDE.md files.
+ */
+const INSTRUCTIONS_APPLY_POLICY = [
+  'Apply policy:',
+  '- Treat this workflow configuration as approval to apply recommendations that add guidance or move existing text without changing its wording.',
+  '- Do not delete an existing CLAUDE.md file unless .oat/config.json sets instructions.claude.shims to "none". An absent key is not approval to delete pointer shims. Skip that recommendation and list the paths in errors.',
+  '- Do not delete existing sections, tables, or operational facts from AGENTS.md or a canonical rule. If a recommendation only removes that content, or the removed facts are not already present at its cited link target, skip it and report its ID and reason in errors.',
+  '- Skip any other recommendation when it is genuinely ambiguous, contradicted by current repo state, or requires owner judgment, and report its ID and reason.',
+  '- If a recommendation requires live user input, skip it and report it in the structured result.',
+  '- The summary must describe only changes present in changedFiles. Do not claim shim removals, symlink rewrites, or a blocked sync unless those paths are in changedFiles or the failure is in errors.',
 ];
 
 function footer(context: PromptContext): string[] {
@@ -118,7 +143,7 @@ function docsUpdatePrompt(context: PromptContext): string {
     '- After applying documentation changes, run the docs lint and format checks whenever those commands are available.',
     '- Do not install dependencies yourself.',
     '',
-    ...APPLY_POLICY,
+    ...DOCS_APPLY_POLICY,
     '',
     'Agent boundary:',
     '- Do not create, edit, delete, move, or regenerate agent skills or provider skill mirrors.',
@@ -146,7 +171,7 @@ function instructionsUpdatePrompt(context: PromptContext): string {
     '',
     ...TRACKING,
     '',
-    ...APPLY_POLICY,
+    ...INSTRUCTIONS_APPLY_POLICY,
     '',
     'Agent boundary:',
     ...AGENT_BOUNDARY,

@@ -48,15 +48,20 @@ function reportSection(result: RunResult): string[] {
   return [`### ${sanitize(title, 200)}`, '', sanitize(report.markdown)];
 }
 
+/**
+ * `published` is the change set's paths, not the run result's claims: a path
+ * the agent claimed but did not change must not appear as changed.
+ */
 export function renderPullBody(
   result: RunResult,
   context: RenderContext,
+  published: readonly string[],
 ): string {
-  const files = result.changedFiles
+  const files = published
     .slice(0, 200)
     .map((file) => `- \`${sanitize(file, 300)}\``);
-  if (result.changedFiles.length > 200) {
-    files.push(`- … and ${result.changedFiles.length - 200} more`);
+  if (published.length > 200) {
+    files.push(`- … and ${published.length - 200} more`);
   }
   return cap(
     [

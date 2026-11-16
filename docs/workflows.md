@@ -38,6 +38,16 @@ page, [PR review](pr-review.md).
 | `instructions-update.yml` | Update agent instruction files with the OAT skills and publish a pull request.                   | `contents: write`, `pull-requests: write`                 |
 | `tools-update.yml`        | Run `oat tools update` (no model) and publish a pull request.                                    | `contents: write`, `pull-requests: write`                 |
 
+The two agent presets run unattended, so their prompts approve only part of
+an analysis. `docs-update` applies `approval: default` recommendations and
+skips `approval: explicit` ones (tooling updates, restructures, changes
+outside the Markdown scope), reporting each skipped ID in the run result.
+`instructions-update` applies recommendations that add guidance or
+move text unchanged. It does not delete `CLAUDE.md` pointer files unless
+`.oat/config.json` sets `instructions.claude.shims` to `"none"`, and does not
+delete existing sections or facts from `AGENTS.md` or a canonical rule. Apply
+skipped recommendations interactively.
+
 GitHub checks the permissions a nested job requests against the original
 caller. A caller must therefore grant `contents: write` and
 `pull-requests: write` even when every target is another repository, because

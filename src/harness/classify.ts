@@ -21,6 +21,7 @@ export const TRANSIENT_PATTERNS: readonly RegExp[] = [
   /\b(?:429|500|502|503|504|529)\b/u,
   /rate[ _-]?limit/iu,
   /overloaded/iu,
+  /at capacity/iu,
   /resource[ _-]exhausted/iu,
   /temporarily unavailable/iu,
   /stream disconnected/iu,
