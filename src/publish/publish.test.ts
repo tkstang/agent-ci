@@ -974,12 +974,15 @@ describe('publishRun', () => {
     expect(gh.comments.get(7)).toHaveLength(1);
   });
 
-  it('lists only published paths in the pull request, not unchanged claims', async () => {
+  it('lists published paths and reported skips in the pull request, not unchanged claims', async () => {
     const { clone } = await remoteAndClone();
     const gh = fakeGitHub();
     const published = await publishRun({
       outputs: outputs(
-        { changedFiles: ['CLAUDE.md', 'docs/new.md'] },
+        {
+          changedFiles: ['CLAUDE.md', 'docs/new.md'],
+          errors: ['DOC-3: explicit_requires_interactive_approval'],
+        },
         {
           version: 1,
           baseSha: git(clone, 'rev-parse', 'HEAD'),
@@ -997,6 +1000,7 @@ describe('publishRun', () => {
     const body = gh.pulls[0]?.body ?? '';
     expect(body).toContain('- `docs/new.md`');
     expect(body).not.toContain('CLAUDE.md');
+    expect(body).toContain('- DOC-3: explicit_requires_interactive_approval');
   });
 
   it('never updates a marked comment written by someone else', async () => {

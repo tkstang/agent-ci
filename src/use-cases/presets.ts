@@ -81,11 +81,11 @@ const DOCS_APPLY_POLICY = [
   '- This run is unattended. Treat this workflow configuration as unattended approval of eligible `approval: default` recommendations from the just-written analysis artifact only.',
   '- An eligible default recommendation is not blocked by missing evidence, `omit`, or `ask_user`.',
   '- This workflow configuration never approves an `approval: explicit` recommendation, such as a tooling update, a restructure block, or a change outside the Markdown scope.',
-  '- Skip every `approval: explicit` recommendation, even when its ID is supplied in an approved-ID list, and report its ID with reason `explicit_requires_interactive_approval` in the structured result.',
+  '- Skip every `approval: explicit` recommendation, even when its ID is supplied in an approved-ID list, and report its ID with reason `explicit_requires_interactive_approval` in errors.',
   '- Never treat this workflow configuration, an apply-all choice, or a supplied ID list as individual approval of an explicit recommendation.',
-  '- If a recommendation has a missing or unknown approval class, or the artifact has duplicate or unknown IDs, apply nothing from the artifact and report the problem in the structured result.',
-  '- Skip an eligible default recommendation only when it is genuinely ambiguous, contradicted by current repo state, or requires owner judgment, and report its ID and reason.',
-  '- If a recommendation requires live user input, skip it and report it in the structured result.',
+  '- If a recommendation has a missing or unknown approval class, or the artifact has duplicate or unknown IDs, apply nothing from the artifact and report the problem in errors.',
+  '- Skip an eligible default recommendation only when it is genuinely ambiguous, contradicted by current repo state, or requires owner judgment, and report its ID and reason in errors.',
+  '- If a recommendation requires live user input, skip it and report it in errors.',
 ];
 
 /**
@@ -98,8 +98,8 @@ const INSTRUCTIONS_APPLY_POLICY = [
   '- Treat this workflow configuration as approval to apply recommendations that add guidance or move existing text without changing its wording.',
   '- Do not delete an existing CLAUDE.md file unless .oat/config.json sets instructions.claude.shims to "none". An absent key is not approval to delete pointer shims. Skip that recommendation and list the paths in errors.',
   '- Do not delete existing sections, tables, or operational facts from AGENTS.md or a canonical rule. If a recommendation only removes that content, or the removed facts are not already present at its cited link target, skip it and report its ID and reason in errors.',
-  '- Skip any other recommendation when it is genuinely ambiguous, contradicted by current repo state, or requires owner judgment, and report its ID and reason.',
-  '- If a recommendation requires live user input, skip it and report it in the structured result.',
+  '- Skip any other recommendation when it is genuinely ambiguous, contradicted by current repo state, or requires owner judgment, and report its ID and reason in errors.',
+  '- If a recommendation requires live user input, skip it and report it in errors.',
   '- The summary must describe only changes present in changedFiles. Do not claim shim removals, symlink rewrites, or a blocked sync unless those paths are in changedFiles or the failure is in errors.',
 ];
 

@@ -38,16 +38,6 @@ page, [PR review](pr-review.md).
 | `instructions-update.yml` | Update agent instruction files with the OAT skills and publish a pull request.                   | `contents: write`, `pull-requests: write`                 |
 | `tools-update.yml`        | Run `oat tools update` (no model) and publish a pull request.                                    | `contents: write`, `pull-requests: write`                 |
 
-The two agent presets run unattended, so their prompts approve only part of
-an analysis. `docs-update` applies `approval: default` recommendations and
-skips `approval: explicit` ones (tooling updates, restructures, changes
-outside the Markdown scope), reporting each skipped ID in the run result.
-`instructions-update` applies recommendations that add guidance or
-move text unchanged. It does not delete `CLAUDE.md` pointer files unless
-`.oat/config.json` sets `instructions.claude.shims` to `"none"`, and does not
-delete existing sections or facts from `AGENTS.md` or a canonical rule. Apply
-skipped recommendations interactively.
-
 GitHub checks the permissions a nested job requests against the original
 caller. A caller must therefore grant `contents: write` and
 `pull-requests: write` even when every target is another repository, because
@@ -260,6 +250,16 @@ prompts.
 | `docs-update.yml`         | `docs-update`         | agent, edit mode        | `agent-ci/oat-docs-update`               | `core,docs` | Markdown and images under any `docs/` directory plus its named navigation files, root Markdown files, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, the OAT tracking file and OAT analysis notes; never `.github/`, provider directories, MCP configuration or package manifests                 |
 | `instructions-update.yml` | `instructions-update` | agent, edit mode        | `agent-ci/oat-agent-instructions-update` | `core,docs` | `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` files, rule files under `.claude/rules`, `.agents/rules`, `.windsurf/rules` and `.cursor/rules`, GitHub Copilot instruction files, the OAT tracking file and OAT analysis notes; never settings, hooks, MCP configuration, skills or workflows |
 | `tools-update.yml`        | `tools-update`        | deterministic, no model | `agent-ci/oat-tools-update`              | none        | the OAT-managed directories (`.oat`, `.cursor`, `.claude`, `.agents`, `.codex/agents`) and root `.gitignore`/`.gitattributes`; `package.json` and lockfiles only with `dependency_policy: include-lockfile`                                                                             |
+
+The two agent presets run unattended, so their prompts approve only part of
+an analysis. `docs-update` applies `approval: default` recommendations and
+skips `approval: explicit` ones (tooling updates, restructures, changes
+outside the Markdown scope). `instructions-update` applies recommendations
+that add guidance or move text unchanged. It deletes no existing `CLAUDE.md`
+unless `.oat/config.json` sets `instructions.claude.shims` to `"none"`, and
+no existing section or fact in `AGENTS.md` or a canonical rule. Skipped
+recommendations are listed in the pull request under "Skipped or failed
+items"; apply them interactively.
 
 `agent-ci preset list` prints each preset with its exact path policy rules.
 The two agent wrappers take `model`, `harness`, `route`,
