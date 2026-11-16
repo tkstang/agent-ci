@@ -399,10 +399,11 @@ export async function publishRun(
             }),
       });
       if (!branch.ok) return branch;
-      const body = renderPullBody(result, {
-        key: options.branch,
-        runUrl: options.runUrl,
-      });
+      const body = renderPullBody(
+        result,
+        { key: options.branch, runUrl: options.runUrl },
+        changeSet.files.map((entry) => entry.path),
+      );
       const upserted =
         existing.value === null
           ? await options.github.createPull({

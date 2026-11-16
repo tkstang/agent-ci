@@ -251,6 +251,17 @@ prompts.
 | `instructions-update.yml` | `instructions-update` | agent, edit mode        | `agent-ci/oat-agent-instructions-update` | `core,docs` | `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` files, rule files under `.claude/rules`, `.agents/rules`, `.windsurf/rules` and `.cursor/rules`, GitHub Copilot instruction files, the OAT tracking file and OAT analysis notes; never settings, hooks, MCP configuration, skills or workflows |
 | `tools-update.yml`        | `tools-update`        | deterministic, no model | `agent-ci/oat-tools-update`              | none        | the OAT-managed directories (`.oat`, `.cursor`, `.claude`, `.agents`, `.codex/agents`) and root `.gitignore`/`.gitattributes`; `package.json` and lockfiles only with `dependency_policy: include-lockfile`                                                                             |
 
+The two agent presets run unattended, so their prompts approve only part of
+an analysis. `docs-update` applies `approval: default` recommendations and
+skips `approval: explicit` ones (tooling updates, restructures, changes
+outside the Markdown scope). `instructions-update` applies recommendations
+that add guidance or move text unchanged. It deletes no existing `CLAUDE.md`
+unless `.oat/config.json` sets `instructions.claude.shims` to `"none"`, and
+no existing section or fact in `AGENTS.md` or a canonical rule. Skipped
+recommendations are in the run result's `errors`, and in the pull request
+under "Skipped or failed items" when the run opens one; apply them
+interactively.
+
 `agent-ci preset list` prints each preset with its exact path policy rules.
 The two agent wrappers take `model`, `harness`, `route`,
 `target_repository`, `base` (in place of `target_ref` and `publish_base`),

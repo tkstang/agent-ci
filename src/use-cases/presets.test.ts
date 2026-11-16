@@ -280,6 +280,26 @@ describe('presets', () => {
     }
   });
 
+  it('limits unattended approval: no explicit docs items, no shim or guidance deletions', () => {
+    const docs = presetPrompt('docs-update', context);
+    const instructions = presetPrompt('instructions-update', context);
+    if (!docs.ok) throw new Error(docs.message);
+    if (!instructions.ok) throw new Error(instructions.message);
+    for (const text of [docs.value, instructions.value]) {
+      expect(text).not.toContain('approval to apply all recommendations');
+    }
+    expect(docs.value).toContain(
+      'This workflow configuration never approves an `approval: explicit` recommendation',
+    );
+    expect(docs.value).toContain('explicit_requires_interactive_approval');
+    expect(instructions.value).toContain(
+      'An absent key is not approval to delete pointer shims.',
+    );
+    expect(instructions.value).toContain(
+      'Do not delete existing sections, tables, or operational facts from AGENTS.md',
+    );
+  });
+
   it('refuses a multi-line or empty prompt field (no instruction smuggling)', () => {
     const forged = presetPrompt('docs-update', {
       ...context,
