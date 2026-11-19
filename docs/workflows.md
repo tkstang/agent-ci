@@ -130,8 +130,11 @@ and promote only the successful attempt's changes.
 Runs a newly created `/agent-ci` or `@agent-ci` comment against an open
 same-repository PR. Its gate captures the exact head and review context;
 an optional setup job prepares dependencies; `agent-job.yml` runs the task
-with one model credential; a separate hosted job verifies the reconstructed
-tree; and the publisher commits to the existing head after stale-state checks.
+with one model credential; a separate job verifies the reconstructed tree;
+and the publisher commits to the existing head after stale-state checks.
+`runs_on` selects the gate, setup, agent and publisher runners.
+`verify_runs_on` selects verification independently and defaults to
+`ubuntu-latest`. Both accept a label or JSON label array.
 Task text travels in a digest-bound artifact, never a job output or shell
 script. The workflow serializes executions per repository.
 

@@ -29,6 +29,9 @@ jobs:
     uses: tkstang/agent-ci/.github/workflows/pr-agent.yml@14527476012e7178a515cb2dba3ff3f5d6726adc
     with:
       comment_id: ${{ inputs.comment_id || '' }}
+      # For isolated self-hosted jobs, configure both runner selections:
+      # runs_on: '["self-hosted","linux","ARM64","your-private-runner-label"]'
+      # verify_runs_on: '["self-hosted","linux","ARM64","your-private-runner-label"]'
       model: claude-haiku-5-5
       allowed_models: claude-haiku-5-5
       # Optional aliases are configured here; comments select only these mappings.

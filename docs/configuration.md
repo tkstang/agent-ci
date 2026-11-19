@@ -140,9 +140,11 @@ repository's target: pass the token as `AGENT_CI_TARGET_TOKEN` and set
 
 ## Self-hosted runners and the proxy
 
-Every reusable workflow takes `runs_on` (default `ubuntu-latest`) and uses it
-for every job. Pass either one label or a JSON array of labels. With an
-array, the runner must carry **all** labels:
+Every reusable workflow takes `runs_on` (default `ubuntu-latest`).
+`pr-agent.yml` selects final verification separately with `verify_runs_on`,
+which also defaults to `ubuntu-latest`; `runs_on` selects its other jobs.
+Pass either one label or a JSON array of labels. With an array, the runner
+must carry **all** labels:
 
 ```yaml
 with:
@@ -151,7 +153,8 @@ with:
 ```
 
 The array must start with `[` and contain valid JSON strings; malformed JSON
-fails workflow evaluation. Wrappers forward it unchanged to nested workflows.
+fails workflow evaluation. Wrappers forward it unchanged to nested workflows. For PR-comment runner
+configuration and isolation requirements, see [Select runners](pr-commands.md#select-runners).
 Use the exact labels admitted by your runner manager. A label selects a
 registered runner; it does not authorize registration or expand its admission
 policy. A self-hosted runner is needed only for a proxy pool served on
